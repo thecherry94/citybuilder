@@ -22,7 +22,8 @@ public static class Materials
 
     public static readonly StandardMaterial3D Concrete = new()
     {
-        AlbedoColor = new Color(0.52f, 0.52f, 0.50f),
+        // clearly lighter and warmer than the grass so sidewalks read at any angle
+        AlbedoColor = new Color(0.68f, 0.67f, 0.63f),
         Roughness = 0.95f,
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };

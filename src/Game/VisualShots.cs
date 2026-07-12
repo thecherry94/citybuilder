@@ -196,14 +196,27 @@ public partial class VisualShots : Node3D
         {
             Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.Street.Id));
             Commit(n, Straight(new(0, 0, -80), new(0, 0, 80), RoadCatalog.Street.Id));
-        }, Standard(new(0, 0, 0), 65));
+        }, new[]
+        {
+            Top(new(0, 0, 0), 65),
+            Oblique(new(0, 0, 0), 52),
+            // corner close-ups from two angles — corner geometry regressions show
+            // here long before they are visible in the wide shots
+            new Shot("corner_low", new(5, 0, 5), 22, -28f, 30f),
+            new Shot("corner_high", new(6, 0, 6), 25, -55f, 140f),
+        });
 
         yield return new Scenario("avenue_mix", n =>
         {
             // avenue (bike lanes + sidewalks) crossed by an urban street
             Commit(n, Straight(new(-90, 0, 0), new(90, 0, 0), RoadCatalog.Avenue.Id));
             Commit(n, Straight(new(0, 0, -90), new(0, 0, 90), RoadCatalog.Street.Id));
-        }, Standard(new(0, 0, 0), 85));
+        }, new[]
+        {
+            Top(new(0, 0, 0), 85),
+            Oblique(new(0, 0, 0), 68),
+            new Shot("corner_low", new(8, 0, 12), 20, -22f, 210f),
+        });
 
         yield return new Scenario("asym_tee", n =>
         {

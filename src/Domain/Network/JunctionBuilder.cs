@@ -52,6 +52,7 @@ public static class JunctionBuilder
         // (carriageway width) inserts — either corner points or arcs around the node
         var outerInserts = new List<Vector3>[degree];
         var innerInserts = new List<Vector3>[degree];
+        var cornerSolved = new bool[degree];
         for (int i = 0; i < degree; i++)
         {
             var a = legs[i];
@@ -60,6 +61,7 @@ public static class JunctionBuilder
             {
                 a.CutDistance = MathF.Max(a.CutDistance, outerCorner.sa);
                 b.CutDistance = MathF.Max(b.CutDistance, outerCorner.sb);
+                cornerSolved[i] = true;
                 outerInserts[i] = new List<Vector3> { outerCorner.point };
                 innerInserts[i] = SolveCorner(node.Position, a, b, a.CwHalf, b.CwHalf) is { } innerCorner
                     ? new List<Vector3> { innerCorner.point }
@@ -101,13 +103,27 @@ public static class JunctionBuilder
             poly.Add(SectionPoint(a, ta, cw: true, ccwSide: false));
             kinds.Add(JunctionSegmentKind.Cut);
 
-            // wedge from leg a's CCW side to leg b's CW side
-            var innerRun = new List<Vector3> { SectionPoint(a, ta, cw: true, ccwSide: true) };
-            innerRun.AddRange(innerInserts[i]);
-            var outerRun = new List<Vector3> { SectionPoint(a, ta, cw: false, ccwSide: true) };
-            outerRun.AddRange(outerInserts[i]);
+            // wedge from leg a's CCW side to leg b's CW side; solved corner points
+            // become rounded curb returns (quadratic through the corner)
+            var innerStart = SectionPoint(a, ta, cw: true, ccwSide: true);
+            var outerStart = SectionPoint(a, ta, cw: false, ccwSide: true);
             var innerEnd = SectionPoint(b, tb, cw: true, ccwSide: false);
             var outerEnd = SectionPoint(b, tb, cw: false, ccwSide: false);
+
+            var innerRun = new List<Vector3> { innerStart };
+            var outerRun = new List<Vector3> { outerStart };
+            if (cornerSolved[i])
+            {
+                outerRun.AddRange(RoundCorner(outerStart, outerInserts[i][0], outerEnd));
+                innerRun.AddRange(innerInserts[i].Count == 1
+                    ? RoundCorner(innerStart, innerInserts[i][0], innerEnd)
+                    : innerInserts[i]);
+            }
+            else
+            {
+                innerRun.AddRange(innerInserts[i]);
+                outerRun.AddRange(outerInserts[i]);
+            }
 
             bool zone = HasBand(innerRun, outerRun, innerEnd, outerEnd);
             if (zone)
@@ -153,6 +169,17 @@ public static class JunctionBuilder
             if (Vector3.Distance(innerRun[i], outerRun[i]) > ZoneMinBand)
                 return true;
         return false;
+    }
+
+    /// <summary>Rounded curb return: quadratic bezier from one cut section through
+    /// the sharp corner point to the other (endpoints excluded).</summary>
+    private static IEnumerable<Vector3> RoundCorner(Vector3 from, Vector3 corner, Vector3 to)
+    {
+        foreach (var t in new[] { 0.25f, 0.5f, 0.75f })
+        {
+            float u = 1 - t;
+            yield return u * u * from + 2 * u * t * corner + t * t * to;
+        }
     }
 
     private static (Vector3 point, float sa, float sb)? SolveCorner(
@@ -221,7 +248,7 @@ public static class JunctionBuilder
             {
                 Edge = edge,
                 Dir = dir,
-                FullHalf = type.Width / 2,
+                FullHalf = type.OuterHalf,
                 CwHalf = type.CarriagewayHalf,
                 StartsHere = startsHere,
             };

@@ -28,6 +28,16 @@ public sealed record RoadType(
     }
 
     public bool HasSidewalks => Lanes.Any(l => l.Kind == LaneKind.Sidewalk);
+
+    /// <summary>Half-width of the outermost built surface: the sidewalks' outer
+    /// edges when present, else the paved carriageway. Junction outlines follow
+    /// this, so corner zones sit flush against approach sidewalks.</summary>
+    public float OuterHalf
+        => MathF.Max(CarriagewayHalf,
+            Lanes.Where(l => l.Kind == LaneKind.Sidewalk)
+                .Select(l => MathF.Abs(l.Offset) + l.Width / 2)
+                .DefaultIfEmpty(0f)
+                .Max());
 }
 
 public static class RoadCatalog
@@ -56,7 +66,7 @@ public static class RoadCatalog
 
     /// <summary>Urban two-lane street: driving lanes flanked by raised sidewalks.</summary>
     public static readonly RoadType Street = new(
-        new RoadTypeId(3), "Street", 13f,
+        new RoadTypeId(3), "Street", 12f,
         new LaneSpec[]
         {
             new(+1.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
