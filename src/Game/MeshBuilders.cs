@@ -104,8 +104,13 @@ public static class MeshBuilders
         float dStart = edge.ArcLength.DistanceAtT(tStart);
         float dEnd = edge.ArcLength.DistanceAtT(tEnd);
 
+        // ramps on very short pieces would dip the whole strip: keep it level instead
+        bool allowRamp = dEnd - dStart > CurbRampLength * 3;
+
         float HeightAt(float t)
         {
+            if (!allowRamp)
+                return SurfaceY + SidewalkRise;
             float d = edge.ArcLength.DistanceAtT(t);
             float factor = 1f;
             if (rampStart)
@@ -141,7 +146,7 @@ public static class MeshBuilders
             curve.OffsetPoint(t, inner).ToGodot() + up * SurfaceY,   // curb bottom
             curve.OffsetPoint(t, inner).ToGodot() + up * topY,       // curb top
             curve.OffsetPoint(t, outer).ToGodot() + up * topY,       // outer top
-            curve.OffsetPoint(t, outer + MathF.Sign(outer) * SkirtWidth).ToGodot(), // ground skirt
+            curve.OffsetPoint(t, outer).ToGodot(),                   // vertical outer wall
         };
     }
 
@@ -368,14 +373,25 @@ public static class MeshBuilders
         {
             var ring = zone.Polygon;
 
-            // top surface
+            // top surface (triangulation can fail on near-degenerate rings: fall
+            // back to a centroid fan rather than dropping the surface)
             var ring2d = ring.Select(p => new Vector2(p.X, p.Z)).ToArray();
             var indices = Geometry2D.TriangulatePolygon(ring2d);
-            for (int i = 0; i + 2 < indices.Length; i += 3)
-                AddTriangleUpAt(st, ring[indices[i]], ring[indices[i + 1]], ring[indices[i + 2]], topY);
-
             var centroid = ring.Aggregate(System.Numerics.Vector3.Zero, (acc, p) => acc + p) / ring.Count;
             var centroidG = centroid.ToGodot();
+            if (indices.Length >= 3)
+            {
+                for (int i = 0; i + 2 < indices.Length; i += 3)
+                    AddTriangleUpAt(st, ring[indices[i]], ring[indices[i + 1]], ring[indices[i + 2]], topY);
+            }
+            else
+            {
+                var c = new Vector3(centroidG.X, topY, centroidG.Z);
+                for (int i = 0; i + 1 < ring.Count; i++)
+                    AddTriangleUp(st, c,
+                        new Vector3(ring[i].X, topY, ring[i].Z),
+                        new Vector3(ring[i + 1].X, topY, ring[i + 1].Z));
+            }
 
             // curb faces along the inner boundary
             for (int i = 0; i + 1 < zone.InnerCount; i++)
@@ -383,11 +399,12 @@ public static class MeshBuilders
                     ring[i].ToGodot(), ring[i + 1].ToGodot(),
                     SurfaceY, topY, centroidG);
 
-            // ground skirt along the outer boundary
+            // vertical walls along the outer boundary — straight down, so adjacent
+            // segments share corner vertices and can never open gaps
             // (the two side edges — ring[InnerCount-1]→ring[InnerCount] and the
             // closing segment — stay open, flush against the approach sidewalks)
             for (int i = zone.InnerCount; i + 1 < ring.Count; i++)
-                AddSkirtQuad(st, ring[i].ToGodot(), ring[i + 1].ToGodot(), topY, centroidG);
+                AddWallQuad(st, ring[i].ToGodot(), ring[i + 1].ToGodot(), 0f, topY, centroidG);
         }
         return st;
     }
@@ -427,36 +444,6 @@ public static class MeshBuilders
         st.SetNormal(normal); st.AddVertex(a0);
     }
 
-    private static void AddSkirtQuad(SurfaceTool st, Vector3 a, Vector3 b, float yTop, Vector3 interior)
-    {
-        var seg = b - a;
-        seg.Y = 0;
-        if (seg.LengthSquared() < 1e-8f)
-            return;
-        var outward = seg.Normalized().Cross(Vector3.Up);
-        var mid = (a + b) / 2;
-        var toInterior = interior - mid;
-        toInterior.Y = 0;
-        if (outward.Dot(toInterior) > 0)
-            outward = -outward;
-
-        var aTop = new Vector3(a.X, yTop, a.Z);
-        var bTop = new Vector3(b.X, yTop, b.Z);
-        var aOut = new Vector3(a.X, 0, a.Z) + outward * SkirtWidth;
-        var bOut = new Vector3(b.X, 0, b.Z) + outward * SkirtWidth;
-        var n = (outward + Vector3.Up).Normalized();
-        if ((bOut - aTop).Cross(bTop - aTop).Dot(n) < 0)
-        {
-            (aTop, bTop) = (bTop, aTop);
-            (aOut, bOut) = (bOut, aOut);
-        }
-        st.SetNormal(n); st.AddVertex(aTop);
-        st.SetNormal(n); st.AddVertex(bTop);
-        st.SetNormal(n); st.AddVertex(bOut);
-        st.SetNormal(n); st.AddVertex(aTop);
-        st.SetNormal(n); st.AddVertex(bOut);
-        st.SetNormal(n); st.AddVertex(aOut);
-    }
 
     /// <summary>Flat top-facing triangle: winding is normalized so the front face
     /// (Godot fronts are clockwise) points up — otherwise the shadow pass darkens it.</summary>

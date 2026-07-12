@@ -212,6 +212,15 @@ public partial class VisualShots : Node3D
             Commit(n, Straight(new(0, 0, 0), new(0, 0, 90)));
         }, Standard(new(0, 0, 8), 55));
 
+        yield return new Scenario("short_block", n =>
+        {
+            // two street crossings only 14 m apart: cuts get clamped, paint must not
+            // land mid-junction and sidewalks must stay closed
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, -70), new(0, 0, 70), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(14, 0, -70), new(14, 0, 70), RoadCatalog.Street.Id));
+        }, Standard(new(7, 0, 0), 55));
+
         yield return new Scenario("lanes_overlay", n =>
         {
             Commit(n, Straight(new(-60, 0, 0), new(60, 0, 0), RoadCatalog.FourLane.Id));

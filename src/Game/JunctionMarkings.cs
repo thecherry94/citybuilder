@@ -46,6 +46,9 @@ public static class JunctionMarkings
 
         foreach (var edgeId in node.Edges)
         {
+            if (node.Junction.TightCuts.Contains(edgeId))
+                continue; // edge too short for a full junction: no paint on this leg
+
             var edge = edges[edgeId];
             bool startsHere = edge.StartNode == node.Id;
             float tCut = node.Junction.CutT.TryGetValue(edgeId, out var t) ? t : (startsHere ? 0f : 1f);
@@ -72,20 +75,22 @@ public static class JunctionMarkings
         // and one line per movement — the tightest connector of each approach→exit
         // pair — rather than one per lane pair, which reads as a starburst
         var laneEdge = new Dictionary<LaneId, EdgeId>();
-        var laneKind = new Dictionary<LaneId, LaneKind>();
+        var laneInfo = new Dictionary<LaneId, Lane>();
         foreach (var edgeId in node.Edges)
         foreach (var lane in edges[edgeId].Lanes)
         {
             laneEdge[lane.Id] = edgeId;
-            laneKind[lane.Id] = lane.Kind;
+            laneInfo[lane.Id] = lane;
         }
 
         var leftMovements = node.Connectors
-            .Where(c => c.Turn == TurnKind.Left && laneKind[c.From] == LaneKind.Driving)
+            .Where(c => c.Turn == TurnKind.Left && laneInfo[c.From].Kind == LaneKind.Driving)
             .GroupBy(c => (From: laneEdge[c.From], To: laneEdge[c.To]))
             .Select(g => g.MinBy(c => c.Curve.Length())!);
         foreach (var connector in leftMovements)
-            AddGuidanceDashes(st, connector.Curve);
+            // guidance paint runs along the *left edge* of the turning path, not the
+            // lane center (negative offset = driver's left)
+            AddGuidanceDashes(st, connector.Curve, -laneInfo[connector.From].Width / 2);
 
         return _triCount > 0 ? st : null;
     }
@@ -188,7 +193,7 @@ public static class JunctionMarkings
 
     // --------------------------------------------------------- guidance dashes
 
-    private static void AddGuidanceDashes(SurfaceTool st, in Bezier3 curve)
+    private static void AddGuidanceDashes(SurfaceTool st, in Bezier3 curve, float lateral)
     {
         var table = new ArcLengthTable(curve, 32);
         float total = table.TotalLength;
@@ -202,10 +207,10 @@ public static class JunctionMarkings
             float d1 = MathF.Min(d + GuidanceDashOn, total - 0.1f);
             float ta = table.TAtDistance(d);
             float tb = table.TAtDistance(d1);
-            var a1 = curve.OffsetPoint(ta, -GuidanceWidth / 2).ToGodot() + up;
-            var a2 = curve.OffsetPoint(ta, +GuidanceWidth / 2).ToGodot() + up;
-            var b1 = curve.OffsetPoint(tb, -GuidanceWidth / 2).ToGodot() + up;
-            var b2 = curve.OffsetPoint(tb, +GuidanceWidth / 2).ToGodot() + up;
+            var a1 = curve.OffsetPoint(ta, lateral - GuidanceWidth / 2).ToGodot() + up;
+            var a2 = curve.OffsetPoint(ta, lateral + GuidanceWidth / 2).ToGodot() + up;
+            var b1 = curve.OffsetPoint(tb, lateral - GuidanceWidth / 2).ToGodot() + up;
+            var b2 = curve.OffsetPoint(tb, lateral + GuidanceWidth / 2).ToGodot() + up;
             AddQuadUp(st, a1, a2, b2, b1);
         }
     }

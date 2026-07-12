@@ -62,6 +62,27 @@ public class CornerZoneTests
     }
 
     [Fact]
+    public void ShortEdgeBetweenJunctionsIsMarkedTight()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0), RoadCatalog.Street.Id));
+        Net.Commit(n, Net.Straight(new(0, 0, -60), new(0, 0, 60), RoadCatalog.Street.Id));
+        Net.Commit(n, Net.Straight(new(12, 0, -60), new(12, 0, 60), RoadCatalog.Street.Id));
+
+        // the 12 m horizontal piece between the two crossings cannot host two full
+        // junction cuts: both end junctions must flag it
+        var shortEdge = n.Edges.Values.Single(e =>
+            e.ArcLength.TotalLength < 15 && MathF.Abs(e.Curve.Point(0.5f).Z) < 0.5f);
+        foreach (var nodeId in new[] { shortEdge.StartNode, shortEdge.EndNode })
+            Assert.Contains(shortEdge.Id, n.Nodes[nodeId].Junction.TightCuts);
+
+        // the long approaches stay unflagged
+        var longEdge = n.Edges.Values.First(e => e.ArcLength.TotalLength > 50);
+        Assert.All(new[] { longEdge.StartNode, longEdge.EndNode },
+            id => Assert.DoesNotContain(longEdge.Id, n.Nodes[id].Junction.TightCuts));
+    }
+
+    [Fact]
     public void SegmentKindsAlignWithPolygon()
     {
         foreach (var typeA in new[] { RoadCatalog.TwoLane.Id, RoadCatalog.Street.Id, RoadCatalog.Avenue.Id })

@@ -34,7 +34,8 @@ public static class JunctionBuilder
         if (degree == 1)
             return new JunctionGeometry(
                 new Dictionary<EdgeId, float> { [legs[0].Edge.Id] = legs[0].TAtCutDistance(0) },
-                Array.Empty<Vector3>(), Array.Empty<JunctionSegmentKind>(), Array.Empty<CornerZone>());
+                Array.Empty<Vector3>(), Array.Empty<JunctionSegmentKind>(), Array.Empty<CornerZone>(),
+                new HashSet<EdgeId>());
 
         if (degree == 2 && legs[0].FullHalf == legs[1].FullHalf
             && legs[0].CwHalf == legs[1].CwHalf
@@ -43,7 +44,8 @@ public static class JunctionBuilder
             // continuing road: edges meet seamlessly, no junction surface
             return new JunctionGeometry(
                 legs.ToDictionary(l => l.Edge.Id, l => l.TAtCutDistance(0)),
-                Array.Empty<Vector3>(), Array.Empty<JunctionSegmentKind>(), Array.Empty<CornerZone>());
+                Array.Empty<Vector3>(), Array.Empty<JunctionSegmentKind>(), Array.Empty<CornerZone>(),
+                new HashSet<EdgeId>());
         }
 
         // --- per adjacent CCW wedge: matching outer (full width) and inner
@@ -72,10 +74,14 @@ public static class JunctionBuilder
 
         // --- finalize cuts: margin + clamp (always from the full-width solve)
         var cutT = new Dictionary<EdgeId, float>();
+        var tightCuts = new HashSet<EdgeId>();
         foreach (var leg in legs)
         {
             float len = leg.Edge.ArcLength.TotalLength;
-            leg.CutDistance = MathF.Min(leg.CutDistance + CornerMargin, len * MaxCutFraction);
+            float wanted = leg.CutDistance + CornerMargin;
+            leg.CutDistance = MathF.Min(wanted, len * MaxCutFraction);
+            if (leg.CutDistance < wanted - 1e-3f)
+                tightCuts.Add(leg.Edge.Id); // edge too short for the full junction
             cutT[leg.Edge.Id] = leg.TAtCutDistance(leg.CutDistance);
         }
 
@@ -122,7 +128,7 @@ public static class JunctionBuilder
             }
         }
 
-        return new JunctionGeometry(cutT, poly, kinds, zones);
+        return new JunctionGeometry(cutT, poly, kinds, zones, tightCuts);
     }
 
     private static Vector3 SectionPoint(Leg leg, float t, bool cw, bool ccwSide)

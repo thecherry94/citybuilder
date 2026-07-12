@@ -78,18 +78,22 @@ public sealed record CornerZone(IReadOnlyList<Vector3> Polygon, int InnerCount);
 /// (measured in the edge's own parameterization; for edges *ending* at the node the
 /// drawable part is [0, CutT], for edges *starting* here it is [CutT, 1]).
 /// SurfacePolygon outlines the asphalt (carriageway widths); SegmentKinds classifies
-/// each polygon segment; Corners are the raised sidewalk zones between approaches.</summary>
+/// each polygon segment; Corners are the raised sidewalk zones between approaches.
+/// TightCuts lists edges whose cut had to be clamped (edge too short for the full
+/// junction) — geometry stays sound but junction paint should be skipped there.</summary>
 public sealed record JunctionGeometry(
     IReadOnlyDictionary<EdgeId, float> CutT,
     IReadOnlyList<Vector3> SurfacePolygon,
     IReadOnlyList<JunctionSegmentKind> SegmentKinds,
-    IReadOnlyList<CornerZone> Corners)
+    IReadOnlyList<CornerZone> Corners,
+    IReadOnlySet<EdgeId> TightCuts)
 {
     public static readonly JunctionGeometry Empty = new(
         new Dictionary<EdgeId, float>(),
         Array.Empty<Vector3>(),
         Array.Empty<JunctionSegmentKind>(),
-        Array.Empty<CornerZone>());
+        Array.Empty<CornerZone>(),
+        new HashSet<EdgeId>());
 }
 
 /// <summary>How a lane connector turns, relative to the incoming travel direction.
