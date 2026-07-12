@@ -49,8 +49,23 @@ public static class ConnectorBuilder
                 continue; // no U-turns except at dead ends
             float reach = MathF.Max(Vector3.Distance(inPos, outPos) / 3f, 0.1f);
             var curve = new Bezier3(inPos, inPos + inDir * reach, outPos - outDir * reach, outPos);
-            connectors.Add(new LaneConnector(inLane.Id, outLane.Id, curve));
+            connectors.Add(new LaneConnector(inLane.Id, outLane.Id, curve, Classify(inDir, outDir)));
         }
         return connectors;
+    }
+
+    /// <summary>Movement classification from the turn angle between entry and exit
+    /// directions. Straight within ±30°, U-turn beyond ±150°, else left/right.</summary>
+    private static TurnKind Classify(Vector3 inDir, Vector3 outDir)
+    {
+        float cross = inDir.X * outDir.Z - inDir.Z * outDir.X;
+        float dot = inDir.X * outDir.X + inDir.Z * outDir.Z;
+        float deg = MathF.Atan2(cross, dot) * 180f / MathF.PI;
+        return MathF.Abs(deg) switch
+        {
+            < 30f => TurnKind.Straight,
+            > 150f => TurnKind.UTurn,
+            _ => deg > 0 ? TurnKind.Right : TurnKind.Left,
+        };
     }
 }

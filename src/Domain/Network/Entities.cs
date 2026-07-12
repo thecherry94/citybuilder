@@ -78,9 +78,13 @@ public sealed record JunctionGeometry(
         new(new Dictionary<EdgeId, float>(), Array.Empty<Vector3>(), new HashSet<int>());
 }
 
+/// <summary>How a lane connector turns, relative to the incoming travel direction.
+/// Right-hand traffic, Y up: positive rotation toward +Z is a right turn.</summary>
+public enum TurnKind { Straight, Left, Right, UTurn }
+
 /// <summary>Lane-level link across a node: which incoming lane can flow into which
-/// outgoing lane, and the curve vehicles would follow.</summary>
-public sealed record LaneConnector(LaneId From, LaneId To, Bezier3 Curve);
+/// outgoing lane, the curve vehicles would follow, and the movement it represents.</summary>
+public sealed record LaneConnector(LaneId From, LaneId To, Bezier3 Curve, TurnKind Turn);
 
 public sealed record NetworkDelta(
     IReadOnlySet<EdgeId> EdgesAdded,
