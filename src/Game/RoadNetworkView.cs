@@ -88,9 +88,15 @@ public partial class RoadNetworkView : Node3D
     {
         var mesh = MeshBuilders.BuildJunctionMesh(node, _network.Edges);
         var inst = GetOrCreate(_nodeInstances, node.Id, $"node_{node.Id.Value}");
+        if (mesh is not null && JunctionMarkings.Build(node, _network.Edges) is { } paint)
+            paint.Commit(mesh);
         inst.Mesh = mesh;
         if (mesh is not null)
+        {
             inst.SetSurfaceOverrideMaterial(0, DebugTint ? Materials.SnapIndicator : Materials.Asphalt);
+            if (mesh.GetSurfaceCount() > 1)
+                inst.SetSurfaceOverrideMaterial(1, Materials.Marking);
+        }
     }
 
     private MeshInstance3D GetOrCreate<TKey>(Dictionary<TKey, MeshInstance3D> map, TKey key, string name)

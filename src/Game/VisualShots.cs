@@ -186,6 +186,13 @@ public partial class VisualShots : Node3D
             }, RoadCatalog.FourLane.Id));
         }, new[] { Top(new(72, 0, 72), 220), Oblique(new(72, 0, 72), 150) });
 
+        yield return new Scenario("asym_tee", n =>
+        {
+            // four-lane avenue with a two-lane side road: asymmetric approaches
+            Commit(n, Straight(new(-90, 0, 0), new(90, 0, 0), RoadCatalog.FourLane.Id));
+            Commit(n, Straight(new(0, 0, 0), new(0, 0, 90)));
+        }, Standard(new(0, 0, 8), 55));
+
         yield return new Scenario("lanes_overlay", n =>
         {
             Commit(n, Straight(new(-60, 0, 0), new(60, 0, 0), RoadCatalog.FourLane.Id));
