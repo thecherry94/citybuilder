@@ -66,22 +66,23 @@ public partial class RoadNetworkView : Node3D
     private void RebuildEdge(RoadEdge edge)
     {
         float tStart = 0f, tEnd = 1f;
-        if (_network.Nodes.TryGetValue(edge.StartNode, out var sn)
-            && sn.Junction.CutT.TryGetValue(edge.Id, out var a))
-            tStart = a;
-        if (_network.Nodes.TryGetValue(edge.EndNode, out var en)
-            && en.Junction.CutT.TryGetValue(edge.Id, out var b))
-            tEnd = b;
-
-        var mesh = MeshBuilders.BuildEdgeMesh(edge, RoadCatalog.Get(edge.Type), tStart, tEnd);
-        var inst = GetOrCreate(_edgeInstances, edge.Id, $"edge_{edge.Id.Value}");
-        inst.Mesh = mesh;
-        if (mesh is not null)
+        bool rampStart = false, rampEnd = false;
+        if (_network.Nodes.TryGetValue(edge.StartNode, out var sn))
         {
-            inst.SetSurfaceOverrideMaterial(0, Materials.Asphalt);
-            if (mesh.GetSurfaceCount() > 1)
-                inst.SetSurfaceOverrideMaterial(1, Materials.Marking);
+            if (sn.Junction.CutT.TryGetValue(edge.Id, out var a))
+                tStart = a;
+            rampStart = sn.Junction.SurfacePolygon.Count > 0;
         }
+        if (_network.Nodes.TryGetValue(edge.EndNode, out var en))
+        {
+            if (en.Junction.CutT.TryGetValue(edge.Id, out var b))
+                tEnd = b;
+            rampEnd = en.Junction.SurfacePolygon.Count > 0;
+        }
+
+        var mesh = MeshBuilders.BuildEdgeMesh(edge, RoadCatalog.Get(edge.Type), tStart, tEnd, rampStart, rampEnd);
+        var inst = GetOrCreate(_edgeInstances, edge.Id, $"edge_{edge.Id.Value}");
+        inst.Mesh = mesh; // materials are embedded per surface
     }
 
     private void RebuildNode(RoadNode node)
@@ -90,13 +91,8 @@ public partial class RoadNetworkView : Node3D
         var inst = GetOrCreate(_nodeInstances, node.Id, $"node_{node.Id.Value}");
         if (mesh is not null && JunctionMarkings.Build(node, _network.Edges) is { } paint)
             paint.Commit(mesh);
-        inst.Mesh = mesh;
-        if (mesh is not null)
-        {
-            inst.SetSurfaceOverrideMaterial(0, DebugTint ? Materials.SnapIndicator : Materials.Asphalt);
-            if (mesh.GetSurfaceCount() > 1)
-                inst.SetSurfaceOverrideMaterial(1, Materials.Marking);
-        }
+        inst.Mesh = mesh; // materials are embedded per surface
+        inst.MaterialOverride = DebugTint ? Materials.SnapIndicator : null;
     }
 
     private MeshInstance3D GetOrCreate<TKey>(Dictionary<TKey, MeshInstance3D> map, TKey key, string name)

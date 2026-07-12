@@ -62,7 +62,12 @@ public partial class LaneDebugOverlay : Node3D
         foreach (var lane in edge.Lanes)
         {
             EnsureBegun();
-            var color = lane.Direction == LaneDirection.Forward ? Forward : Backward;
+            var color = lane.Kind switch
+            {
+                LaneKind.Bicycle => new Color(0.75f, 0.35f, 1f),
+                LaneKind.Sidewalk => new Color(0.8f, 0.8f, 0.8f),
+                _ => lane.Direction == LaneDirection.Forward ? Forward : Backward,
+            };
             DrawCurve(t => edge.Curve.OffsetPoint(t, lane.Offset).ToGodot(), color,
                 lane.Direction == LaneDirection.Backward);
         }

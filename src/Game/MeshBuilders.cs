@@ -5,48 +5,172 @@ using Godot;
 
 namespace CityBuilder.Game;
 
-/// <summary>Procedural meshes for edges (asphalt strip + painted markings), junction
-/// surfaces, and dead-end caps. All geometry sits slightly above Y=0; markings float
-/// just above the asphalt to avoid z-fighting.</summary>
+/// <summary>
+/// Procedural road geometry, driven entirely by the road type's lane profile:
+/// - asphalt carriageway (everything that is not sidewalk) with bevel skirts on
+///   open sides
+/// - raised concrete sidewalks with curb faces, ramping down to road level at
+///   junction cuts (dropped curbs)
+/// - tinted bicycle-lane strips
+/// - painted markings derived from lane adjacency (dashed between same-direction
+///   driving lanes, center line between directions, solid at bike separations,
+///   rural edge lines only where no sidewalk/bike lane follows)
+/// Materials are embedded per surface, so views just assign the mesh.
+/// </summary>
 public static class MeshBuilders
 {
     public const float SurfaceY = 0.07f;
     public const float MarkingY = 0.10f;
+    public const float SidewalkRise = 0.13f;
     private const float SkirtWidth = 0.3f;
     private const float ChordTolerance = 0.15f;
     private const float MarkingWidth = 0.15f;
     private const float DashOn = 3f, DashOff = 3f;
     private const float EdgeLineInset = 0.4f;
+    private const float CurbRampLength = 1.4f;
+    private const float BikeTintY = SurfaceY + 0.004f;
 
-    /// <summary>Edge mesh between the junction cuts. Surface 0 = asphalt, surface 1
-    /// (when present) = markings; assign materials by surface index.</summary>
-    public static ArrayMesh? BuildEdgeMesh(RoadEdge edge, RoadType type, float tStart, float tEnd)
+    // ---------------------------------------------------------------- edge mesh
+
+    public static ArrayMesh? BuildEdgeMesh(RoadEdge edge, RoadType type, float tStart, float tEnd,
+        bool rampStart, bool rampEnd)
     {
         if (tEnd - tStart < 1e-4f)
             return null;
 
         var ts = SampleRange(edge.Curve, tStart, tEnd);
-        float half = type.Width / 2;
+        var sidewalks = type.Lanes.Where(l => l.Kind == LaneKind.Sidewalk).ToArray();
+        var leftWalk = sidewalks.Where(l => l.Offset < 0).OrderBy(l => l.Offset).Cast<LaneSpec?>().FirstOrDefault();
+        var rightWalk = sidewalks.Where(l => l.Offset > 0).OrderByDescending(l => l.Offset).Cast<LaneSpec?>().FirstOrDefault();
+        float asphaltLeft = leftWalk is { } lw ? lw.Offset + lw.Width / 2 : -type.Width / 2;
+        float asphaltRight = rightWalk is { } rw ? rw.Offset - rw.Width / 2 : type.Width / 2;
 
+        var mesh = BuildAsphalt(edge, ts, asphaltLeft, asphaltRight, leftWalk is null, rightWalk is null);
+
+        var markings = BuildMarkings(edge, type, tStart, tEnd);
+        markings?.Commit(mesh);
+
+        if (sidewalks.Length > 0)
+            BuildSidewalks(edge, ts, sidewalks, tStart, tEnd, rampStart, rampEnd).Commit(mesh);
+
+        var bikes = type.Lanes.Where(l => l.Kind == LaneKind.Bicycle).ToArray();
+        if (bikes.Length > 0)
+            BuildBikeTint(edge, ts, bikes).Commit(mesh);
+
+        return mesh;
+    }
+
+    private static ArrayMesh BuildAsphalt(RoadEdge edge, List<float> ts,
+        float left, float right, bool skirtLeft, bool skirtRight)
+    {
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
+        st.SetMaterial(Materials.Asphalt);
         for (int i = 0; i + 1 < ts.Count; i++)
         {
-            var a = CrossSection(edge.Curve, ts[i], half);
-            var b = CrossSection(edge.Curve, ts[i + 1], half);
+            var a = AsphaltSection(edge.Curve, ts[i], left, right, skirtLeft, skirtRight);
+            var b = AsphaltSection(edge.Curve, ts[i + 1], left, right, skirtLeft, skirtRight);
             for (int q = 0; q + 1 < a.Length; q++)
-            {
                 AddQuad(st, a[q], a[q + 1], b[q + 1], b[q]);
+        }
+        st.GenerateNormals();
+        return st.Commit();
+    }
+
+    private static Vector3[] AsphaltSection(in Bezier3 curve, float t,
+        float left, float right, bool skirtLeft, bool skirtRight)
+    {
+        var up = Vector3.Up;
+        var pts = new List<Vector3>(4);
+        if (skirtLeft)
+            pts.Add(curve.OffsetPoint(t, left - SkirtWidth).ToGodot());
+        // tuck slightly under the curb so no crack shows
+        pts.Add(curve.OffsetPoint(t, skirtLeft ? left : left - 0.05f).ToGodot() + up * SurfaceY);
+        pts.Add(curve.OffsetPoint(t, skirtRight ? right : right + 0.05f).ToGodot() + up * SurfaceY);
+        if (skirtRight)
+            pts.Add(curve.OffsetPoint(t, right + SkirtWidth).ToGodot());
+        return pts.ToArray();
+    }
+
+    // ---------------------------------------------------------------- sidewalks
+
+    private static SurfaceTool BuildSidewalks(RoadEdge edge, List<float> ts, LaneSpec[] sidewalks,
+        float tStart, float tEnd, bool rampStart, bool rampEnd)
+    {
+        var st = new SurfaceTool();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        st.SetMaterial(Materials.Concrete);
+
+        float dStart = edge.ArcLength.DistanceAtT(tStart);
+        float dEnd = edge.ArcLength.DistanceAtT(tEnd);
+
+        float HeightAt(float t)
+        {
+            float d = edge.ArcLength.DistanceAtT(t);
+            float factor = 1f;
+            if (rampStart)
+                factor = MathF.Min(factor, (d - dStart) / CurbRampLength);
+            if (rampEnd)
+                factor = MathF.Min(factor, (dEnd - d) / CurbRampLength);
+            return SurfaceY + SidewalkRise * Math.Clamp(factor, 0f, 1f);
+        }
+
+        foreach (var walk in sidewalks)
+        {
+            bool leftSide = walk.Offset < 0;
+            float inner = walk.Offset + (leftSide ? walk.Width / 2 : -walk.Width / 2);
+            float outer = walk.Offset + (leftSide ? -walk.Width / 2 : walk.Width / 2);
+
+            for (int i = 0; i + 1 < ts.Count; i++)
+            {
+                var a = SidewalkSection(edge.Curve, ts[i], inner, outer, HeightAt(ts[i]));
+                var b = SidewalkSection(edge.Curve, ts[i + 1], inner, outer, HeightAt(ts[i + 1]));
+                for (int q = 0; q + 1 < a.Length; q++)
+                    AddQuad(st, a[q], a[q + 1], b[q + 1], b[q]);
             }
         }
         st.GenerateNormals();
-        var mesh = st.Commit();
-
-        var markings = BuildMarkings(edge, type, tStart, tEnd);
-        if (markings is not null)
-            markings.Commit(mesh);
-        return mesh;
+        return st;
     }
+
+    private static Vector3[] SidewalkSection(in Bezier3 curve, float t, float inner, float outer, float topY)
+    {
+        var up = Vector3.Up;
+        return new[]
+        {
+            curve.OffsetPoint(t, inner).ToGodot() + up * SurfaceY,   // curb bottom
+            curve.OffsetPoint(t, inner).ToGodot() + up * topY,       // curb top
+            curve.OffsetPoint(t, outer).ToGodot() + up * topY,       // outer top
+            curve.OffsetPoint(t, outer + MathF.Sign(outer) * SkirtWidth).ToGodot(), // ground skirt
+        };
+    }
+
+    // --------------------------------------------------------------- bike lanes
+
+    private static SurfaceTool BuildBikeTint(RoadEdge edge, List<float> ts, LaneSpec[] bikes)
+    {
+        var st = new SurfaceTool();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        st.SetMaterial(Materials.BikeLane);
+        var up = Vector3.Up * BikeTintY;
+        foreach (var bike in bikes)
+        {
+            float lo = bike.Offset - bike.Width / 2;
+            float hi = bike.Offset + bike.Width / 2;
+            for (int i = 0; i + 1 < ts.Count; i++)
+            {
+                var a1 = edge.Curve.OffsetPoint(ts[i], lo).ToGodot() + up;
+                var a2 = edge.Curve.OffsetPoint(ts[i], hi).ToGodot() + up;
+                var b1 = edge.Curve.OffsetPoint(ts[i + 1], lo).ToGodot() + up;
+                var b2 = edge.Curve.OffsetPoint(ts[i + 1], hi).ToGodot() + up;
+                AddQuad(st, a1, a2, b2, b1);
+            }
+        }
+        st.GenerateNormals();
+        return st;
+    }
+
+    // ------------------------------------------------------------------ shared
 
     private static List<float> SampleRange(in Bezier3 curve, float tStart, float tEnd)
     {
@@ -56,18 +180,6 @@ public static class MeshBuilders
                 ts.Add(t);
         ts.Add(tEnd);
         return ts;
-    }
-
-    private static Vector3[] CrossSection(in Bezier3 curve, float t, float half)
-    {
-        var up = Vector3.Up;
-        return new[]
-        {
-            curve.OffsetPoint(t, -half - SkirtWidth).ToGodot(),
-            curve.OffsetPoint(t, -half).ToGodot() + up * SurfaceY,
-            curve.OffsetPoint(t, +half).ToGodot() + up * SurfaceY,
-            curve.OffsetPoint(t, +half + SkirtWidth).ToGodot(),
-        };
     }
 
     private static void AddQuad(SurfaceTool st, Vector3 a, Vector3 b, Vector3 c, Vector3 d)
@@ -86,6 +198,7 @@ public static class MeshBuilders
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
+        st.SetMaterial(Materials.Marking);
         foreach (var (offset, dashed) in lines)
         {
             if (dashed)
@@ -97,25 +210,45 @@ public static class MeshBuilders
         return st;
     }
 
+    /// <summary>Paint rules from lane adjacency, valid for any lane profile.</summary>
     private static IEnumerable<(float offset, bool dashed)> MarkingLayout(RoadType type)
     {
-        float half = type.Width / 2;
-        if (type.Lanes.Count <= 2)
+        var driving = type.Lanes.Where(l => l.Kind == LaneKind.Driving).OrderBy(l => l.Offset).ToArray();
+        if (driving.Length == 0)
+            yield break;
+
+        for (int i = 0; i + 1 < driving.Length; i++)
         {
-            yield return (0f, true);                       // dashed center
+            float boundary = (driving[i].Offset + driving[i].Width / 2
+                + driving[i + 1].Offset - driving[i + 1].Width / 2) / 2;
+            if (driving[i].Direction == driving[i + 1].Direction)
+                yield return (boundary, true);              // lane separator
+            else if (driving.Length <= 2)
+                yield return (boundary, true);              // small road: dashed center
+            else
+            {
+                yield return (boundary - 0.18f, false);     // double solid center
+                yield return (boundary + 0.18f, false);
+            }
         }
-        else
+
+        foreach (int side in new[] { -1, +1 })
         {
-            yield return (-0.18f, false);                  // double solid center
-            yield return (+0.18f, false);
-            // dashed separators between same-direction lanes
-            var offsets = type.Lanes.Select(l => l.Offset).OrderBy(o => o).ToArray();
-            for (int i = 0; i + 1 < offsets.Length; i++)
-                if (MathF.Sign(offsets[i]) == MathF.Sign(offsets[i + 1]))
-                    yield return ((offsets[i] + offsets[i + 1]) / 2, true);
+            var outermost = side < 0 ? driving[0] : driving[^1];
+            float carriagewayEdge = outermost.Offset + side * outermost.Width / 2;
+            var beyond = type.Lanes
+                .Where(l => l.Kind != LaneKind.Driving
+                    && MathF.Sign(l.Offset) == side
+                    && MathF.Abs(l.Offset) > MathF.Abs(outermost.Offset))
+                .OrderBy(l => MathF.Abs(l.Offset))
+                .FirstOrDefault();
+
+            if (beyond is null)
+                yield return (side * (type.Width / 2 - EdgeLineInset), false); // rural edge line
+            else if (beyond.Kind == LaneKind.Bicycle)
+                yield return (carriagewayEdge, false);      // solid bike separation
+            // sidewalk adjacent: the curb is the boundary, no paint
         }
-        yield return (-(half - EdgeLineInset), false);     // solid side lines
-        yield return (+(half - EdgeLineInset), false);
     }
 
     private static void AddSolidLine(SurfaceTool st, RoadEdge edge, float offset, float tStart, float tEnd)
@@ -149,7 +282,6 @@ public static class MeshBuilders
             float d1 = MathF.Min(d0 + DashOn, dEnd);
             float ta = edge.ArcLength.TAtDistance(d0);
             float tb = edge.ArcLength.TAtDistance(d1);
-            // short dash: two segments are plenty
             float tm = (ta + tb) / 2;
             AddMarkQuad(st, edge, ta, tm, offset);
             AddMarkQuad(st, edge, tm, tb, offset);
@@ -180,6 +312,7 @@ public static class MeshBuilders
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
+        st.SetMaterial(Materials.Asphalt);
         var centerXZ = node.Position.ToGodot();
 
         // proper triangulation: the node can lie outside its polygon (acute tips),
@@ -277,6 +410,7 @@ public static class MeshBuilders
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
+        st.SetMaterial(Materials.Asphalt);
         var centerXZ = node.Position.ToGodot();
         var center = centerXZ + Vector3.Up * SurfaceY;
         const int segments = 12;

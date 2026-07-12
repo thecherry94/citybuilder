@@ -20,6 +20,20 @@ public static class Materials
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 
+    public static readonly StandardMaterial3D Concrete = new()
+    {
+        AlbedoColor = new Color(0.52f, 0.52f, 0.50f),
+        Roughness = 0.95f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
+    public static readonly StandardMaterial3D BikeLane = new()
+    {
+        AlbedoColor = new Color(0.45f, 0.16f, 0.13f),
+        Roughness = 0.9f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
     public static readonly StandardMaterial3D GhostValid = new()
     {
         AlbedoColor = new Color(0.25f, 0.55f, 1f, 0.45f),

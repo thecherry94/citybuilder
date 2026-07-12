@@ -192,6 +192,19 @@ public partial class VisualShots : Node3D
             }, RoadCatalog.FourLane.Id));
         }, new[] { Top(new(72, 0, 72), 220), Oblique(new(72, 0, 72), 150) });
 
+        yield return new Scenario("street_cross", n =>
+        {
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, -80), new(0, 0, 80), RoadCatalog.Street.Id));
+        }, Standard(new(0, 0, 0), 65));
+
+        yield return new Scenario("avenue_mix", n =>
+        {
+            // avenue (bike lanes + sidewalks) crossed by an urban street
+            Commit(n, Straight(new(-90, 0, 0), new(90, 0, 0), RoadCatalog.Avenue.Id));
+            Commit(n, Straight(new(0, 0, -90), new(0, 0, 90), RoadCatalog.Street.Id));
+        }, Standard(new(0, 0, 0), 85));
+
         yield return new Scenario("asym_tee", n =>
         {
             // four-lane avenue with a two-lane side road: asymmetric approaches
