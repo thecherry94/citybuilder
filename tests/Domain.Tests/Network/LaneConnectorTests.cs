@@ -47,12 +47,14 @@ public class LaneConnectorTests
     }
 
     [Fact]
-    public void DeadEndNodeHasNoConnectors()
+    public void DeadEndNodeAllowsUTurn()
     {
         var n = Net.New();
         var r = Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 0, 0)));
         var edge = n.Edges[r.CreatedEdges[0]];
-        Assert.Empty(n.Nodes[edge.StartNode].Connectors);
+        // the backward lane arrives at the start node and may turn into the forward lane
+        var c = Assert.Single(n.Nodes[edge.StartNode].Connectors);
+        Assert.NotEqual(c.From, c.To);
     }
 
     [Fact]

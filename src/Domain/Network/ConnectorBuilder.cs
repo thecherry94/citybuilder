@@ -5,7 +5,8 @@ namespace CityBuilder.Domain.Network;
 
 /// <summary>
 /// Generates lane connectors at a node: for every lane arriving at the node, one
-/// connector curve to every departing lane on a different edge (no U-turns).
+/// connector curve to every departing lane on a different edge (no U-turns at
+/// junctions; dead ends allow U-turns so cul-de-sacs stay navigable).
 /// Turn restrictions will later filter this set; the geometry is what vehicles follow.
 /// Junction geometry must be up to date first — connector endpoints sit at the
 /// junction cuts.
@@ -14,8 +15,9 @@ public static class ConnectorBuilder
 {
     public static IReadOnlyList<LaneConnector> Build(RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges)
     {
-        if (node.Edges.Count < 2)
+        if (node.Edges.Count == 0)
             return Array.Empty<LaneConnector>();
+        bool deadEnd = node.Edges.Count == 1;
 
         var incoming = new List<(Lane lane, Vector3 pos, Vector3 dir)>();
         var outgoing = new List<(Lane lane, Vector3 pos, Vector3 dir)>();
@@ -43,8 +45,8 @@ public static class ConnectorBuilder
         foreach (var (inLane, inPos, inDir) in incoming)
         foreach (var (outLane, outPos, outDir) in outgoing)
         {
-            if (inLane.Edge == outLane.Edge)
-                continue; // no U-turns
+            if (inLane.Edge == outLane.Edge && !deadEnd)
+                continue; // no U-turns except at dead ends
             float reach = MathF.Max(Vector3.Distance(inPos, outPos) / 3f, 0.1f);
             var curve = new Bezier3(inPos, inPos + inDir * reach, outPos - outDir * reach, outPos);
             connectors.Add(new LaneConnector(inLane.Id, outLane.Id, curve));
