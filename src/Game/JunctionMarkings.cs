@@ -59,9 +59,20 @@ public static class JunctionMarkings
                     AddTurnArrow(st, node, edge, lane, tCut, startsHere, moves);
         }
 
-        foreach (var connector in node.Connectors)
-            if (connector.Turn is TurnKind.Left or TurnKind.Right)
-                AddGuidanceDashes(st, connector.Curve);
+        // guidance paint: left turns only (right turns hug the corner), and one line
+        // per movement — the tightest connector of each approach→exit pair — rather
+        // than one per lane pair, which reads as a starburst on wide roads
+        var laneEdge = new Dictionary<LaneId, EdgeId>();
+        foreach (var edgeId in node.Edges)
+        foreach (var lane in edges[edgeId].Lanes)
+            laneEdge[lane.Id] = edgeId;
+
+        var leftMovements = node.Connectors
+            .Where(c => c.Turn == TurnKind.Left)
+            .GroupBy(c => (From: laneEdge[c.From], To: laneEdge[c.To]))
+            .Select(g => g.MinBy(c => c.Curve.Length())!);
+        foreach (var connector in leftMovements)
+            AddGuidanceDashes(st, connector.Curve);
 
         return _triCount > 0 ? st : null;
     }

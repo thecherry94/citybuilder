@@ -128,6 +128,12 @@ public partial class VisualShots : Node3D
             Commit(n, Straight(new(0, 0, -80), new(0, 0, 80)));
         }, Standard(new(0, 0, 0), 60));
 
+        yield return new Scenario("cross_4lane", n =>
+        {
+            Commit(n, Straight(new(-90, 0, 0), new(90, 0, 0), RoadCatalog.FourLane.Id));
+            Commit(n, Straight(new(0, 0, -90), new(0, 0, 90), RoadCatalog.FourLane.Id));
+        }, Standard(new(0, 0, 0), 75));
+
         yield return new Scenario("tee", n =>
         {
             Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0)));
