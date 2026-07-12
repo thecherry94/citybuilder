@@ -119,6 +119,34 @@ public class PlacementTests
     }
 
     [Fact]
+    public void TangentialCrossingIsRejectedAsTooShallow()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-90, 0, 0), new(90, 0, 0)));
+        // U-curve whose apex just grazes the straight: crossing tangents nearly parallel
+        var graze = Bezier3.FromQuadratic(new(-60, 0, -60), new(0, 0, 61f), new(60, 0, -60));
+        var v = n.Validate(new PlacementProposal(
+            new[] { new ProposedCurve(graze, EndpointBinding.None, EndpointBinding.None) },
+            RoadCatalog.TwoLane.Id));
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.CrossingTooShallow, v.Errors);
+    }
+
+    [Fact]
+    public void SteepCurvedCrossingRemainsValid()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-90, 0, 0), new(90, 0, 0)));
+        // curve dips well below the road: two crossings at healthy angles
+        var dip = Bezier3.FromQuadratic(new(-60, 0, -60), new(0, 0, 80), new(60, 0, -60));
+        var v = n.Validate(new PlacementProposal(
+            new[] { new ProposedCurve(dip, EndpointBinding.None, EndpointBinding.None) },
+            RoadCatalog.TwoLane.Id));
+        Assert.True(v.IsValid, string.Join(",", v.Errors));
+        Assert.Equal(2, v.CrossingPoints.Count);
+    }
+
+    [Fact]
     public void StaleCommitIsRejectedWhenNoLongerValid()
     {
         var n = Net.New();

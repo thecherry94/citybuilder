@@ -70,6 +70,16 @@ public partial class CameraRig : Node3D
         }
     }
 
+    /// <summary>Point the rig at a target for scripted shots.</summary>
+    public void Frame(Vector3 target, float distance, float pitchDeg, float yawDeg)
+    {
+        Position = target;
+        Rotation = new Vector3(0, Mathf.DegToRad(yawDeg), 0);
+        _pitch.Rotation = new Vector3(Mathf.DegToRad(pitchDeg), 0, 0);
+        Distance = Mathf.Clamp(distance, 1f, 2000f);
+        UpdateCamera();
+    }
+
     /// <summary>Where the mouse ray hits the Y=0 plane, if it does.</summary>
     public Vector3? MouseGroundPoint()
     {

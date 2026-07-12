@@ -129,10 +129,25 @@ public static class MeshBuilders
     {
         float dStart = edge.ArcLength.DistanceAtT(tStart);
         float dEnd = edge.ArcLength.DistanceAtT(tEnd);
-        for (float d = dStart; d < dEnd; d += DashOn + DashOff)
+        float span = dEnd - dStart;
+        const float period = DashOn + DashOff;
+
+        // center the pattern so both ends (usually junctions) get equal margins
+        int count = (int)MathF.Floor((span + DashOff) / period);
+        if (count < 1)
         {
-            float d1 = MathF.Min(d + DashOn, dEnd);
-            float ta = edge.ArcLength.TAtDistance(d);
+            if (span < 1f)
+                return;
+            count = 1;
+        }
+        float used = count * period - DashOff;
+        float lead = MathF.Max(0, (span - used) / 2);
+
+        for (int k = 0; k < count; k++)
+        {
+            float d0 = dStart + lead + k * period;
+            float d1 = MathF.Min(d0 + DashOn, dEnd);
+            float ta = edge.ArcLength.TAtDistance(d0);
             float tb = edge.ArcLength.TAtDistance(d1);
             // short dash: two segments are plenty
             float tm = (ta + tb) / 2;
@@ -165,17 +180,87 @@ public static class MeshBuilders
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
-        var center = node.Position.ToGodot() + Vector3.Up * SurfaceY;
+        var centerXZ = node.Position.ToGodot();
+
+        // proper triangulation: the node can lie outside its polygon (acute tips),
+        // so a naive fan produces flipped triangles that break lighting/shadows
+        var poly2d = poly.Select(p => new Vector2(p.X, p.Z)).ToArray();
+        var indices = Geometry2D.TriangulatePolygon(poly2d);
+        if (indices.Length >= 3)
+        {
+            for (int i = 0; i + 2 < indices.Length; i += 3)
+                AddTriangleUp(st,
+                    poly[indices[i]].ToGodot() + Vector3.Up * SurfaceY,
+                    poly[indices[i + 1]].ToGodot() + Vector3.Up * SurfaceY,
+                    poly[indices[i + 2]].ToGodot() + Vector3.Up * SurfaceY);
+        }
+        else
+        {
+            // degenerate/self-intersecting outline: fall back to a centroid fan
+            var centroid = poly.Aggregate(System.Numerics.Vector3.Zero, (acc, p) => acc + p) / poly.Count;
+            var c = centroid.ToGodot() + Vector3.Up * SurfaceY;
+            for (int i = 0; i < poly.Count; i++)
+                AddTriangleUp(st, c,
+                    poly[i].ToGodot() + Vector3.Up * SurfaceY,
+                    poly[(i + 1) % poly.Count].ToGodot() + Vector3.Up * SurfaceY);
+        }
+
+        // outer boundary segments get a skirt down to the ground, matching the
+        // bevel on edge meshes — this closes the notches at junction corners
         for (int i = 0; i < poly.Count; i++)
         {
+            if (node.Junction.CutSegments.Contains(i))
+                continue;
             var a = poly[i].ToGodot() + Vector3.Up * SurfaceY;
             var b = poly[(i + 1) % poly.Count].ToGodot() + Vector3.Up * SurfaceY;
-            st.AddVertex(center);
-            st.AddVertex(a);
-            st.AddVertex(b);
+            AddBoundarySkirt(st, centerXZ, a, b);
         }
-        st.GenerateNormals();
         return st.Commit();
+    }
+
+    /// <summary>Flat top-facing triangle: winding is normalized so the front face
+    /// (Godot fronts are clockwise) points up — otherwise the shadow pass darkens it.</summary>
+    private static void AddTriangleUp(SurfaceTool st, Vector3 a, Vector3 b, Vector3 c)
+    {
+        if ((c - a).Cross(b - a).Y < 0)
+            (b, c) = (c, b);
+        st.SetNormal(Vector3.Up);
+        st.AddVertex(a);
+        st.SetNormal(Vector3.Up);
+        st.AddVertex(b);
+        st.SetNormal(Vector3.Up);
+        st.AddVertex(c);
+    }
+
+    private static void AddBoundarySkirt(SurfaceTool st, Vector3 nodePos, Vector3 a, Vector3 b)
+    {
+        var seg = b - a;
+        seg.Y = 0;
+        if (seg.LengthSquared() < 1e-8f)
+            return;
+        var outward = seg.Normalized().Cross(Vector3.Up);
+        var mid = (a + b) / 2;
+        var toMid = mid - nodePos;
+        toMid.Y = 0;
+        if (outward.Dot(toMid) < 0)
+            outward = -outward;
+
+        var aOut = new Vector3(a.X, 0, a.Z) + outward * SkirtWidth;
+        var bOut = new Vector3(b.X, 0, b.Z) + outward * SkirtWidth;
+        var n = (outward + Vector3.Up).Normalized();
+
+        // orient the front face outward/up (Godot fronts are clockwise)
+        if ((bOut - a).Cross(b - a).Dot(n) < 0)
+        {
+            (a, b) = (b, a);
+            (aOut, bOut) = (bOut, aOut);
+        }
+        st.SetNormal(n); st.AddVertex(a);
+        st.SetNormal(n); st.AddVertex(b);
+        st.SetNormal(n); st.AddVertex(bOut);
+        st.SetNormal(n); st.AddVertex(a);
+        st.SetNormal(n); st.AddVertex(bOut);
+        st.SetNormal(n); st.AddVertex(aOut);
     }
 
     private static ArrayMesh? BuildCapMesh(RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges)
@@ -192,7 +277,8 @@ public static class MeshBuilders
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
-        var center = node.Position.ToGodot() + Vector3.Up * SurfaceY;
+        var centerXZ = node.Position.ToGodot();
+        var center = centerXZ + Vector3.Up * SurfaceY;
         const int segments = 12;
         for (int i = 0; i < segments; i++)
         {
@@ -200,11 +286,9 @@ public static class MeshBuilders
             float a1 = Mathf.Pi * (i + 1) / segments;
             var p0 = center + (right * Mathf.Cos(a0) - leaving * Mathf.Sin(a0)) * half;
             var p1 = center + (right * Mathf.Cos(a1) - leaving * Mathf.Sin(a1)) * half;
-            st.AddVertex(center);
-            st.AddVertex(p0);
-            st.AddVertex(p1);
+            AddTriangleUp(st, center, p0, p1);
+            AddBoundarySkirt(st, centerXZ, p0, p1);
         }
-        st.GenerateNormals();
         return st.Commit();
     }
 

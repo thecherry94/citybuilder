@@ -90,7 +90,7 @@ public partial class RoadNetworkView : Node3D
         var inst = GetOrCreate(_nodeInstances, node.Id, $"node_{node.Id.Value}");
         inst.Mesh = mesh;
         if (mesh is not null)
-            inst.SetSurfaceOverrideMaterial(0, Materials.Asphalt);
+            inst.SetSurfaceOverrideMaterial(0, DebugTint ? Materials.SnapIndicator : Materials.Asphalt);
     }
 
     private MeshInstance3D GetOrCreate<TKey>(Dictionary<TKey, MeshInstance3D> map, TKey key, string name)
@@ -113,4 +113,7 @@ public partial class RoadNetworkView : Node3D
 
     public int EdgeInstanceCount => _edgeInstances.Count;
     public int NodeInstanceCount => _nodeInstances.Count;
+
+    /// <summary>Diagnostic: tint junction surfaces so overlaps are attributable.</summary>
+    public bool DebugTint { get; set; }
 }

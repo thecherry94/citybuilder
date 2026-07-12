@@ -66,13 +66,16 @@ public sealed class Lane
 /// <summary>Where road meshes stop and the intersection surface begins, per node.
 /// CutT maps each connected edge to the curve parameter where the junction starts
 /// (measured in the edge's own parameterization; for edges *ending* at the node the
-/// drawable part is [0, CutT], for edges *starting* here it is [CutT, 1]).</summary>
+/// drawable part is [0, CutT], for edges *starting* here it is [CutT, 1]).
+/// CutSegments lists the polygon segment indices (i → i+1) that are road
+/// cross-sections; all other segments are outer boundary (renderers skirt them).</summary>
 public sealed record JunctionGeometry(
     IReadOnlyDictionary<EdgeId, float> CutT,
-    IReadOnlyList<Vector3> SurfacePolygon)
+    IReadOnlyList<Vector3> SurfacePolygon,
+    IReadOnlySet<int> CutSegments)
 {
     public static readonly JunctionGeometry Empty =
-        new(new Dictionary<EdgeId, float>(), Array.Empty<Vector3>());
+        new(new Dictionary<EdgeId, float>(), Array.Empty<Vector3>(), new HashSet<int>());
 }
 
 /// <summary>Lane-level link across a node: which incoming lane can flow into which

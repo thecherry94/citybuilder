@@ -26,6 +26,15 @@ public partial class Main : Node3D
         var camera = new CameraRig { Name = "CameraRig" };
         AddChild(camera);
 
+        var shotsDir = OS.GetEnvironment("CITYBUILDER_SHOTS");
+        if (!string.IsNullOrEmpty(shotsDir))
+        {
+            var shots = new VisualShots { Name = "VisualShots" };
+            shots.Bind(camera, shotsDir);
+            AddChild(shots);
+            return; // screenshot mode: no interactive tooling
+        }
+
         _view = new RoadNetworkView { Name = "RoadNetworkView" };
         _view.Bind(_network);
         AddChild(_view);

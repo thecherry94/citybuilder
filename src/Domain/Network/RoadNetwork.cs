@@ -17,6 +17,9 @@ public sealed class RoadNetwork
     /// <summary>Distance under which a free endpoint picks up an existing node.</summary>
     public const float NodeReuseRadius = 0.5f;
 
+    /// <summary>Minimum angle (between centerline tangents) at which two roads may cross.</summary>
+    public const float MinCrossingAngleDeg = 15f;
+
     private readonly Dictionary<NodeId, RoadNode> _nodes = new();
     private readonly Dictionary<EdgeId, RoadEdge> _edges = new();
     private int _nextNode = 1, _nextEdge = 1, _nextLane = 1;
@@ -74,17 +77,31 @@ public sealed class RoadNetwork
                 errors.Add(PlacementError.Overlapping);
 
             Vector3 a = pc.Curve.Point(0), b = pc.Curve.Point(1);
+            bool shallow = false;
             foreach (var e in _edges.Values)
-            foreach (var (t1, _) in BezierOps.Intersections(pc.Curve, e.Curve))
+            foreach (var (t1, t2) in BezierOps.Intersections(pc.Curve, e.Curve))
             {
                 var p = pc.Curve.Point(t1);
                 // connections at the proposal's own endpoints are not crossings
-                if (Vector3.Distance(p, a) > NodeReuseRadius && Vector3.Distance(p, b) > NodeReuseRadius)
-                    crossings.Add(p);
+                if (Vector3.Distance(p, a) <= NodeReuseRadius || Vector3.Distance(p, b) <= NodeReuseRadius)
+                    continue;
+                crossings.Add(p);
+                // near-tangential crossings produce unbuildable junction geometry
+                if (CrossingAngleDeg(pc.Curve.Tangent(t1), e.Curve.Tangent(t2)) < MinCrossingAngleDeg)
+                    shallow = true;
             }
+            if (shallow)
+                errors.Add(PlacementError.CrossingTooShallow);
         }
 
         return new ValidatedPlacement(proposal, errors.Count == 0, errors, crossings, Version);
+    }
+
+    private static float CrossingAngleDeg(Vector3 tanA, Vector3 tanB)
+    {
+        float cross = MathF.Abs(tanA.X * tanB.Z - tanA.Z * tanB.X);
+        float dot = MathF.Abs(tanA.X * tanB.X + tanA.Z * tanB.Z);
+        return MathF.Atan2(cross, dot) * 180f / MathF.PI;
     }
 
     private bool OverlapsExisting(ProposedCurve pc, RoadTypeId type)
