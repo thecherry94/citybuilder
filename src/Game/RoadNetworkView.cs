@@ -65,19 +65,21 @@ public partial class RoadNetworkView : Node3D
 
     private void RebuildEdge(RoadEdge edge)
     {
+        // sidewalks ramp down only at dead ends; at junctions they continue flush
+        // into the raised corner zones
         float tStart = 0f, tEnd = 1f;
         bool rampStart = false, rampEnd = false;
         if (_network.Nodes.TryGetValue(edge.StartNode, out var sn))
         {
             if (sn.Junction.CutT.TryGetValue(edge.Id, out var a))
                 tStart = a;
-            rampStart = sn.Junction.SurfacePolygon.Count > 0;
+            rampStart = sn.Edges.Count == 1;
         }
         if (_network.Nodes.TryGetValue(edge.EndNode, out var en))
         {
             if (en.Junction.CutT.TryGetValue(edge.Id, out var b))
                 tEnd = b;
-            rampEnd = en.Junction.SurfacePolygon.Count > 0;
+            rampEnd = en.Edges.Count == 1;
         }
 
         var mesh = MeshBuilders.BuildEdgeMesh(edge, RoadCatalog.Get(edge.Type), tStart, tEnd, rampStart, rampEnd);

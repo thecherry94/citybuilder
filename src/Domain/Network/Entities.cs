@@ -63,19 +63,33 @@ public sealed class Lane
     }
 }
 
+/// <summary>Classification of a junction polygon segment (from vertex i to i+1):
+/// a road cross-section (asphalt continues), an open outer boundary (renderers add a
+/// ground skirt), or a boundary covered by a raised corner zone (its curb).</summary>
+public enum JunctionSegmentKind { Cut, Open, Curbed }
+
+/// <summary>Raised sidewalk piece in the wedge between two adjacent approaches:
+/// a ring of Polygon[0..InnerCount) inner-boundary points (facing the asphalt, walked
+/// wedge-start → wedge-end) followed by the outer-boundary points in reverse order.</summary>
+public sealed record CornerZone(IReadOnlyList<Vector3> Polygon, int InnerCount);
+
 /// <summary>Where road meshes stop and the intersection surface begins, per node.
 /// CutT maps each connected edge to the curve parameter where the junction starts
 /// (measured in the edge's own parameterization; for edges *ending* at the node the
 /// drawable part is [0, CutT], for edges *starting* here it is [CutT, 1]).
-/// CutSegments lists the polygon segment indices (i → i+1) that are road
-/// cross-sections; all other segments are outer boundary (renderers skirt them).</summary>
+/// SurfacePolygon outlines the asphalt (carriageway widths); SegmentKinds classifies
+/// each polygon segment; Corners are the raised sidewalk zones between approaches.</summary>
 public sealed record JunctionGeometry(
     IReadOnlyDictionary<EdgeId, float> CutT,
     IReadOnlyList<Vector3> SurfacePolygon,
-    IReadOnlySet<int> CutSegments)
+    IReadOnlyList<JunctionSegmentKind> SegmentKinds,
+    IReadOnlyList<CornerZone> Corners)
 {
-    public static readonly JunctionGeometry Empty =
-        new(new Dictionary<EdgeId, float>(), Array.Empty<Vector3>(), new HashSet<int>());
+    public static readonly JunctionGeometry Empty = new(
+        new Dictionary<EdgeId, float>(),
+        Array.Empty<Vector3>(),
+        Array.Empty<JunctionSegmentKind>(),
+        Array.Empty<CornerZone>());
 }
 
 /// <summary>How a lane connector turns, relative to the incoming travel direction.

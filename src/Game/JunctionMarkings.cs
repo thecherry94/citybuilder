@@ -21,6 +21,10 @@ public static class JunctionMarkings
     private const float GuidanceDashOn = 0.8f, GuidanceDashOff = 1.0f;
     private const float GuidanceWidth = 0.12f;
     private const float MinGuidanceLength = 10f; // small junctions carry no guidance paint
+    private const float CrosswalkInset = 0.5f;   // gap between cut and zebra band
+    private const float CrosswalkLength = 2.8f;  // zebra bar length (walking direction)
+    private const float CrosswalkBar = 0.55f, CrosswalkGap = 0.45f;
+    private const float CrosswalkMargin = 0.35f;
 
     private static int _triCount;
 
@@ -58,6 +62,10 @@ public static class JunctionMarkings
             foreach (var lane in incoming)
                 if (movementsByLane.TryGetValue(lane.Id, out var moves))
                     AddTurnArrow(st, node, edge, lane, tCut, startsHere, moves);
+
+            var type = RoadCatalog.Get(edge.Type);
+            if (type.HasSidewalks)
+                AddCrosswalk(st, edge, type, tCut, startsHere);
         }
 
         // guidance paint: driving lanes' left turns only (right turns hug the corner),
@@ -148,6 +156,36 @@ public static class JunctionMarkings
                 origin + forward * tri.c.Y + right * tri.c.X);
     }
 
+    // ---------------------------------------------------------------- crosswalk
+
+    /// <summary>Zebra band across the carriageway, just inside the junction from the
+    /// cut, connecting the raised corner sidewalks on either side.</summary>
+    private static void AddCrosswalk(SurfaceTool st, RoadEdge edge, RoadType type, float tCut, bool startsHere)
+    {
+        float cwHalf = type.CarriagewayHalf;
+        var basePt = edge.Curve.Point(tCut).ToGodot();
+        var tangent = edge.Curve.Tangent(tCut).ToGodot();
+        var toNode = startsHere ? -tangent : tangent; // from the cut into the junction
+        toNode.Y = 0;
+        if (toNode.LengthSquared() < 1e-8f)
+            return;
+        toNode = toNode.Normalized();
+        var right = toNode.Cross(Vector3.Up);
+        basePt.Y = MeshBuilders.MarkingY;
+
+        float x = -cwHalf + CrosswalkMargin + CrosswalkBar / 2;
+        for (; x + CrosswalkBar / 2 <= cwHalf - CrosswalkMargin; x += CrosswalkBar + CrosswalkGap)
+        {
+            var near = basePt + toNode * CrosswalkInset;
+            var far = basePt + toNode * (CrosswalkInset + CrosswalkLength);
+            AddQuadUp(st,
+                near + right * (x - CrosswalkBar / 2),
+                near + right * (x + CrosswalkBar / 2),
+                far + right * (x + CrosswalkBar / 2),
+                far + right * (x - CrosswalkBar / 2));
+        }
+    }
+
     // --------------------------------------------------------- guidance dashes
 
     private static void AddGuidanceDashes(SurfaceTool st, in Bezier3 curve)
@@ -157,7 +195,9 @@ public static class JunctionMarkings
         if (total < MinGuidanceLength)
             return;
         var up = Vector3.Up * (MeshBuilders.MarkingY - 0.005f);
-        for (float d = GuidanceDashOff / 2; d < total - 0.3f; d += GuidanceDashOn + GuidanceDashOff)
+        // start past the crosswalk band so guidance paint doesn't overlap the zebra
+        float first = MathF.Max(GuidanceDashOff / 2, CrosswalkInset + CrosswalkLength + 0.5f);
+        for (float d = first; d < total - 0.3f; d += GuidanceDashOn + GuidanceDashOff)
         {
             float d1 = MathF.Min(d + GuidanceDashOn, total - 0.1f);
             float ta = table.TAtDistance(d);

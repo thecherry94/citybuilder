@@ -12,7 +12,23 @@ public sealed record RoadType(
     string Name,
     float Width,
     IReadOnlyList<LaneSpec> Lanes,
-    float DesignSpeedKmh);
+    float DesignSpeedKmh)
+{
+    /// <summary>Half-width of the paved carriageway: up to the sidewalks' inner
+    /// edges, or the full half-width when there are none.</summary>
+    public float CarriagewayHalf
+    {
+        get
+        {
+            var walks = Lanes.Where(l => l.Kind == LaneKind.Sidewalk).ToArray();
+            return walks.Length == 0
+                ? Width / 2
+                : walks.Min(l => MathF.Abs(l.Offset) - l.Width / 2);
+        }
+    }
+
+    public bool HasSidewalks => Lanes.Any(l => l.Kind == LaneKind.Sidewalk);
+}
 
 public static class RoadCatalog
 {

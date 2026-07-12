@@ -338,17 +338,124 @@ public static class MeshBuilders
                     poly[(i + 1) % poly.Count].ToGodot() + Vector3.Up * SurfaceY);
         }
 
-        // outer boundary segments get a skirt down to the ground, matching the
-        // bevel on edge meshes — this closes the notches at junction corners
+        // open outer boundary segments get a skirt down to the ground; curbed ones
+        // are covered by the raised corner zones instead
         for (int i = 0; i < poly.Count; i++)
         {
-            if (node.Junction.CutSegments.Contains(i))
+            if (node.Junction.SegmentKinds[i] != JunctionSegmentKind.Open)
                 continue;
             var a = poly[i].ToGodot() + Vector3.Up * SurfaceY;
             var b = poly[(i + 1) % poly.Count].ToGodot() + Vector3.Up * SurfaceY;
             AddBoundarySkirt(st, centerXZ, a, b);
         }
-        return st.Commit();
+        var mesh = st.Commit();
+
+        if (node.Junction.Corners.Count > 0)
+            BuildCornerZones(node.Junction.Corners).Commit(mesh);
+        return mesh;
+    }
+
+    /// <summary>Raised concrete corner sidewalks: flat top, curb faces along the
+    /// inner boundary (toward the asphalt), ground skirt along the outer boundary.</summary>
+    private static SurfaceTool BuildCornerZones(IReadOnlyList<CornerZone> zones)
+    {
+        var st = new SurfaceTool();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        st.SetMaterial(Materials.Concrete);
+        float topY = SurfaceY + SidewalkRise;
+
+        foreach (var zone in zones)
+        {
+            var ring = zone.Polygon;
+
+            // top surface
+            var ring2d = ring.Select(p => new Vector2(p.X, p.Z)).ToArray();
+            var indices = Geometry2D.TriangulatePolygon(ring2d);
+            for (int i = 0; i + 2 < indices.Length; i += 3)
+                AddTriangleUpAt(st, ring[indices[i]], ring[indices[i + 1]], ring[indices[i + 2]], topY);
+
+            var centroid = ring.Aggregate(System.Numerics.Vector3.Zero, (acc, p) => acc + p) / ring.Count;
+            var centroidG = centroid.ToGodot();
+
+            // curb faces along the inner boundary
+            for (int i = 0; i + 1 < zone.InnerCount; i++)
+                AddWallQuad(st,
+                    ring[i].ToGodot(), ring[i + 1].ToGodot(),
+                    SurfaceY, topY, centroidG);
+
+            // ground skirt along the outer boundary
+            // (the two side edges — ring[InnerCount-1]→ring[InnerCount] and the
+            // closing segment — stay open, flush against the approach sidewalks)
+            for (int i = zone.InnerCount; i + 1 < ring.Count; i++)
+                AddSkirtQuad(st, ring[i].ToGodot(), ring[i + 1].ToGodot(), topY, centroidG);
+        }
+        return st;
+    }
+
+    private static void AddTriangleUpAt(SurfaceTool st, System.Numerics.Vector3 a,
+        System.Numerics.Vector3 b, System.Numerics.Vector3 c, float y)
+        => AddTriangleUp(st,
+            new Vector3(a.X, y, a.Z), new Vector3(b.X, y, b.Z), new Vector3(c.X, y, c.Z));
+
+    private static void AddWallQuad(SurfaceTool st, Vector3 a, Vector3 b, float yBottom, float yTop, Vector3 interior)
+    {
+        var seg = b - a;
+        seg.Y = 0;
+        if (seg.LengthSquared() < 1e-8f)
+            return;
+        var normal = seg.Normalized().Cross(Vector3.Up);
+        var mid = (a + b) / 2;
+        var toInterior = interior - mid;
+        toInterior.Y = 0;
+        if (normal.Dot(toInterior) > 0)
+            normal = -normal; // face away from the zone interior
+
+        var a0 = new Vector3(a.X, yBottom, a.Z);
+        var b0 = new Vector3(b.X, yBottom, b.Z);
+        var a1 = new Vector3(a.X, yTop, a.Z);
+        var b1 = new Vector3(b.X, yTop, b.Z);
+        if ((b0 - a1).Cross(b1 - a1).Dot(normal) < 0)
+        {
+            (a0, b0) = (b0, a0);
+            (a1, b1) = (b1, a1);
+        }
+        st.SetNormal(normal); st.AddVertex(a1);
+        st.SetNormal(normal); st.AddVertex(b1);
+        st.SetNormal(normal); st.AddVertex(b0);
+        st.SetNormal(normal); st.AddVertex(a1);
+        st.SetNormal(normal); st.AddVertex(b0);
+        st.SetNormal(normal); st.AddVertex(a0);
+    }
+
+    private static void AddSkirtQuad(SurfaceTool st, Vector3 a, Vector3 b, float yTop, Vector3 interior)
+    {
+        var seg = b - a;
+        seg.Y = 0;
+        if (seg.LengthSquared() < 1e-8f)
+            return;
+        var outward = seg.Normalized().Cross(Vector3.Up);
+        var mid = (a + b) / 2;
+        var toInterior = interior - mid;
+        toInterior.Y = 0;
+        if (outward.Dot(toInterior) > 0)
+            outward = -outward;
+
+        var aTop = new Vector3(a.X, yTop, a.Z);
+        var bTop = new Vector3(b.X, yTop, b.Z);
+        var aOut = new Vector3(a.X, 0, a.Z) + outward * SkirtWidth;
+        var bOut = new Vector3(b.X, 0, b.Z) + outward * SkirtWidth;
+        var n = (outward + Vector3.Up).Normalized();
+        if ((bOut - aTop).Cross(bTop - aTop).Dot(n) < 0)
+        {
+            (aTop, bTop) = (bTop, aTop);
+            (aOut, bOut) = (bOut, aOut);
+        }
+        st.SetNormal(n); st.AddVertex(aTop);
+        st.SetNormal(n); st.AddVertex(bTop);
+        st.SetNormal(n); st.AddVertex(bOut);
+        st.SetNormal(n); st.AddVertex(aTop);
+        st.SetNormal(n); st.AddVertex(bOut);
+        st.SetNormal(n); st.AddVertex(aOut);
     }
 
     /// <summary>Flat top-facing triangle: winding is normalized so the front face
