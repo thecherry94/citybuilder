@@ -29,16 +29,23 @@ public static class JunctionMarkings
     private static int _triCount;
 
     /// <summary>Build the junction's paint surface, or null when there is nothing to
-    /// draw. Only nodes with 3+ approaches get markings (corners/dead ends stay bare).</summary>
+    /// draw. Nodes with 3+ approaches get full intersection paint; degree-2 corners
+    /// get their road markings continued around the bend; dead ends stay bare.</summary>
     public static SurfaceTool? Build(RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges)
     {
-        if (node.Edges.Count < 3)
+        if (node.Edges.Count < 2)
             return null;
 
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
         st.SetMaterial(Materials.Marking);
         _triCount = 0;
+
+        if (node.Edges.Count == 2)
+        {
+            AddCornerContinuation(st, node, edges);
+            return _triCount > 0 ? st : null;
+        }
 
         var movementsByLane = node.Connectors
             .GroupBy(c => c.From)
@@ -159,6 +166,89 @@ public static class JunctionMarkings
                 origin + forward * tri.a.Y + right * tri.a.X,
                 origin + forward * tri.b.Y + right * tri.b.X,
                 origin + forward * tri.c.Y + right * tri.c.X);
+    }
+
+    // ------------------------------------------------------ corner continuation
+
+    /// <summary>Degree-2 nodes (90° bends, curves too sharp to heal) get their road
+    /// markings swept around the corner along a tangent-continuous path, so lines
+    /// don't just stop at the junction cuts.</summary>
+    private static void AddCornerContinuation(SurfaceTool st, RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges)
+    {
+        if (node.Junction.SurfacePolygon.Count == 0)
+            return; // seamless continuation: the edges already carry their markings
+
+        var ids = node.Edges.ToArray();
+        var a = edges[ids[0]];
+        var b = edges[ids[1]];
+        if (a.Type != b.Type)
+            return; // type transitions would need taper markings; skip for now
+        if (!node.Junction.CutT.TryGetValue(a.Id, out float tA)
+            || !node.Junction.CutT.TryGetValue(b.Id, out float tB))
+            return;
+
+        bool aEnds = a.EndNode == node.Id;
+        bool bStarts = b.StartNode == node.Id;
+        var pa = a.Curve.Point(tA);
+        var pb = b.Curve.Point(tB);
+        var dirIn = aEnds ? a.Curve.Tangent(tA) : -a.Curve.Tangent(tA);
+        var dirOut = bStarts ? b.Curve.Tangent(tB) : -b.Curve.Tangent(tB);
+        float reach = System.Numerics.Vector3.Distance(pa, pb) / 3f;
+        if (reach < 0.1f)
+            return;
+        var curve = new Bezier3(pa, pa + dirIn * reach, pb - dirOut * reach, pb);
+        var table = new ArcLengthTable(curve, 32);
+
+        // offsets are given in edge a's frame; flip when a points away from the node
+        float flip = aEnds ? 1f : -1f;
+        var type = RoadCatalog.Get(a.Type);
+        foreach (var (offset, dashed) in MeshBuilders.MarkingLayout(type))
+            SweepLine(st, curve, table, flip * offset, dashed);
+    }
+
+    private static void SweepLine(SurfaceTool st, Bezier3 curve, ArcLengthTable table, float offset, bool dashed)
+    {
+        float total = table.TotalLength;
+        float hw = MeshBuilders.MarkingLineWidth / 2;
+
+        void Quad(float d0, float d1)
+        {
+            const int steps = 3; // short spans: a few segments follow the bend fine
+            var up = Vector3.Up * MeshBuilders.MarkingY;
+            for (int s = 0; s < steps; s++)
+            {
+                float ta = table.TAtDistance(d0 + (d1 - d0) * s / steps);
+                float tb = table.TAtDistance(d0 + (d1 - d0) * (s + 1) / steps);
+                AddQuadUp(st,
+                    curve.OffsetPoint(ta, offset - hw).ToGodot() + up,
+                    curve.OffsetPoint(ta, offset + hw).ToGodot() + up,
+                    curve.OffsetPoint(tb, offset + hw).ToGodot() + up,
+                    curve.OffsetPoint(tb, offset - hw).ToGodot() + up);
+            }
+        }
+
+        if (!dashed)
+        {
+            Quad(0, total);
+            return;
+        }
+
+        const float period = MeshBuilders.MarkingDashOn + MeshBuilders.MarkingDashOff;
+        int count = (int)MathF.Floor((total + MeshBuilders.MarkingDashOff) / period);
+        if (count < 1)
+        {
+            // too short for a full dash: paint one centered stub so the line reads
+            if (total > 1f)
+                Quad(total / 2 - 0.5f, total / 2 + 0.5f);
+            return;
+        }
+        float used = count * period - MeshBuilders.MarkingDashOff;
+        float lead = MathF.Max(0, (total - used) / 2);
+        for (int k = 0; k < count; k++)
+        {
+            float d0 = lead + k * period;
+            Quad(d0, MathF.Min(d0 + MeshBuilders.MarkingDashOn, total));
+        }
     }
 
     // ---------------------------------------------------------------- crosswalk

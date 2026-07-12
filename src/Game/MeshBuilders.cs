@@ -225,8 +225,12 @@ public static class MeshBuilders
         return st;
     }
 
-    /// <summary>Paint rules from lane adjacency, valid for any lane profile.</summary>
-    private static IEnumerable<(float offset, bool dashed)> MarkingLayout(RoadType type)
+    public const float MarkingDashOn = DashOn, MarkingDashOff = DashOff;
+    public const float MarkingLineWidth = MarkingWidth;
+
+    /// <summary>Paint rules from lane adjacency, valid for any lane profile.
+    /// Also used to continue markings across degree-2 corner junctions.</summary>
+    public static IEnumerable<(float offset, bool dashed)> MarkingLayout(RoadType type)
     {
         var driving = type.Lanes.Where(l => l.Kind == LaneKind.Driving).OrderBy(l => l.Offset).ToArray();
         if (driving.Length == 0)
