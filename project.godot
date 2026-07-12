@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="citybuilder"
-run/main_scene="uid://57eqj46rhxud"
+run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
