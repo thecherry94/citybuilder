@@ -38,7 +38,35 @@ public static class RoadCatalog
         },
         60f);
 
-    public static readonly IReadOnlyList<RoadType> All = new[] { TwoLane, FourLane };
+    /// <summary>Urban two-lane street: driving lanes flanked by raised sidewalks.</summary>
+    public static readonly RoadType Street = new(
+        new RoadTypeId(3), "Street", 13f,
+        new LaneSpec[]
+        {
+            new(+1.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
+            new(-1.75f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
+            new(+4.75f, LaneDirection.Forward, 2.5f, LaneKind.Sidewalk),
+            new(-4.75f, LaneDirection.Backward, 2.5f, LaneKind.Sidewalk),
+        },
+        50f);
+
+    /// <summary>Urban four-lane avenue with bicycle lanes and sidewalks.</summary>
+    public static readonly RoadType Avenue = new(
+        new RoadTypeId(4), "Avenue", 21f,
+        new LaneSpec[]
+        {
+            new(+1.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
+            new(+5.25f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
+            new(-1.75f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
+            new(-5.25f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
+            new(+7.75f, LaneDirection.Forward, 1.5f, LaneKind.Bicycle),
+            new(-7.75f, LaneDirection.Backward, 1.5f, LaneKind.Bicycle),
+            new(+9.5f, LaneDirection.Forward, 2f, LaneKind.Sidewalk),
+            new(-9.5f, LaneDirection.Backward, 2f, LaneKind.Sidewalk),
+        },
+        50f);
+
+    public static readonly IReadOnlyList<RoadType> All = new[] { TwoLane, FourLane, Street, Avenue };
 
     public static RoadType Get(RoadTypeId id)
         => All.FirstOrDefault(t => t.Id == id)

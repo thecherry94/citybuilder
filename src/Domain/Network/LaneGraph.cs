@@ -5,27 +5,28 @@ namespace CityBuilder.Domain.Network;
 /// traffic will eventually pathfind over.</summary>
 public static class LaneGraph
 {
-    /// <summary>For each lane, the lanes reachable through the connector at its
-    /// downstream node.</summary>
-    public static Dictionary<LaneId, List<LaneId>> BuildAdjacency(RoadNetwork network)
+    /// <summary>For each lane (optionally restricted to one kind), the lanes
+    /// reachable through the connector at its downstream node.</summary>
+    public static Dictionary<LaneId, List<LaneId>> BuildAdjacency(RoadNetwork network, LaneKind? kind = null)
     {
         var adjacency = new Dictionary<LaneId, List<LaneId>>();
         foreach (var edge in network.Edges.Values)
         foreach (var lane in edge.Lanes)
-            adjacency[lane.Id] = new List<LaneId>();
+            if (kind is null || lane.Kind == kind)
+                adjacency[lane.Id] = new List<LaneId>();
 
         foreach (var node in network.Nodes.Values)
         foreach (var connector in node.Connectors)
-            if (adjacency.TryGetValue(connector.From, out var list))
+            if (adjacency.TryGetValue(connector.From, out var list) && adjacency.ContainsKey(connector.To))
                 list.Add(connector.To);
 
         return adjacency;
     }
 
-    /// <summary>True if every lane can reach every other lane.</summary>
-    public static bool IsStronglyConnected(RoadNetwork network)
+    /// <summary>True if every lane (of the given kind, or all) can reach every other.</summary>
+    public static bool IsStronglyConnected(RoadNetwork network, LaneKind? kind = null)
     {
-        var adjacency = BuildAdjacency(network);
+        var adjacency = BuildAdjacency(network, kind);
         if (adjacency.Count == 0)
             return true;
 

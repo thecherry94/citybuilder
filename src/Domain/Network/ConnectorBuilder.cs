@@ -45,6 +45,8 @@ public static class ConnectorBuilder
         foreach (var (inLane, inPos, inDir) in incoming)
         foreach (var (outLane, outPos, outDir) in outgoing)
         {
+            if (inLane.Kind != outLane.Kind)
+                continue; // bikes connect to bikes, sidewalks to sidewalks
             if (inLane.Edge == outLane.Edge && !deadEnd)
                 continue; // no U-turns except at dead ends
             float reach = MathF.Max(Vector3.Distance(inPos, outPos) / 3f, 0.1f);

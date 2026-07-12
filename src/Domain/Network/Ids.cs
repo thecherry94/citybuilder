@@ -7,4 +7,4 @@ public readonly record struct RoadTypeId(int Value);
 
 public enum LaneDirection { Forward, Backward }
 
-public enum LaneKind { Driving }
+public enum LaneKind { Driving, Bicycle, Sidewalk }
