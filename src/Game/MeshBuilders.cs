@@ -71,7 +71,13 @@ public static class MeshBuilders
             var a = AsphaltSection(edge.Curve, ts[i], left, right, skirtLeft, skirtRight);
             var b = AsphaltSection(edge.Curve, ts[i + 1], left, right, skirtLeft, skirtRight);
             for (int q = 0; q + 1 < a.Length; q++)
+            {
+                // one smooth group per cross-section band: smooth along the road,
+                // hard edges between top and skirts, top normals exactly up — this
+                // matches junction surfaces so seams don't catch the light
+                st.SetSmoothGroup((uint)(q + 1));
                 AddQuad(st, a[q], a[q + 1], b[q + 1], b[q]);
+            }
         }
         st.GenerateNormals();
         return st.Commit();
@@ -131,7 +137,11 @@ public static class MeshBuilders
                 var a = SidewalkSection(edge.Curve, ts[i], inner, outer, HeightAt(ts[i]));
                 var b = SidewalkSection(edge.Curve, ts[i + 1], inner, outer, HeightAt(ts[i + 1]));
                 for (int q = 0; q + 1 < a.Length; q++)
+                {
+                    // hard edges between curb face / top / outer wall (see BuildAsphalt)
+                    st.SetSmoothGroup((uint)(q + 1));
                     AddQuad(st, a[q], a[q + 1], b[q + 1], b[q]);
+                }
             }
         }
         st.GenerateNormals();

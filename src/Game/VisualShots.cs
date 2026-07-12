@@ -204,6 +204,7 @@ public partial class VisualShots : Node3D
             // here long before they are visible in the wide shots
             new Shot("corner_low", new(5, 0, 5), 22, -28f, 30f),
             new Shot("corner_high", new(6, 0, 6), 25, -55f, 140f),
+            new Shot("corner_topdown", new(6, 0, 6), 16, -89f, 0f),
         });
 
         yield return new Scenario("avenue_mix", n =>
