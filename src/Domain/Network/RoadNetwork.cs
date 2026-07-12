@@ -228,9 +228,15 @@ public sealed class RoadNetwork
             }
         }
 
-        // free endpoint (or unresolvable binding): reuse a nearby node or create one
+        // free endpoint (or unresolvable binding): reuse a nearby node, else connect
+        // to an edge passing through this point, else create a fresh node
         if (FindNodeNear(pos, NodeReuseRadius) is { } near)
             return near;
+        if (FindClosestEdge(pos, NodeReuseRadius) is { } onEdge)
+        {
+            var (node, _) = SplitEdgeWithReuse(onEdge.id, onEdge.t, createdNodes);
+            return node;
+        }
         var created = AddNodeInternal(pos);
         createdNodes.Add(created.Id);
         return created.Id;
@@ -396,11 +402,10 @@ public sealed class RoadNetwork
     }
 
     /// <summary>Regenerate junction geometry and lane connectors for a node.
-    /// Junction/connector builders land in their own tasks; until then nodes carry
-    /// empty derived data.</summary>
+    /// Order matters: connectors start at the junction cuts.</summary>
     private void RebuildDerived(RoadNode node)
     {
-        node.Junction = JunctionGeometry.Empty;
-        node.Connectors = Array.Empty<LaneConnector>();
+        node.Junction = JunctionBuilder.Build(node, _edges);
+        node.Connectors = ConnectorBuilder.Build(node, _edges);
     }
 }

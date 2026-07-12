@@ -1,0 +1,54 @@
+using System.Numerics;
+using CityBuilder.Domain.Geometry;
+
+namespace CityBuilder.Domain.Network;
+
+/// <summary>
+/// Generates lane connectors at a node: for every lane arriving at the node, one
+/// connector curve to every departing lane on a different edge (no U-turns).
+/// Turn restrictions will later filter this set; the geometry is what vehicles follow.
+/// Junction geometry must be up to date first — connector endpoints sit at the
+/// junction cuts.
+/// </summary>
+public static class ConnectorBuilder
+{
+    public static IReadOnlyList<LaneConnector> Build(RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges)
+    {
+        if (node.Edges.Count < 2)
+            return Array.Empty<LaneConnector>();
+
+        var incoming = new List<(Lane lane, Vector3 pos, Vector3 dir)>();
+        var outgoing = new List<(Lane lane, Vector3 pos, Vector3 dir)>();
+
+        foreach (var edgeId in node.Edges)
+        {
+            var edge = edges[edgeId];
+            bool startsHere = edge.StartNode == node.Id;
+            float tCut = node.Junction.CutT.TryGetValue(edgeId, out var t) ? t : (startsHere ? 0f : 1f);
+            var tangent = edge.Curve.Tangent(tCut);
+
+            foreach (var lane in edge.Lanes)
+            {
+                var pos = edge.Curve.OffsetPoint(tCut, lane.Offset);
+                bool arrives = lane.Direction == LaneDirection.Forward ? !startsHere : startsHere;
+                var travelDir = lane.Direction == LaneDirection.Forward ? tangent : -tangent;
+                if (arrives)
+                    incoming.Add((lane, pos, travelDir));
+                else
+                    outgoing.Add((lane, pos, travelDir));
+            }
+        }
+
+        var connectors = new List<LaneConnector>(incoming.Count * Math.Max(0, outgoing.Count - 1));
+        foreach (var (inLane, inPos, inDir) in incoming)
+        foreach (var (outLane, outPos, outDir) in outgoing)
+        {
+            if (inLane.Edge == outLane.Edge)
+                continue; // no U-turns
+            float reach = MathF.Max(Vector3.Distance(inPos, outPos) / 3f, 0.1f);
+            var curve = new Bezier3(inPos, inPos + inDir * reach, outPos - outDir * reach, outPos);
+            connectors.Add(new LaneConnector(inLane.Id, outLane.Id, curve));
+        }
+        return connectors;
+    }
+}
