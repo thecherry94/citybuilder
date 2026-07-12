@@ -193,17 +193,47 @@ public static class JunctionMarkings
         var pb = b.Curve.Point(tB);
         var dirIn = aEnds ? a.Curve.Tangent(tA) : -a.Curve.Tangent(tA);
         var dirOut = bStarts ? b.Curve.Tangent(tB) : -b.Curve.Tangent(tB);
-        float reach = System.Numerics.Vector3.Distance(pa, pb) / 3f;
-        if (reach < 0.1f)
+        float chord = System.Numerics.Vector3.Distance(pa, pb);
+        if (chord < 0.3f)
             return;
-        var curve = new Bezier3(pa, pa + dirIn * reach, pb - dirOut * reach, pb);
-        var table = new ArcLengthTable(curve, 32);
 
         // offsets are given in edge a's frame; flip when a points away from the node
-        float flip = aEnds ? 1f : -1f;
+        float flipA = aEnds ? 1f : -1f;
+        float flipB = bStarts ? 1f : -1f;
         var type = RoadCatalog.Get(a.Type);
+
+        // every marking line follows its own corner: quadratic through the
+        // intersection of its two offset lines — the same construction the curb
+        // returns use, so lines stay parallel to the curbs (offsets of one shared
+        // curve would cusp inside and chamfer outside on wide roads)
         foreach (var (offset, dashed) in MeshBuilders.MarkingLayout(type))
-            SweepLine(st, curve, table, flip * offset, dashed);
+        {
+            var paO = a.Curve.OffsetPoint(tA, offset);
+            var pbO = b.Curve.OffsetPoint(tB, flipA * flipB * offset);
+            // corner must lie ahead of the entry and behind the exit; otherwise
+            // (near-straight or diverging offset lines) a straight join is correct
+            var corner = IntersectXZ(paO, dirIn, pbO, dirOut);
+            bool valid = corner is { } c
+                && System.Numerics.Vector3.Dot(c - paO, dirIn) >= 0
+                && System.Numerics.Vector3.Dot(c - pbO, dirOut) <= 0;
+            var curve = valid
+                ? Bezier3.FromQuadratic(paO, corner!.Value, pbO)
+                : Bezier3.Line(paO, pbO);
+            SweepLine(st, curve, new ArcLengthTable(curve, 24), 0f, dashed);
+        }
+    }
+
+    /// <summary>Intersection of two lines in the XZ plane (point + direction each).</summary>
+    private static System.Numerics.Vector3? IntersectXZ(
+        System.Numerics.Vector3 p, System.Numerics.Vector3 dp,
+        System.Numerics.Vector3 q, System.Numerics.Vector3 dq)
+    {
+        float det = dp.X * -dq.Z - dp.Z * -dq.X;
+        if (MathF.Abs(det) < 1e-4f)
+            return null;
+        float rx = q.X - p.X, rz = q.Z - p.Z;
+        float s = (rx * -dq.Z - rz * -dq.X) / det;
+        return p + dp * s;
     }
 
     private static void SweepLine(SurfaceTool st, Bezier3 curve, ArcLengthTable table, float offset, bool dashed)
