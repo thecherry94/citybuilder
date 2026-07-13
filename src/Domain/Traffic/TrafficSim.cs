@@ -313,8 +313,6 @@ public sealed partial class TrafficSim
         return false;
     }
 
-    private void SpawnerTick(float dt) { }
-
     // ---------------------------------------------------------------- caches
 
     private void Sync()
@@ -406,7 +404,11 @@ public sealed partial class TrafficSim
         OnNetworkChanged();
     }
 
-    private void OnNetworkChanged() => SyncSignals();
+    private void OnNetworkChanged()
+    {
+        SyncSignals();
+        RevalidateAfterNetworkChange();
+    }
 
     private float RunLength(Vehicle v)
         => v.Lane is { } laneId
