@@ -7,6 +7,17 @@ namespace CityBuilder.Domain.Tests.Catalog;
 public class RoadCatalogTests
 {
     [Fact]
+    public void SpeedLimitsAreSensible()
+    {
+        foreach (var t in RoadCatalog.All)
+            Assert.True(t.SpeedLimit > 5f, $"{t.Name} speed limit {t.SpeedLimit}");
+        // country roads are faster than urban streets
+        Assert.Equal(100f / 3.6f, RoadCatalog.FourLane.SpeedLimit, 2);
+        Assert.Equal(50f / 3.6f, RoadCatalog.Street.SpeedLimit, 2);
+        Assert.True(RoadCatalog.TwoLane.SpeedLimit > RoadCatalog.Avenue.SpeedLimit);
+    }
+
+    [Fact]
     public void TwoLaneHasOneLanePerDirection()
     {
         var t = RoadCatalog.TwoLane;

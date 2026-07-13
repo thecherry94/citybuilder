@@ -29,6 +29,9 @@ public sealed record RoadType(
 
     public bool HasSidewalks => Lanes.Any(l => l.Kind == LaneKind.Sidewalk);
 
+    /// <summary>Legal speed for the traffic sim, in m/s.</summary>
+    public float SpeedLimit => DesignSpeedKmh / 3.6f;
+
     /// <summary>Half-width of the outermost built surface: the sidewalks' outer
     /// edges when present, else the paved carriageway. Junction outlines follow
     /// this, so corner zones sit flush against approach sidewalks.</summary>
@@ -51,7 +54,7 @@ public static class RoadCatalog
             new(+1.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
             new(-1.75f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
         },
-        50f);
+        80f);
 
     public static readonly RoadType FourLane = new(
         new RoadTypeId(2), "Four-Lane Road", 16f,
@@ -62,7 +65,7 @@ public static class RoadCatalog
             new(-1.75f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
             new(-5.25f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
         },
-        60f);
+        100f);
 
     /// <summary>Urban two-lane street: driving lanes flanked by raised sidewalks.</summary>
     public static readonly RoadType Street = new(
@@ -90,7 +93,7 @@ public static class RoadCatalog
             new(+9.5f, LaneDirection.Forward, 2f, LaneKind.Sidewalk),
             new(-9.5f, LaneDirection.Backward, 2f, LaneKind.Sidewalk),
         },
-        50f);
+        60f);
 
     public static readonly IReadOnlyList<RoadType> All = new[] { TwoLane, FourLane, Street, Avenue };
 
