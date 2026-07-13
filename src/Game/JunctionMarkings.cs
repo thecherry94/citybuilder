@@ -50,6 +50,7 @@ public static class JunctionMarkings
         var movementsByLane = node.Connectors
             .GroupBy(c => c.From)
             .ToDictionary(g => g.Key, g => g.Select(c => c.Turn).ToHashSet());
+        var control = JunctionControl.Resolve(node, edges);
 
         foreach (var edgeId in node.Edges)
         {
@@ -67,7 +68,21 @@ public static class JunctionMarkings
             if (incoming.Count == 0)
                 continue;
 
-            AddStopLine(st, edge, incoming, tCut, startsHere);
+            // control line per role: priority roads run clean, yielding legs get
+            // shark teeth, stop / all-way / signal-controlled legs get a stop line
+            var role = control.Roles.GetValueOrDefault(edgeId);
+            switch (control.Mode)
+            {
+                case JunctionControlMode.None:
+                case JunctionControlMode.PrioritySigns when role == LegRole.Main:
+                    break;
+                case JunctionControlMode.PrioritySigns when role == LegRole.Yield:
+                    AddYieldTeeth(st, edge, incoming, tCut, startsHere);
+                    break;
+                default:
+                    AddStopLine(st, edge, incoming, tCut, startsHere);
+                    break;
+            }
 
             foreach (var lane in incoming)
                 if (movementsByLane.TryGetValue(lane.Id, out var moves))
@@ -117,6 +132,33 @@ public static class JunctionMarkings
         float tb = edge.ArcLength.TAtDistance(dFar);
 
         AddLateralQuad(st, edge, ta, tb, lo, hi);
+    }
+
+    // --------------------------------------------------------------- yield teeth
+
+    private const float ToothBase = 0.6f, ToothHeight = 0.7f, ToothGap = 0.3f;
+
+    /// <summary>Row of shark teeth across the incoming lanes: base toward the junction,
+    /// tip pointing at the approaching driver.</summary>
+    private static void AddYieldTeeth(SurfaceTool st, RoadEdge edge, List<Lane> incoming, float tCut, bool startsHere)
+    {
+        float lo = incoming.Min(l => l.Offset - l.Width / 2) + 0.1f;
+        float hi = incoming.Max(l => l.Offset + l.Width / 2) - 0.1f;
+
+        float dCut = edge.ArcLength.DistanceAtT(tCut);
+        float dBase = startsHere ? dCut + StopLineGapToJunction : dCut - StopLineGapToJunction;
+        float dTip = startsHere ? dBase + ToothHeight : dBase - ToothHeight;
+        float ta = edge.ArcLength.TAtDistance(dBase);
+        float tb = edge.ArcLength.TAtDistance(dTip);
+
+        var up = Vector3.Up * MeshBuilders.MarkingY;
+        for (float c = lo + ToothBase / 2; c + ToothBase / 2 <= hi + 0.01f; c += ToothBase + ToothGap)
+        {
+            var b1 = edge.Curve.OffsetPoint(ta, c - ToothBase / 2).ToGodot() + up;
+            var b2 = edge.Curve.OffsetPoint(ta, c + ToothBase / 2).ToGodot() + up;
+            var tip = edge.Curve.OffsetPoint(tb, c).ToGodot() + up;
+            AddTriangle(st, b1, b2, tip);
+        }
     }
 
     private static void AddLateralQuad(SurfaceTool st, RoadEdge edge, float ta, float tb, float lo, float hi)

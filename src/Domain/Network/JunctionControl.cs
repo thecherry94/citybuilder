@@ -62,7 +62,8 @@ public static class JunctionControl
         return new EffectiveControl(mode, roles);
     }
 
-    /// <summary>Widest carriageway pair wins; straightest continuation breaks ties.
+    /// <summary>Widest overall corridor pair wins (OuterHalf, so an urban street with
+    /// sidewalks outranks a bare country road); straightest continuation breaks ties.
     /// Deterministic: candidates are scanned in edge-id order.</summary>
     private static (EdgeId, EdgeId) MainPair(
         RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges, EdgeId[] ids)
@@ -72,8 +73,8 @@ public static class JunctionControl
         for (int i = 0; i < ids.Length; i++)
         for (int j = i + 1; j < ids.Length; j++)
         {
-            float w = RoadCatalog.Get(edges[ids[i]].Type).CarriagewayHalf
-                    + RoadCatalog.Get(edges[ids[j]].Type).CarriagewayHalf;
+            float w = RoadCatalog.Get(edges[ids[i]].Type).OuterHalf
+                    + RoadCatalog.Get(edges[ids[j]].Type).OuterHalf;
             float s = -Vector2.Dot(LeavingDir(edges[ids[i]], node), LeavingDir(edges[ids[j]], node));
             if (w > bestScore.width + 0.01f
                 || (MathF.Abs(w - bestScore.width) <= 0.01f && s > bestScore.straight))

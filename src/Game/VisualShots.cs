@@ -166,6 +166,22 @@ public partial class VisualShots : Node3D
             Commit(n, Straight(new(0, 0, 0), new(0, 0, 70)));
         }, Standard(new(0, 0, 0), 45));
 
+        yield return new Scenario("priority_tee", n =>
+        {
+            // Auto control: the wider street pair is the main road, the stub yields —
+            // teeth on the stub, no stop lines on the mains, priority signage
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, 0), new(0, 0, 80), RoadCatalog.TwoLane.Id));
+        }, Standard(new(0, 0, 2), 45));
+
+        yield return new Scenario("allway_cross", n =>
+        {
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, -80), new(0, 0, 80), RoadCatalog.Street.Id));
+            var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+            n.ConfigureJunction(node.Id, node.Config with { Mode = JunctionControlMode.AllWayStop });
+        }, Standard(new(0, 0, 0), 55));
+
         yield return new Scenario("street_corner", n =>
         {
             // 90° bend in an urban street: corner marking continuation must keep

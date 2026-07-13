@@ -30,20 +30,16 @@ public class JunctionControlTests
     [Fact]
     public void AutoPicksWiderRoadAsMain()
     {
-        // Street (E-W, carriageway half 3.5) crossing TwoLane (N-S, half 4.0)?
-        // TwoLane is 8 m wide with no sidewalks: carriageway half 4.0 — so the
-        // *TwoLane* pair is the wider carriageway here; assert against catalog data
+        // Street (12 m corridor incl. sidewalks) crossing TwoLane (8 m country road):
+        // the urban street is the main road — corridor width (OuterHalf), not bare
+        // carriageway width, decides, so sidewalk roads outrank country roads
         var n = Cross(out var node);
         var eff = JunctionControl.Resolve(node, n.Edges);
         Assert.Equal(JunctionControlMode.PrioritySigns, eff.Mode);
-
-        float streetHalf = RoadCatalog.Street.CarriagewayHalf;
-        float twoLaneHalf = RoadCatalog.TwoLane.CarriagewayHalf;
-        var widerType = twoLaneHalf > streetHalf ? RoadCatalog.TwoLane.Id : RoadCatalog.Street.Id;
         foreach (var eid in node.Edges)
         {
-            var isWider = n.Edges[eid].Type == widerType;
-            Assert.Equal(isWider ? LegRole.Main : LegRole.Yield, eff.Roles[eid]);
+            var isStreet = n.Edges[eid].Type == RoadCatalog.Street.Id;
+            Assert.Equal(isStreet ? LegRole.Main : LegRole.Yield, eff.Roles[eid]);
         }
     }
 
