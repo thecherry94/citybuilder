@@ -102,8 +102,10 @@ public sealed record JunctionGeometry(
 public enum TurnKind { Straight, Left, Right, UTurn }
 
 /// <summary>Lane-level link across a node: which incoming lane can flow into which
-/// outgoing lane, the curve vehicles would follow, and the movement it represents.</summary>
-public sealed record LaneConnector(LaneId From, LaneId To, Bezier3 Curve, TurnKind Turn);
+/// outgoing lane, the curve vehicles would follow, the movement it represents, and the
+/// right-of-way class the junction control assigns to it.</summary>
+public sealed record LaneConnector(
+    LaneId From, LaneId To, Bezier3 Curve, TurnKind Turn, RightOfWay Row = RightOfWay.Free);
 
 public sealed record NetworkDelta(
     IReadOnlySet<EdgeId> EdgesAdded,

@@ -41,6 +41,8 @@ public static class ConnectorBuilder
             }
         }
 
+        var control = JunctionControl.Resolve(node, edges);
+
         var connectors = new List<LaneConnector>(incoming.Count * Math.Max(0, outgoing.Count - 1));
         foreach (var (inLane, inPos, inDir) in incoming)
         foreach (var (outLane, outPos, outDir) in outgoing)
@@ -51,10 +53,27 @@ public static class ConnectorBuilder
                 continue; // no U-turns except at dead ends
             float reach = MathF.Max(Vector3.Distance(inPos, outPos) / 3f, 0.1f);
             var curve = new Bezier3(inPos, inPos + inDir * reach, outPos - outDir * reach, outPos);
-            connectors.Add(new LaneConnector(inLane.Id, outLane.Id, curve, Classify(inDir, outDir)));
+            connectors.Add(new LaneConnector(
+                inLane.Id, outLane.Id, curve, Classify(inDir, outDir), RowFor(control, inLane.Edge)));
         }
         return connectors;
     }
+
+    /// <summary>Right-of-way class for a connector entering the node from the given
+    /// edge, per the resolved junction control.</summary>
+    private static RightOfWay RowFor(EffectiveControl control, EdgeId fromEdge)
+        => control.Mode switch
+        {
+            JunctionControlMode.AllWayStop => RightOfWay.Stop,
+            JunctionControlMode.TrafficLights => RightOfWay.Signal,
+            JunctionControlMode.PrioritySigns => control.Roles.GetValueOrDefault(fromEdge) switch
+            {
+                LegRole.Yield => RightOfWay.Yield,
+                LegRole.Stop => RightOfWay.Stop,
+                _ => RightOfWay.Free,
+            },
+            _ => RightOfWay.Free,
+        };
 
     /// <summary>Movement classification from the turn angle between entry and exit
     /// directions. Straight within ±30°, U-turn beyond ±150°, else left/right.</summary>
