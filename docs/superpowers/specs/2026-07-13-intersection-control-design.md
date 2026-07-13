@@ -88,8 +88,8 @@ Per-leg extra distance `extra = clamp(SizeOffset + LegOffsets[edge], -CornerMarg
 The wanted cut becomes `solvedCorner + CornerMargin + extra` — shrinking eats the margin
 but never cuts below the solved corner requirement (geometry cannot self-intersect);
 growing extends up to +12 m. The existing 30 %-of-edge-length clamp and `TightCuts`
-flagging stay on top. Degree-2 elbows and dead ends honor resize too (their junction
-surface simply grows).
+flagging stay on top. Degree-2 elbows honor resize too (their junction surface simply
+grows); dead ends (degree 1, no junction surface) ignore it.
 
 Corner returns, corner zones, crosswalk placement, and marking continuations all derive
 from cuts — they follow automatically.

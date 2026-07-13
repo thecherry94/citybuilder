@@ -20,6 +20,9 @@ public partial class Main : Node3D
         _network = new RoadNetwork();
         var snap = new SnapService(_network);
 
+        // thin road markings (0.15 m) vanish below ~1 px without multisampling
+        GetViewport().Msaa3D = Viewport.Msaa.Msaa4X;
+
         AddChild(BuildLighting());
         AddChild(BuildGround());
 

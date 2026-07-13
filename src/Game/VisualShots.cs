@@ -106,7 +106,7 @@ public partial class VisualShots : Node3D
                     var max = quad.Aggregate((a, b) => new Vector3(Mathf.Max(a.X, b.X), Mathf.Max(a.Y, b.Y), Mathf.Max(a.Z, b.Z)));
                     // markings only: flat quads at marking height near the junction
                     bool markingHeight = min.Y > MeshBuilders.MarkingY - 0.02f && max.Y < MeshBuilders.MarkingY + 0.02f;
-                    if (markingHeight && min.X < 10 && max.X > -10 && min.Z < 10 && max.Z > -10)
+                    if (markingHeight && min.X < 30 && max.X > -30 && min.Z < 30 && max.Z > -30)
                     {
                         var mid = (min + max) / 2;
                         GD.Print($"{child.Name} s{s} quad x[{min.X:F2},{max.X:F2}] z[{min.Z:F2},{max.Z:F2}] mid=({mid.X:F2},{mid.Z:F2})");
@@ -194,6 +194,39 @@ public partial class VisualShots : Node3D
             Oblique(new(0, 0, 0), 45),
             new Shot("low", new(2, 0, 2), 26, -16f, 40f),
         });
+
+        yield return new Scenario("resized_cross", n =>
+        {
+            // node-controller style: junction grown 6 m on every leg; paint,
+            // crosswalks and corner zones must follow the moved cuts seamlessly
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, -80), new(0, 0, 80), RoadCatalog.Street.Id));
+            var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+            n.ConfigureJunction(node.Id, node.Config with { SizeOffset = 6f });
+        }, new[]
+        {
+            Top(new(0, 0, 0), 70),
+            Oblique(new(0, 0, 0), 55),
+            new Shot("corner_low", new(8, 0, 8), 26, -28f, 30f),
+        });
+
+        yield return new Scenario("asym_resize", n =>
+        {
+            // only the east leg grows: junction stretches toward it, others stay
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, -80), new(0, 0, 80), RoadCatalog.Street.Id));
+            var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+            var east = node.Edges.First(e =>
+            {
+                var edge = n.Edges[e];
+                var mid = edge.Curve.Point(0.5f);
+                return mid.X > 1f && MathF.Abs(mid.Z) < 1f;
+            });
+            n.ConfigureJunction(node.Id, node.Config with
+            {
+                LegOffsets = new Dictionary<EdgeId, float> { [east] = 6f },
+            });
+        }, Standard(new(3, 0, 0), 60));
 
         yield return new Scenario("street_corner", n =>
         {
