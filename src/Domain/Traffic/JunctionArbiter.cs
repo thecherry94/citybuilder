@@ -114,8 +114,30 @@ public sealed partial class TrafficSim
         return true;
     }
 
-    // Task 6 replaces this stub with real signal controllers.
-    private bool IsGreen(NodeId node, EdgeId leg) => true;
+    private readonly Dictionary<NodeId, SignalController> _signals = new();
 
-    private void AdvanceSignals(float dt) { }
+    private bool IsGreen(NodeId node, EdgeId leg)
+        => !_signals.TryGetValue(node, out var s) || s.Phase(leg) == SignalPhase.Green;
+
+    /// <summary>Signal phase for a leg at a lights-controlled node (view + arbiter).</summary>
+    public SignalPhase? PhaseFor(NodeId node, EdgeId leg)
+        => _signals.TryGetValue(node, out var s) ? s.Phase(leg) : null;
+
+    private void AdvanceSignals(float dt)
+    {
+        foreach (var s in _signals.Values)
+            s.Advance(dt);
+    }
+
+    /// <summary>Keep signal controllers in sync with lights-controlled nodes,
+    /// preserving phase timers across unrelated network edits.</summary>
+    private void SyncSignals()
+    {
+        foreach (var id in _signals.Keys.Where(id =>
+            !_controls.TryGetValue(id, out var c) || c.Mode != JunctionControlMode.TrafficLights).ToArray())
+            _signals.Remove(id);
+        foreach (var (id, control) in _controls)
+            if (control.Mode == JunctionControlMode.TrafficLights && !_signals.ContainsKey(id))
+                _signals[id] = new SignalController(_network.Nodes[id], _network);
+    }
 }

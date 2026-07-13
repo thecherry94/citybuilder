@@ -368,7 +368,7 @@ public sealed partial class TrafficSim
         OnNetworkChanged();
     }
 
-    private void OnNetworkChanged() { }
+    private void OnNetworkChanged() => SyncSignals();
 
     private float RunLength(Vehicle v)
         => v.Lane is { } laneId
