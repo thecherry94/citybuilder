@@ -77,7 +77,20 @@ public class LaneConnectorTests
         Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0), RoadCatalog.FourLane.Id));
         Net.Commit(n, Net.Straight(new(0, 0, -100), new(0, 0, 100), RoadCatalog.FourLane.Id));
         var center = n.Nodes.Values.Single(node => Vector3.Distance(node.Position, Vector3.Zero) < 0.1f);
-        // 8 incoming lanes (2 per approach) × 6 outgoing lanes on other edges
-        Assert.Equal(48, center.Connectors.Count);
+        // turn-lane assignment per approach (2 lanes): straights from both lanes
+        // (2×2 targets = 4), lefts only from the leftmost (2), rights only from the
+        // rightmost (2) → 8 per approach, 32 total
+        Assert.Equal(32, center.Connectors.Count);
+
+        // and the assignment itself: no left from the right lane, no right from left
+        var lanes = n.Edges.Values.SelectMany(e => e.Lanes).ToDictionary(l => l.Id, l => l);
+        foreach (var c in center.Connectors)
+        {
+            var from = lanes[c.From];
+            if (c.Turn == TurnKind.Left)
+                Assert.Equal(1.75f, MathF.Abs(from.Offset), 2);
+            if (c.Turn == TurnKind.Right)
+                Assert.Equal(5.25f, MathF.Abs(from.Offset), 2);
+        }
     }
 }

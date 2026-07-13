@@ -30,6 +30,7 @@ public sealed partial class TrafficSim
     private readonly Dictionary<(NodeId, int), List<Vehicle>> _connectorVehicles = new();
     private readonly Dictionary<NodeId, EffectiveControl> _controls = new();
     private readonly Dictionary<NodeId, List<LaneId>> _incomingLanes = new();
+    private readonly Dictionary<LaneId, (LaneId? Left, LaneId? Right)> _adjacent = new();
 
     public TrafficSim(RoadNetwork network, int seed = 1)
     {
@@ -66,6 +67,14 @@ public sealed partial class TrafficSim
             v.Lane = lane.Id;
             v.S = 0;
             v.Speed = MathF.Min(_runs[lane.Id].SpeedLimit * 0.7f, 12f);
+            if (queue.Count > 0)
+            {
+                // never spawn faster than we could brake behind the tail vehicle
+                var tail = queue[^1];
+                float gap = MathF.Max(0, tail.S - Vehicle.Length - Idm.S0);
+                float safe = MathF.Sqrt(tail.Speed * tail.Speed + 2f * Idm.B * gap);
+                v.Speed = MathF.Min(v.Speed, safe);
+            }
             v.PlannedConnector = PickConnector(v, lane.Id);
             queue.Add(v);
             SortQueue(queue);
@@ -81,6 +90,19 @@ public sealed partial class TrafficSim
                 && (l.Direction == LaneDirection.Forward) == forward)
             .OrderByDescending(l => route.Steps.Count == 1 || ServesNextMovement(l.Id, route, 0))
             .ThenBy(l => l.Id.Value);
+
+    /// <summary>Test hook: teleport a vehicle onto a specific lane at its current S.</summary>
+    internal void ForceLane(Vehicle v, LaneId lane)
+    {
+        RemoveFromQueues(v);
+        v.Lane = lane;
+        v.Crossing = null;
+        v.ChangeFrom = null;
+        v.ChangeProgress = 0;
+        v.PlannedConnector = PickConnector(v, lane);
+        _laneVehicles[lane].Add(v);
+        SortQueue(_laneVehicles[lane]);
+    }
 
     public void Despawn(Vehicle v)
     {
@@ -222,6 +244,8 @@ public sealed partial class TrafficSim
                     float overshoot = v.S - len;
                     RemoveFromQueues(v);
                     v.Lane = null;
+                    v.ChangeFrom = null;
+                    v.ChangeProgress = 0;
                     v.Crossing = pc;
                     v.S = overshoot;
                     v.HasStopped = false;
@@ -289,7 +313,6 @@ public sealed partial class TrafficSim
         return false;
     }
 
-    private void UpdateLaneChange(Vehicle v, float dt) { }
     private void SpawnerTick(float dt) { }
 
     // ---------------------------------------------------------------- caches
@@ -350,6 +373,21 @@ public sealed partial class TrafficSim
             if (!_incomingLanes.TryGetValue(exit, out var list))
                 _incomingLanes[exit] = list = new List<LaneId>();
             list.Add(laneId);
+        }
+
+        // adjacency (left/right neighbor in travel frame) among same-direction
+        // driving lanes of each edge, ordered left → right by |offset|
+        _adjacent.Clear();
+        foreach (var edge in _network.Edges.Values)
+        foreach (var group in edge.Lanes
+                     .Where(l => l.Kind == LaneKind.Driving)
+                     .GroupBy(l => l.Direction))
+        {
+            var ordered = group.OrderBy(l => MathF.Abs(l.Offset)).ToArray();
+            for (int i = 0; i < ordered.Length; i++)
+                _adjacent[ordered[i].Id] = (
+                    i > 0 ? ordered[i - 1].Id : null,
+                    i < ordered.Length - 1 ? ordered[i + 1].Id : null);
         }
 
         // drop vehicles stranded on removed lanes/connectors

@@ -42,6 +42,19 @@ public static class ConnectorBuilder
         }
 
         var control = JunctionControl.Resolve(node, edges);
+        bool junction = node.Edges.Count >= 3;
+
+        // left→right rank of each incoming driving lane within its edge approach,
+        // for turn-lane assignment (lefts from the leftmost, rights from the rightmost)
+        var laneRank = new Dictionary<LaneId, (int index, int count)>();
+        foreach (var group in incoming
+                     .Where(x => x.lane.Kind == LaneKind.Driving)
+                     .GroupBy(x => x.lane.Edge))
+        {
+            var ordered = group.OrderBy(x => MathF.Abs(x.lane.Offset)).ToArray();
+            for (int i = 0; i < ordered.Length; i++)
+                laneRank[ordered[i].lane.Id] = (i, ordered.Length);
+        }
 
         var connectors = new List<LaneConnector>(incoming.Count * Math.Max(0, outgoing.Count - 1));
         foreach (var (inLane, inPos, inDir) in incoming)
@@ -51,10 +64,26 @@ public static class ConnectorBuilder
                 continue; // bikes connect to bikes, sidewalks to sidewalks
             if (inLane.Edge == outLane.Edge && !deadEnd)
                 continue; // no U-turns except at dead ends
+            var turn = Classify(inDir, outDir);
+            // turn-lane assignment at real junctions (driving lanes only):
+            // straight from every lane, lefts/u-turns from the leftmost lane,
+            // rights from the rightmost — traffic pre-sorts via lane changes
+            if (junction && inLane.Kind == LaneKind.Driving
+                && laneRank.TryGetValue(inLane.Id, out var rank))
+            {
+                bool allowed = turn switch
+                {
+                    TurnKind.Left or TurnKind.UTurn => rank.index == 0,
+                    TurnKind.Right => rank.index == rank.count - 1,
+                    _ => true,
+                };
+                if (!allowed)
+                    continue;
+            }
             float reach = MathF.Max(Vector3.Distance(inPos, outPos) / 3f, 0.1f);
             var curve = new Bezier3(inPos, inPos + inDir * reach, outPos - outDir * reach, outPos);
             connectors.Add(new LaneConnector(
-                inLane.Id, outLane.Id, curve, Classify(inDir, outDir), RowFor(control, inLane.Edge)));
+                inLane.Id, outLane.Id, curve, turn, RowFor(control, inLane.Edge)));
         }
         return connectors;
     }
