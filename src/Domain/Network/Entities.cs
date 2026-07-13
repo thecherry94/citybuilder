@@ -14,6 +14,11 @@ public sealed class RoadNode
     public JunctionGeometry Junction { get; internal set; } = JunctionGeometry.Empty;
     public IReadOnlyList<LaneConnector> Connectors { get; internal set; } = Array.Empty<LaneConnector>();
 
+    /// <summary>Per connector (parallel to <see cref="Connectors"/>): indices of
+    /// connectors whose paths conflict (curves cross, or merge into the same lane).
+    /// Symmetric; the traffic sim's junction arbitration reads this.</summary>
+    public IReadOnlyList<int[]> ConnectorConflicts { get; internal set; } = Array.Empty<int[]>();
+
     internal RoadNode(NodeId id, Vector3 position)
     {
         Id = id;

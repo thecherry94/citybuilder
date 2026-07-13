@@ -454,5 +454,6 @@ public sealed class RoadNetwork
         node.Config = Prune(node.Config, node.EdgeSet);
         node.Junction = JunctionBuilder.Build(node, _edges);
         node.Connectors = ConnectorBuilder.Build(node, _edges);
+        node.ConnectorConflicts = ConnectorBuilder.BuildConflicts(node.Connectors);
     }
 }

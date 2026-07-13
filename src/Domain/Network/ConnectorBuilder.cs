@@ -59,6 +59,33 @@ public static class ConnectorBuilder
         return connectors;
     }
 
+    /// <summary>Pairwise conflicts between a node's connectors: curves that cross in
+    /// XZ, or two different sources merging into the same target lane. Connectors
+    /// sharing the source lane are queue-ordered, not conflicting.</summary>
+    public static IReadOnlyList<int[]> BuildConflicts(IReadOnlyList<LaneConnector> connectors)
+    {
+        var sets = new List<int>[connectors.Count];
+        for (int i = 0; i < connectors.Count; i++)
+            sets[i] = new List<int>();
+
+        for (int i = 0; i < connectors.Count; i++)
+        for (int j = i + 1; j < connectors.Count; j++)
+        {
+            var a = connectors[i];
+            var b = connectors[j];
+            if (a.From == b.From)
+                continue;
+            bool conflict = a.To == b.To
+                || BezierOps.Intersections(a.Curve, b.Curve).Count > 0;
+            if (conflict)
+            {
+                sets[i].Add(j);
+                sets[j].Add(i);
+            }
+        }
+        return sets.Select(s => s.ToArray()).ToArray();
+    }
+
     /// <summary>Right-of-way class for a connector entering the node from the given
     /// edge, per the resolved junction control.</summary>
     private static RightOfWay RowFor(EffectiveControl control, EdgeId fromEdge)
