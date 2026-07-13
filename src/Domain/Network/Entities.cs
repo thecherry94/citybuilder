@@ -10,6 +10,7 @@ public sealed class RoadNode
     internal readonly HashSet<EdgeId> EdgeSet = new();
 
     public IReadOnlySet<EdgeId> Edges => EdgeSet;
+    public JunctionConfig Config { get; internal set; } = JunctionConfig.Default;
     public JunctionGeometry Junction { get; internal set; } = JunctionGeometry.Empty;
     public IReadOnlyList<LaneConnector> Connectors { get; internal set; } = Array.Empty<LaneConnector>();
 
