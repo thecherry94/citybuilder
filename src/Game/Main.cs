@@ -14,6 +14,23 @@ public partial class Main : Node3D
     private ToolController _controller = null!;
     private RoadNetworkView _view = null!;
     private LaneDebugOverlay _lanes = null!;
+    private CityBuilder.Domain.Traffic.TrafficSim _traffic = null!;
+    private double _trafficAccum;
+
+    public CityBuilder.Domain.Traffic.TrafficSim Traffic => _traffic;
+    public bool TrafficEnabled { get; set; }
+
+    public override void _Process(double delta)
+    {
+        if (!TrafficEnabled)
+            return;
+        _trafficAccum = Math.Min(_trafficAccum + delta, 4.0 / 60);
+        while (_trafficAccum >= 1.0 / 60)
+        {
+            _traffic.Tick(1f / 60f);
+            _trafficAccum -= 1.0 / 60;
+        }
+    }
 
     public override void _Ready()
     {
@@ -59,6 +76,11 @@ public partial class Main : Node3D
         _controller.Bind(_network, snap, camera, ghost, _view);
         AddChild(_controller);
 
+        _traffic = new CityBuilder.Domain.Traffic.TrafficSim(_network, seed: 1);
+        var trafficView = new TrafficView { Name = "TrafficView" };
+        trafficView.Bind(_traffic);
+        AddChild(trafficView);
+
         var highlight = new JunctionHighlight { Name = "JunctionHighlight" };
         highlight.Bind(_network);
         AddChild(highlight);
@@ -66,7 +88,7 @@ public partial class Main : Node3D
         var ui = new CanvasLayer { Name = "Ui" };
         AddChild(ui);
         var toolbar = new Toolbar { Name = "Toolbar" };
-        toolbar.Bind(_controller, _lanes);
+        toolbar.Bind(_controller, _lanes, this);
         ui.AddChild(toolbar);
 
         var junctionPanel = new JunctionPanel { Name = "JunctionPanel" };

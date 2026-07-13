@@ -10,14 +10,17 @@ public partial class Toolbar : Control
 {
     private ToolController _controller = null!;
     private LaneDebugOverlay _lanes = null!;
+    private Main _main = null!;
     private Label _readout = null!;
     private Label _status = null!;
+    private Label _trafficCount = null!;
     private double _statusTtl;
 
-    public void Bind(ToolController controller, LaneDebugOverlay lanes)
+    public void Bind(ToolController controller, LaneDebugOverlay lanes, Main main)
     {
         _controller = controller;
         _lanes = lanes;
+        _main = main;
         controller.StatusFlashed += FlashStatus;
         controller.ReadoutChanged += t => _readout.Text = t;
     }
@@ -94,6 +97,23 @@ public partial class Toolbar : Control
         lanesToggle.Toggled += on => _lanes.SetShown(on);
         box.AddChild(lanesToggle);
 
+        var trafficRow = new HBoxContainer();
+        box.AddChild(trafficRow);
+        var trafficToggle = new CheckBox { Text = "Traffic" };
+        trafficToggle.Toggled += on => _main.TrafficEnabled = on;
+        trafficRow.AddChild(trafficToggle);
+        var density = new HSlider
+        {
+            MinValue = 0, MaxValue = 300, Step = 10, Value = 100,
+            CustomMinimumSize = new Vector2(120, 0),
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+        };
+        density.ValueChanged += val => _main.Traffic.TargetPopulation = (int)val;
+        trafficRow.AddChild(density);
+        _trafficCount = new Label { Text = "0" };
+        trafficRow.AddChild(_trafficCount);
+        _main.Traffic.TargetPopulation = (int)density.Value;
+
         var hint = new Label
         {
             Text = "LMB place · RMB step back · Esc cancel · WASD pan · wheel zoom · Q/E rotate",
@@ -119,6 +139,7 @@ public partial class Toolbar : Control
     {
         var mouse = GetViewport().GetMousePosition();
         _readout.Position = mouse + new Vector2(18, 14);
+        _trafficCount.Text = _main.Traffic.Vehicles.Count.ToString();
 
         if (_statusTtl > 0)
         {
