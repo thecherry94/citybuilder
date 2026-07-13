@@ -182,6 +182,19 @@ public partial class VisualShots : Node3D
             n.ConfigureJunction(node.Id, node.Config with { Mode = JunctionControlMode.AllWayStop });
         }, Standard(new(0, 0, 0), 55));
 
+        yield return new Scenario("lights_cross", n =>
+        {
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, -80), new(0, 0, 80), RoadCatalog.Street.Id));
+            var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+            n.ConfigureJunction(node.Id, node.Config with { Mode = JunctionControlMode.TrafficLights });
+        }, new[]
+        {
+            Top(new(0, 0, 0), 55),
+            Oblique(new(0, 0, 0), 45),
+            new Shot("low", new(2, 0, 2), 26, -16f, 40f),
+        });
+
         yield return new Scenario("street_corner", n =>
         {
             // 90° bend in an urban street: corner marking continuation must keep

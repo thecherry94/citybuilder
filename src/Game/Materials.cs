@@ -60,6 +60,61 @@ public static class Materials
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 
+    public static readonly StandardMaterial3D PropMetal = new()
+    {
+        AlbedoColor = new Color(0.25f, 0.27f, 0.29f),
+        Roughness = 0.6f,
+        Metallic = 0.4f,
+    };
+
+    public static readonly StandardMaterial3D SignRed = new()
+    {
+        AlbedoColor = new Color(0.75f, 0.10f, 0.10f),
+        Roughness = 0.5f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
+    public static readonly StandardMaterial3D SignWhite = new()
+    {
+        AlbedoColor = new Color(0.95f, 0.95f, 0.93f),
+        Roughness = 0.5f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
+    public static readonly StandardMaterial3D SignYellow = new()
+    {
+        AlbedoColor = new Color(0.95f, 0.78f, 0.10f),
+        Roughness = 0.5f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
+    public static readonly StandardMaterial3D LampRed = new()
+    {
+        AlbedoColor = new Color(0.9f, 0.12f, 0.10f),
+        EmissionEnabled = true,
+        Emission = new Color(0.9f, 0.12f, 0.10f),
+        EmissionEnergyMultiplier = 0.6f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
+    public static readonly StandardMaterial3D LampAmber = new()
+    {
+        AlbedoColor = new Color(0.95f, 0.65f, 0.10f),
+        EmissionEnabled = true,
+        Emission = new Color(0.95f, 0.65f, 0.10f),
+        EmissionEnergyMultiplier = 0.3f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
+    public static readonly StandardMaterial3D LampGreen = new()
+    {
+        AlbedoColor = new Color(0.10f, 0.80f, 0.25f),
+        EmissionEnabled = true,
+        Emission = new Color(0.10f, 0.80f, 0.25f),
+        EmissionEnergyMultiplier = 0.6f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
     public static readonly StandardMaterial3D DebugLines = new()
     {
         VertexColorUseAsAlbedo = true,

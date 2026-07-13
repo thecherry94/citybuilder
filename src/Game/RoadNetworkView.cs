@@ -91,8 +91,12 @@ public partial class RoadNetworkView : Node3D
     {
         var mesh = MeshBuilders.BuildJunctionMesh(node, _network.Edges);
         var inst = GetOrCreate(_nodeInstances, node.Id, $"node_{node.Id.Value}");
-        if (mesh is not null && JunctionMarkings.Build(node, _network.Edges) is { } paint)
-            paint.Commit(mesh);
+        if (mesh is not null)
+        {
+            if (JunctionMarkings.Build(node, _network.Edges) is { } paint)
+                paint.Commit(mesh);
+            JunctionProps.Build(node, _network.Edges, mesh);
+        }
         inst.Mesh = mesh; // materials are embedded per surface
         inst.MaterialOverride = DebugTint ? Materials.SnapIndicator : null;
     }
