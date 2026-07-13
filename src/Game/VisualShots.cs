@@ -48,6 +48,22 @@ public partial class VisualShots : Node3D
                 scenario.Build(network);
                 view.FlushDirty();
 
+                TrafficView? trafficView = null;
+                SignalLampView? lampView = null;
+                if (scenario.Traffic is not null)
+                {
+                    var sim = new CityBuilder.Domain.Traffic.TrafficSim(network, seed: 7);
+                    scenario.Traffic(network, sim);
+                    for (int i = 0; i < scenario.WarmupTicks; i++)
+                        sim.Tick(1f / 60f);
+                    trafficView = new TrafficView();
+                    trafficView.Bind(sim);
+                    AddChild(trafficView);
+                    lampView = new SignalLampView();
+                    lampView.Bind(network, sim);
+                    AddChild(lampView);
+                }
+
                 if (scenario.Name == OS.GetEnvironment("CITYBUILDER_SHOTS_DUMP"))
                     DumpMarkingQuads(view);
 
@@ -68,6 +84,8 @@ public partial class VisualShots : Node3D
 
                 view.QueueFree();
                 overlay?.QueueFree();
+                trafficView?.QueueFree();
+                lampView?.QueueFree();
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             }
 
@@ -120,7 +138,8 @@ public partial class VisualShots : Node3D
 
     private sealed record Shot(string Suffix, NVec Target, float Distance, float PitchDeg, float YawDeg);
 
-    private sealed record Scenario(string Name, Action<RoadNetwork> Build, Shot[] Shots, bool ShowLanes = false);
+    private sealed record Scenario(string Name, Action<RoadNetwork> Build, Shot[] Shots, bool ShowLanes = false,
+        Action<RoadNetwork, CityBuilder.Domain.Traffic.TrafficSim>? Traffic = null, int WarmupTicks = 0);
 
     private static Shot Top(NVec target, float dist) => new("top", target, dist, -89f, 0f);
     private static Shot Oblique(NVec target, float dist) => new("oblique", target, dist, -35f, 30f);
@@ -326,6 +345,60 @@ public partial class VisualShots : Node3D
             Commit(n, Straight(new(0, 0, -70), new(0, 0, 70), RoadCatalog.Street.Id));
             Commit(n, Straight(new(14, 0, -70), new(14, 0, 70), RoadCatalog.Street.Id));
         }, Standard(new(7, 0, 0), 55));
+
+        yield return new Scenario("traffic_flow", n =>
+        {
+            // street grid with ambient traffic after a minute of warmup
+            for (int i = 0; i < 3; i++)
+            {
+                Commit(n, Straight(new(-60, 0, i * 120), new(300, 0, i * 120), RoadCatalog.Street.Id));
+                Commit(n, Straight(new(i * 120, 0, -60), new(i * 120, 0, 300), RoadCatalog.Street.Id));
+            }
+        }, new[]
+        {
+            Top(new(120, 0, 120), 200),
+            Oblique(new(120, 0, 120), 130),
+        }, Traffic: (n, sim) => sim.TargetPopulation = 120, WarmupTicks: 3600);
+
+        yield return new Scenario("traffic_red_light", n =>
+        {
+            Commit(n, Straight(new(-150, 0, 0), new(150, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, -150), new(0, 0, 150), RoadCatalog.Street.Id));
+            var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+            n.ConfigureJunction(node.Id, node.Config with { Mode = JunctionControlMode.TrafficLights });
+        }, new[]
+        {
+            Top(new(0, 0, 0), 70),
+            new Shot("low", new(0, 0, 12), 40, -22f, 15f),
+        }, Traffic: (n, sim) =>
+        {
+            // keep both axes fed so one shows a red-light queue
+            sim.TargetPopulation = 24;
+        }, WarmupTicks: 2400);
+
+        yield return new Scenario("traffic_yield", n =>
+        {
+            Commit(n, Straight(new(-200, 0, 0), new(200, 0, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 0, 0), new(0, 0, 200), RoadCatalog.TwoLane.Id));
+        }, new[]
+        {
+            Top(new(0, 0, 10), 60),
+            Oblique(new(0, 0, 10), 50),
+        }, Traffic: (n, sim) =>
+        {
+            EdgeId At(NVec mid) => n.Edges.Values
+                .Single(e => NVec.Distance(e.Curve.Point(0.5f), mid) < 8f).Id;
+            // heavy main flow, side road wants in
+            sim.TargetPopulation = 0;
+            for (int i = 0; i < 10; i++)
+            {
+                sim.Spawn(At(new(-100, 0, 0)), true, At(new(100, 0, 0)));
+                sim.Spawn(At(new(100, 0, 0)), false, At(new(-100, 0, 0)));
+                sim.Spawn(At(new(0, 0, 100)), false, At(new(100, 0, 0)));
+                for (int t = 0; t < 90; t++)
+                    sim.Tick(1f / 60f);
+            }
+        }, WarmupTicks: 300);
 
         yield return new Scenario("lanes_overlay", n =>
         {

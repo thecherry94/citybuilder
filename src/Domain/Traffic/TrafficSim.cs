@@ -154,7 +154,8 @@ public sealed partial class TrafficSim
         // junction stop line: a static wall at the lane end when we may not enter
         if (v.Lane is { } laneId && !v.OnLastStep && v.PlannedConnector is { } pc)
         {
-            float remaining = _runs[laneId].Length - v.S;
+            // hold at the painted stop line, just short of the cut
+            float remaining = _runs[laneId].Length - 0.4f - v.S;
             if (remaining < 40f && !MayEnter(v, pc.Node, pc.Connector))
             {
                 if (remaining < gap)
@@ -437,15 +438,17 @@ public sealed partial class TrafficSim
 
     // ------------------------------------------------------------------- pose
 
-    /// <summary>World position and heading for rendering/tests.</summary>
+    /// <summary>World position (vehicle centre) and heading for rendering/tests.
+    /// S is the front bumper, so the centre trails by half a car length.</summary>
     public (Vector3 Pos, Vector3 Forward) Pose(Vehicle v)
     {
+        float sMid = MathF.Max(0, v.S - Vehicle.Length / 2);
         if (v.Lane is { } laneId)
         {
             var run = _runs[laneId];
             var lane = _lanes[laneId];
             var edge = _network.Edges[run.Edge];
-            float d = run.Forward ? run.DStart + v.S : run.DStart - v.S;
+            float d = run.Forward ? run.DStart + sMid : run.DStart - sMid;
             float t = edge.ArcLength.TAtDistance(d);
             float offset = lane.Offset;
             if (v.ChangeFrom is { } from)
@@ -460,7 +463,7 @@ public sealed partial class TrafficSim
         }
         var (node, ci) = v.Crossing!.Value;
         var curve = _network.Nodes[node].Connectors[ci].Curve;
-        float tc = _connectorLength[(node, ci)].TAtDistance(v.S);
+        float tc = _connectorLength[(node, ci)].TAtDistance(sMid);
         return (curve.Point(tc), curve.Tangent(tc));
     }
 }

@@ -285,6 +285,15 @@ public partial class Main : Node3D
                 "connectors at a lights junction must be Signal");
             _view.FlushDirty(); // rebuild with props; must not throw
 
+            // traffic: seeded ambient population must flow and complete trips,
+            // including through the lights junction configured above
+            _traffic.TargetPopulation = 15;
+            for (int i = 0; i < 3600; i++)
+                _traffic.Tick(1f / 60f);
+            Expect(_traffic.Vehicles.Count >= 5,
+                $"expected ≥5 ambient vehicles, got {_traffic.Vehicles.Count}");
+            Expect(_traffic.Arrived > 0, "no vehicle completed a trip");
+
             GD.Print("SMOKE OK");
             GetTree().Quit(0);
         }
