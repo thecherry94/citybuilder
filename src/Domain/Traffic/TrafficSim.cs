@@ -11,7 +11,7 @@ namespace CityBuilder.Domain.Traffic;
 /// junction connectors when arbitration allows, and despawns at its goal.
 /// Pure C#: deterministic under a fixed dt and seed.
 /// </summary>
-public sealed class TrafficSim
+public sealed partial class TrafficSim
 {
     private const float LookAheadHorizon = 120f;
     private const float SpawnClearance = Vehicle.Length + Idm.S0;
@@ -28,6 +28,8 @@ public sealed class TrafficSim
     private readonly Dictionary<(NodeId, int), ArcLengthTable> _connectorLength = new();
     private readonly Dictionary<LaneId, List<Vehicle>> _laneVehicles = new();
     private readonly Dictionary<(NodeId, int), List<Vehicle>> _connectorVehicles = new();
+    private readonly Dictionary<NodeId, EffectiveControl> _controls = new();
+    private readonly Dictionary<NodeId, List<LaneId>> _incomingLanes = new();
 
     public TrafficSim(RoadNetwork network, int seed = 1)
     {
@@ -102,8 +104,6 @@ public sealed class TrafficSim
             v.Speed = MathF.Max(0, v.Speed + v.Accel * dt);
             v.S += v.Speed * dt;
             v.StuckTime = v.Speed < 0.1f ? v.StuckTime + dt : 0f;
-            if (v.Speed < 0.1f)
-                v.HasStopped = true;
             UpdateLaneChange(v, dt);
         }
 
@@ -289,17 +289,6 @@ public sealed class TrafficSim
         return false;
     }
 
-    // ------------------------------------------------------------ arbitration
-    // Task 5 replaces this stub with right-of-way rules.
-
-    private bool MayEnter(Vehicle v, NodeId node, int connector)
-    {
-        var toLane = _network.Nodes[node].Connectors[connector].To;
-        var target = _laneVehicles[toLane];
-        return target.Count == 0 || target[^1].S > SpawnClearance;
-    }
-
-    private void AdvanceSignals(float dt) { }
     private void UpdateLaneChange(Vehicle v, float dt) { }
     private void SpawnerTick(float dt) { }
 
@@ -341,7 +330,11 @@ public sealed class TrafficSim
                 oldLaneQueues.Remove(lane.Id);
             }
         }
+        _controls.Clear();
+        _incomingLanes.Clear();
         foreach (var node in _network.Nodes.Values)
+        {
+            _controls[node.Id] = JunctionControl.Resolve(node, _network.Edges);
             for (int i = 0; i < node.Connectors.Count; i++)
             {
                 _connectorLength[(node.Id, i)] = new ArcLengthTable(node.Connectors[i].Curve, 24);
@@ -349,6 +342,15 @@ public sealed class TrafficSim
                     _connectorVehicles[(node.Id, i)] = new List<Vehicle>();
                 oldConnQueues.Remove((node.Id, i));
             }
+        }
+        foreach (var (laneId, run) in _runs)
+        {
+            var edge = _network.Edges[run.Edge];
+            var exit = run.Forward ? edge.EndNode : edge.StartNode;
+            if (!_incomingLanes.TryGetValue(exit, out var list))
+                _incomingLanes[exit] = list = new List<LaneId>();
+            list.Add(laneId);
+        }
 
         // drop vehicles stranded on removed lanes/connectors
         foreach (var key in oldLaneQueues)
