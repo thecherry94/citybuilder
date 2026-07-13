@@ -49,6 +49,7 @@ public partial class Toolbar : Control
             ("Chain", ToolMode.Continuous),
             ("Grid", ToolMode.Grid),
             ("Bulldoze", ToolMode.Bulldoze),
+            ("Junction", ToolMode.Inspect),
         })
         {
             var b = new Button

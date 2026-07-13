@@ -5,7 +5,7 @@ using Godot;
 
 namespace CityBuilder.Game;
 
-public enum ToolMode { Straight, SimpleCurve, ComplexCurve, Continuous, Grid, Bulldoze }
+public enum ToolMode { Straight, SimpleCurve, ComplexCurve, Continuous, Grid, Bulldoze, Inspect }
 
 /// <summary>Translates input into the domain tool state machines and keeps the ghost
 /// preview in sync. All world mutations flow through RoadNetwork.Commit/RemoveEdge.</summary>
@@ -30,9 +30,11 @@ public partial class ToolController : Node
     private SnapTypes _snapTypes = SnapTypes.All;
     private System.Numerics.Vector3? _anchor;
     private EdgeId? _bulldozeTarget;
+    private NodeId? _selectedNode;
 
     public event Action<string>? StatusFlashed;
     public event Action<string>? ReadoutChanged;
+    public event Action<NodeId?>? NodeSelected;
 
     public ToolMode Mode => _mode;
 
@@ -53,6 +55,16 @@ public partial class ToolController : Node
         _ghost.Clear();
         _view.HighlightEdge(null);
         _bulldozeTarget = null;
+        if (mode != ToolMode.Inspect)
+            SelectNode(null);
+    }
+
+    private void SelectNode(NodeId? id)
+    {
+        if (_selectedNode == id)
+            return;
+        _selectedNode = id;
+        NodeSelected?.Invoke(id);
     }
 
     public void SetRoadType(RoadTypeId type)
@@ -93,6 +105,13 @@ public partial class ToolController : Node
 
     public void HandleHoverAt(System.Numerics.Vector3 world)
     {
+        if (_mode == ToolMode.Inspect)
+        {
+            _ghost.Clear();
+            ReadoutChanged?.Invoke(PickNode(world) is null ? "" : "click to configure junction");
+            return;
+        }
+
         if (_mode == ToolMode.Bulldoze)
         {
             var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
@@ -120,6 +139,12 @@ public partial class ToolController : Node
 
     public void HandleClickAt(System.Numerics.Vector3 world)
     {
+        if (_mode == ToolMode.Inspect)
+        {
+            SelectNode(PickNode(world));
+            return;
+        }
+
         if (_mode == ToolMode.Bulldoze)
         {
             HandleHoverAt(world); // refresh target under the cursor
@@ -179,6 +204,24 @@ public partial class ToolController : Node
         CurrentTool?.Reset();
         _anchor = null;
         _ghost.Clear();
+    }
+
+    /// <summary>Nearest node within a generous click radius; falls back to the closer
+    /// endpoint of the closest edge so clicks inside a junction surface still land.</summary>
+    private NodeId? PickNode(System.Numerics.Vector3 world)
+    {
+        float radius = MathF.Max(8f, _camera.SnapRadius());
+        if (_network.FindNodeNear(world, radius) is { } direct)
+            return direct;
+        if (_network.FindClosestEdge(world, radius) is { } hit)
+        {
+            var edge = _network.Edges[hit.id];
+            var sn = _network.Nodes[edge.StartNode];
+            var en = _network.Nodes[edge.EndNode];
+            return System.Numerics.Vector3.Distance(world, sn.Position)
+                 <= System.Numerics.Vector3.Distance(world, en.Position) ? sn.Id : en.Id;
+        }
+        return null;
     }
 
     private SnapResult ResolveSnap(System.Numerics.Vector3 world)

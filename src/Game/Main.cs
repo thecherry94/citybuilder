@@ -56,11 +56,27 @@ public partial class Main : Node3D
         _controller.Bind(_network, snap, camera, ghost, _view);
         AddChild(_controller);
 
+        var highlight = new JunctionHighlight { Name = "JunctionHighlight" };
+        highlight.Bind(_network);
+        AddChild(highlight);
+
         var ui = new CanvasLayer { Name = "Ui" };
         AddChild(ui);
         var toolbar = new Toolbar { Name = "Toolbar" };
         toolbar.Bind(_controller, _lanes);
         ui.AddChild(toolbar);
+
+        var junctionPanel = new JunctionPanel { Name = "JunctionPanel" };
+        junctionPanel.Bind(_network);
+        ui.AddChild(junctionPanel);
+        _controller.NodeSelected += id =>
+        {
+            highlight.SetNode(id);
+            if (id is { } nodeId)
+                junctionPanel.ShowNode(nodeId);
+            else
+                junctionPanel.HideNode();
+        };
 
         if (!fromEditor && OS.GetEnvironment("CITYBUILDER_SMOKE") == "1")
             CallDeferred(MethodName.RunSmoke);
@@ -176,6 +192,25 @@ public partial class Main : Node3D
             // lane overlay renders without errors
             _lanes.SetShown(true);
             Expect(LaneGraph.IsStronglyConnected(_network), "lane graph not strongly connected");
+
+            // junction control: lights + resize on the T junction left by the bulldoze
+            var tee = _network.Nodes.Values.First(n => n.Edges.Count == 3);
+            var leg = tee.Edges.First();
+            float cutBefore = System.Numerics.Vector3.Distance(
+                _network.Edges[leg].Curve.Point(tee.Junction.CutT[leg]), tee.Position);
+            _network.ConfigureJunction(tee.Id, tee.Config with
+            {
+                Mode = CityBuilder.Domain.Network.JunctionControlMode.TrafficLights,
+                SizeOffset = 3f,
+            });
+            float cutAfter = System.Numerics.Vector3.Distance(
+                _network.Edges[leg].Curve.Point(tee.Junction.CutT[leg]), tee.Position);
+            Expect(MathF.Abs(cutAfter - cutBefore - 3f) < 0.2f,
+                $"resize: cut moved {cutAfter - cutBefore:F2}, wanted ~3");
+            Expect(tee.Connectors.Any(), "no connectors at controlled junction");
+            Expect(tee.Connectors.All(c => c.Row == CityBuilder.Domain.Network.RightOfWay.Signal),
+                "connectors at a lights junction must be Signal");
+            _view.FlushDirty(); // rebuild with props; must not throw
 
             GD.Print("SMOKE OK");
             GetTree().Quit(0);
