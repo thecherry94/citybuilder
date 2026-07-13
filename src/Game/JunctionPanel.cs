@@ -38,8 +38,7 @@ public partial class JunctionPanel : PanelContainer
     public override void _Ready()
     {
         Visible = false;
-        SetAnchorsPreset(Control.LayoutPreset.TopRight);
-        Position = new Vector2(-12, 12);
+        SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopRight, Control.LayoutPresetMode.Minsize, 12);
         GrowHorizontal = GrowDirection.Begin;
         MouseFilter = MouseFilterEnum.Stop;
 

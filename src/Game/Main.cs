@@ -83,6 +83,8 @@ public partial class Main : Node3D
 
         if (!fromEditor && OS.GetEnvironment("CITYBUILDER_SMOKE") == "1")
             CallDeferred(MethodName.RunSmoke);
+        if (!fromEditor && OS.GetEnvironment("CITYBUILDER_UITEST") is { Length: > 0 })
+            CallDeferred(MethodName.RunUiTest);
     }
 
     private static bool RawCmdlineHasEditorPid()
@@ -144,6 +146,39 @@ public partial class Main : Node3D
             Mesh = new PlaneMesh { Size = new Vector2(2048, 2048) },
             MaterialOverride = new ShaderMaterial { Shader = shader },
         };
+    }
+
+    // ----------------------------------------------------------------- ui test
+
+    /// <summary>Scripted reproduction of the inspect flow with a real window:
+    /// build a cross, enter Inspect, click the junction, screenshot, quit.</summary>
+    private async void RunUiTest()
+    {
+        try
+        {
+            static System.Numerics.Vector3 V(float x, float z) => new(x, 0, z);
+            _controller.SetMode(ToolMode.Straight);
+            _controller.HandleClickAt(V(-80, 0));
+            _controller.HandleClickAt(V(80, 0));
+            _controller.HandleClickAt(V(0, -80));
+            _controller.HandleClickAt(V(0, 80));
+            _controller.SetMode(ToolMode.Inspect);
+            _controller.HandleClickAt(V(0, 0));
+            _view.FlushDirty();
+
+            await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            var img = GetViewport().GetTexture().GetImage();
+            img.SavePng(OS.GetEnvironment("CITYBUILDER_UITEST"));
+            var panel = GetNode<JunctionPanel>("Ui/JunctionPanel");
+            GD.Print($"UITEST OK visible={panel.Visible} rect={panel.GetGlobalRect()}");
+            GetTree().Quit(0);
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"UITEST FAIL: {ex}");
+            GetTree().Quit(1);
+        }
     }
 
     // ------------------------------------------------------------------- smoke
