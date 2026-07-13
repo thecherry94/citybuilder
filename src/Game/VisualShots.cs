@@ -50,9 +50,10 @@ public partial class VisualShots : Node3D
 
                 TrafficView? trafficView = null;
                 SignalLampView? lampView = null;
+                CityBuilder.Domain.Traffic.TrafficSim? sim = null;
                 if (scenario.Traffic is not null)
                 {
-                    var sim = new CityBuilder.Domain.Traffic.TrafficSim(network, seed: 7);
+                    sim = new CityBuilder.Domain.Traffic.TrafficSim(network, seed: 7);
                     scenario.Traffic(network, sim);
                     for (int i = 0; i < scenario.WarmupTicks; i++)
                         sim.Tick(1f / 60f);
@@ -80,6 +81,23 @@ public partial class VisualShots : Node3D
                     _camera.Frame(shot.Target.ToGodot(), shot.Distance, shot.PitchDeg, shot.YawDeg);
                     await CaptureAsync($"{_dir}/{scenario.Name}_{shot.Suffix}.png");
                     count++;
+                }
+
+                // motion filmstrip: frames ~0.33 s apart while the sim runs, from the
+                // first camera. Composite with `magick *_motion*.png -compose lighten
+                // -flatten trails.png` — evenly spaced car ghosts = smooth motion,
+                // clumps or gaps = snapping. This is how movement gets debugged.
+                if (sim is not null)
+                {
+                    var cam = scenario.Shots[0];
+                    _camera.Frame(cam.Target.ToGodot(), cam.Distance, cam.PitchDeg, cam.YawDeg);
+                    for (int f = 0; f < 8; f++)
+                    {
+                        await CaptureAsync($"{_dir}/{scenario.Name}_motion{f}.png");
+                        count++;
+                        for (int k = 0; k < 20; k++)
+                            sim.Tick(1f / 60f);
+                    }
                 }
 
                 view.QueueFree();

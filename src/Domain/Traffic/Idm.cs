@@ -5,10 +5,10 @@ namespace CityBuilder.Domain.Traffic;
 /// tactical layer — each vehicle only ever looks at its leader.</summary>
 public static class Idm
 {
-    public const float T = 1.2f;      // desired time headway, s
+    public const float T = 1.1f;      // desired time headway, s
     public const float S0 = 2f;       // standstill gap, m
-    public const float A = 1.5f;      // max acceleration, m/s²
-    public const float B = 2.0f;      // comfortable braking, m/s²
+    public const float A = 2.6f;      // max acceleration, m/s² (snappy, game feel)
+    public const float B = 2.8f;      // comfortable braking, m/s²
     public const float FreeGap = 1e9f;
 
     /// <param name="v">own speed m/s</param>

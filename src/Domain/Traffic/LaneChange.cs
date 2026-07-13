@@ -49,6 +49,14 @@ public sealed partial class TrafficSim
         if (!_adjacent.TryGetValue(laneId, out var adj) || (adj.Left is null && adj.Right is null))
             return;
         float distToCut = _runs[laneId].Length - v.S;
+        if (distToCut < v.Speed * ChangeDuration + 6f)
+        {
+            // couldn't finish the manoeuvre before the junction at this speed;
+            // mandatory merges retry once the wrong-lane wall has slowed us down
+            bool serves0 = v.OnLastStep || v.PlannedConnector is not null;
+            if (serves0 || v.Speed > 3f)
+                return;
+        }
         bool serves = v.OnLastStep || v.PlannedConnector is not null;
 
         if (!serves && distToCut < MandatoryWindow)

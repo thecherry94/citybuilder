@@ -108,7 +108,10 @@ public sealed partial class TrafficSim
                 _vehicles.RemoveAt(i);
                 continue;
             }
-            // connector indices are per-rebuild: recompute even for intact routes
+            // connector indices are per-rebuild: recompute even for intact routes,
+            // and drop pose history pointing at rebuilt geometry
+            v.PrevCrossing = null;
+            v.PrevLane = null;
             if (v.Lane is { } laneId)
                 v.PlannedConnector = PickConnector(v, laneId);
         }

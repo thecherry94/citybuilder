@@ -22,6 +22,12 @@ public sealed class Vehicle
     /// <summary>Connector picked for the next junction (valid while on a lane).</summary>
     public (NodeId Node, int Connector)? PlannedConnector { get; set; }
 
+    /// <summary>Segment the vehicle just left, and its length — the rear half of the
+    /// car still renders on it until S exceeds half a car length.</summary>
+    public LaneId? PrevLane { get; set; }
+    public (NodeId Node, int Connector)? PrevCrossing { get; set; }
+    public float PrevLength { get; set; }
+
     public float StuckTime { get; set; }
     public bool HasStopped { get; set; }          // stop-sign compliance latch
     public float WaitArrivalOrder { get; set; }   // all-way stop FIFO ticket

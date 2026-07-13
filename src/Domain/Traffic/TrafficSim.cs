@@ -133,6 +133,7 @@ public sealed partial class TrafficSim
             UpdateLaneChange(v, dt);
         }
 
+        EnforceNoPenetration();
         HandleTransitions();
         AfterTick(dt);
 
@@ -182,10 +183,35 @@ public sealed partial class TrafficSim
     private float DesiredSpeed(Vehicle v)
     {
         if (v.Lane is { } laneId)
-            return _runs[laneId].SpeedLimit;
-        // connectors: crawl through junctions
-        return 8f;
+        {
+            var run = _runs[laneId];
+            float v0 = run.SpeedLimit;
+            // approach upcoming turns along a comfortable braking envelope instead
+            // of hitting the connector at full speed
+            if (v.PlannedConnector is { } pc)
+            {
+                float dist = MathF.Max(0, run.Length - v.S);
+                if (dist < 40f)
+                {
+                    float turnV = ConnectorSpeed(pc);
+                    float envelope = MathF.Sqrt(turnV * turnV + 2f * Idm.B * dist);
+                    v0 = MathF.Min(v0, envelope);
+                }
+            }
+            return v0;
+        }
+        return v.Crossing is { } cr ? ConnectorSpeed(cr) : 8f;
     }
+
+    /// <summary>Comfortable speed through a junction, by movement geometry.</summary>
+    private float ConnectorSpeed((NodeId Node, int Connector) key)
+        => _network.Nodes[key.Node].Connectors[key.Connector].Turn switch
+        {
+            TurnKind.Straight => 14f,
+            TurnKind.Right => 8f,
+            TurnKind.Left => 9f,
+            _ => 5f, // u-turns
+        };
 
     /// <summary>Bumper gap and closing speed to the nearest leader within the
     /// look-ahead horizon, walking lane → connector → next lane.</summary>
@@ -224,6 +250,30 @@ public sealed partial class TrafficSim
     private static Vehicle? FirstOn(List<Vehicle> queue)
         => queue.Count > 0 ? queue[^1] : null; // sorted desc by S → last = closest to entry
 
+    /// <summary>Hard failsafe: whatever the models did this tick, a follower never
+    /// ends up inside its leader. Queues are still in last tick's order (no in-lane
+    /// overtaking), so a single front-to-back pass suffices.</summary>
+    private void EnforceNoPenetration()
+    {
+        foreach (var queue in _laneVehicles.Values)
+            ClampQueue(queue);
+        foreach (var queue in _connectorVehicles.Values)
+            ClampQueue(queue);
+
+        static void ClampQueue(List<Vehicle> queue)
+        {
+            for (int i = 1; i < queue.Count; i++)
+            {
+                float limit = queue[i - 1].S - Vehicle.Length - 0.1f;
+                if (queue[i].S > limit)
+                {
+                    queue[i].S = limit;
+                    queue[i].Speed = MathF.Min(queue[i].Speed, queue[i - 1].Speed);
+                }
+            }
+        }
+    }
+
     // ------------------------------------------------------------ transitions
 
     private void HandleTransitions()
@@ -244,10 +294,19 @@ public sealed partial class TrafficSim
                     Arrived++;
                     continue;
                 }
-                if (v.PlannedConnector is { } pc && MayEnter(v, pc.Node, pc.Connector))
+                if (v.ChangeFrom is not null)
+                {
+                    // never enter a junction mid-lane-change: hold at the line
+                    v.S = len;
+                    v.Speed = 0;
+                }
+                else if (v.PlannedConnector is { } pc && MayEnter(v, pc.Node, pc.Connector))
                 {
                     float overshoot = v.S - len;
                     RemoveFromQueues(v);
+                    v.PrevLane = laneId;
+                    v.PrevCrossing = null;
+                    v.PrevLength = len;
                     v.Lane = null;
                     v.ChangeFrom = null;
                     v.ChangeProgress = 0;
@@ -268,6 +327,9 @@ public sealed partial class TrafficSim
                 float overshoot = v.S - len;
                 var toLane = _network.Nodes[cr.Node].Connectors[cr.Connector].To;
                 RemoveFromQueues(v);
+                v.PrevCrossing = cr;
+                v.PrevLane = null;
+                v.PrevLength = len;
                 v.Crossing = null;
                 v.Lane = toLane;
                 v.S = overshoot;
@@ -439,17 +501,26 @@ public sealed partial class TrafficSim
     // ------------------------------------------------------------------- pose
 
     /// <summary>World position (vehicle centre) and heading for rendering/tests.
-    /// S is the front bumper, so the centre trails by half a car length.</summary>
+    /// S is the front bumper, so the centre trails by half a car length — including
+    /// across segment boundaries: while the centre is still behind the current
+    /// segment's start it renders on the segment the vehicle just left, so poses
+    /// never jump at junctions (or dead-end u-turns).</summary>
     public (Vector3 Pos, Vector3 Forward) Pose(Vehicle v)
     {
-        float sMid = MathF.Max(0, v.S - Vehicle.Length / 2);
+        float sMid = v.S - Vehicle.Length / 2;
+
+        if (sMid < 0)
+        {
+            if (v.PrevCrossing is { } pcr && _connectorLength.ContainsKey(pcr))
+                return PoseOnConnector(pcr, MathF.Max(0, v.PrevLength + sMid));
+            if (v.PrevLane is { } prev && _runs.ContainsKey(prev))
+                return PoseOnLane(prev, v.PrevLength + sMid, _lanes[prev].Offset);
+            sMid = 0; // fresh spawn: no history yet
+        }
+
         if (v.Lane is { } laneId)
         {
-            var run = _runs[laneId];
             var lane = _lanes[laneId];
-            var edge = _network.Edges[run.Edge];
-            float d = run.Forward ? run.DStart + sMid : run.DStart - sMid;
-            float t = edge.ArcLength.TAtDistance(d);
             float offset = lane.Offset;
             if (v.ChangeFrom is { } from)
             {
@@ -457,13 +528,27 @@ public sealed partial class TrafficSim
                 float smooth = p * p * (3 - 2 * p);
                 offset = _lanes[from].Offset + (lane.Offset - _lanes[from].Offset) * smooth;
             }
-            var pos = edge.Curve.OffsetPoint(t, offset);
-            var fwd = edge.Curve.Tangent(t);
-            return (pos, run.Forward ? fwd : -fwd);
+            return PoseOnLane(laneId, sMid, offset);
         }
-        var (node, ci) = v.Crossing!.Value;
-        var curve = _network.Nodes[node].Connectors[ci].Curve;
-        float tc = _connectorLength[(node, ci)].TAtDistance(sMid);
+        return PoseOnConnector(v.Crossing!.Value, sMid);
+    }
+
+    private (Vector3 Pos, Vector3 Forward) PoseOnLane(LaneId laneId, float s, float offset)
+    {
+        var run = _runs[laneId];
+        var edge = _network.Edges[run.Edge];
+        float d = Math.Clamp(run.Forward ? run.DStart + s : run.DStart - s,
+            0f, edge.ArcLength.TotalLength);
+        float t = edge.ArcLength.TAtDistance(d);
+        var pos = edge.Curve.OffsetPoint(t, offset);
+        var fwd = edge.Curve.Tangent(t);
+        return (pos, run.Forward ? fwd : -fwd);
+    }
+
+    private (Vector3 Pos, Vector3 Forward) PoseOnConnector((NodeId Node, int Connector) key, float s)
+    {
+        var curve = _network.Nodes[key.Node].Connectors[key.Connector].Curve;
+        float tc = _connectorLength[key].TAtDistance(MathF.Min(s, _connectorLength[key].TotalLength));
         return (curve.Point(tc), curve.Tangent(tc));
     }
 }
