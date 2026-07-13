@@ -81,6 +81,10 @@ public partial class Main : Node3D
         trafficView.Bind(_traffic);
         AddChild(trafficView);
 
+        var lampView = new SignalLampView { Name = "SignalLampView" };
+        lampView.Bind(_network, _traffic);
+        AddChild(lampView);
+
         var highlight = new JunctionHighlight { Name = "JunctionHighlight" };
         highlight.Bind(_network);
         AddChild(highlight);

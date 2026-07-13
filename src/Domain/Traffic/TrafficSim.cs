@@ -91,6 +91,10 @@ public sealed partial class TrafficSim
             .OrderByDescending(l => route.Steps.Count == 1 || ServesNextMovement(l.Id, route, 0))
             .ThenBy(l => l.Id.Value);
 
+    /// <summary>Refresh caches/signal controllers after network edits without
+    /// advancing the simulation (views need phases while the sim is paused).</summary>
+    public void EnsureSynced() => Sync();
+
     /// <summary>Test hook: teleport a vehicle onto a specific lane at its current S.</summary>
     internal void ForceLane(Vehicle v, LaneId lane)
     {

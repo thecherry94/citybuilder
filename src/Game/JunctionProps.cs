@@ -26,27 +26,8 @@ public static class JunctionProps
 
         var buckets = new Dictionary<StandardMaterial3D, SurfaceTool>();
 
-        foreach (var edgeId in node.Edges)
+        foreach (var (edgeId, basePos, facing) in ApproachAnchors(node, edges))
         {
-            var edge = edges[edgeId];
-            bool startsHere = edge.StartNode == node.Id;
-            var type = RoadCatalog.Get(edge.Type);
-
-            bool hasIncoming = edge.Lanes.Any(l => l.Kind == LaneKind.Driving
-                && (l.Direction == LaneDirection.Forward ? !startsHere : startsHere));
-            if (!hasIncoming)
-                continue;
-
-            float tCut = node.Junction.CutT.TryGetValue(edgeId, out var t) ? t : (startsHere ? 0f : 1f);
-            // driver's right of the incoming travel direction, just off the carriageway
-            float sideDist = type.HasSidewalks ? type.OuterHalf - 0.5f : type.CarriagewayHalf + 0.4f;
-            var basePos = edge.Curve.OffsetPoint(tCut, startsHere ? -sideDist : sideDist).ToGodot();
-            basePos.Y = MeshBuilders.SurfaceY + (type.HasSidewalks ? MeshBuilders.SidewalkRise : 0f);
-
-            var tangent = edge.Curve.Tangent(tCut).ToGodot();
-            var incomingDir = (startsHere ? -tangent : tangent).Normalized();
-            var facing = -incomingDir; // plate normal, toward the approaching driver
-
             switch (control.Mode)
             {
                 case JunctionControlMode.TrafficLights:
@@ -71,6 +52,45 @@ public static class JunctionProps
             st.Index();
             st.Commit(mesh);
         }
+    }
+
+    /// <summary>Per incoming approach: prop anchor on the driver's right at the cut,
+    /// and the facing direction (toward the approaching driver). Shared with the
+    /// animated signal lamp view so lamps sit exactly on the prop poles.</summary>
+    public static IEnumerable<(EdgeId Leg, Vector3 BasePos, Vector3 Facing)> ApproachAnchors(
+        RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges)
+    {
+        foreach (var edgeId in node.Edges)
+        {
+            var edge = edges[edgeId];
+            bool startsHere = edge.StartNode == node.Id;
+            var type = RoadCatalog.Get(edge.Type);
+
+            bool hasIncoming = edge.Lanes.Any(l => l.Kind == LaneKind.Driving
+                && (l.Direction == LaneDirection.Forward ? !startsHere : startsHere));
+            if (!hasIncoming)
+                continue;
+
+            float tCut = node.Junction.CutT.TryGetValue(edgeId, out var t) ? t : (startsHere ? 0f : 1f);
+            float sideDist = type.HasSidewalks ? type.OuterHalf - 0.5f : type.CarriagewayHalf + 0.4f;
+            var basePos = edge.Curve.OffsetPoint(tCut, startsHere ? -sideDist : sideDist).ToGodot();
+            basePos.Y = MeshBuilders.SurfaceY + (type.HasSidewalks ? MeshBuilders.SidewalkRise : 0f);
+
+            var tangent = edge.Curve.Tangent(tCut).ToGodot();
+            var facing = (startsHere ? tangent : -tangent).Normalized();
+            yield return (edgeId, basePos, facing);
+        }
+    }
+
+    /// <summary>The three lamp centres (red, amber, green) of a signal head anchored
+    /// at the given pole position.</summary>
+    public static Vector3[] SignalLampCenters(Vector3 basePos, Vector3 facing)
+    {
+        var center = basePos + Vector3.Up * (LightPoleHeight - 0.75f) + facing * (PoleRadius + 0.13f);
+        var result = new Vector3[3];
+        for (int i = 0; i < 3; i++)
+            result[i] = center + Vector3.Up * (0.28f - i * 0.28f) + facing * 0.115f;
+        return result;
     }
 
     // ------------------------------------------------------------------- props
@@ -106,16 +126,11 @@ public static class JunctionProps
 
     private static void AddTrafficLight(Dictionary<StandardMaterial3D, SurfaceTool> b, Vector3 basePos, Vector3 facing)
     {
+        // housing only — the lamps are animated MeshInstances (SignalLampView)
         AddPole(b, basePos, LightPoleHeight);
         var right = facing.Cross(Vector3.Up).Normalized();
         var center = basePos + Vector3.Up * (LightPoleHeight - 0.75f) + facing * (PoleRadius + 0.13f);
         AddBox(b, Materials.PropMetal, center, right * 0.16f, Vector3.Up * 0.46f, facing * 0.11f);
-        for (int i = 0; i < 3; i++)
-        {
-            var mat = i == 0 ? Materials.LampRed : i == 1 ? Materials.LampAmber : Materials.LampGreen;
-            var lampC = center + Vector3.Up * (0.28f - i * 0.28f) + facing * 0.115f;
-            AddNGonPlate(b, mat, lampC, right, 0.10f, 8, facing, 0f);
-        }
     }
 
     // --------------------------------------------------------------- primitives
