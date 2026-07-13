@@ -418,10 +418,40 @@ public sealed class RoadNetwork
         Changed?.Invoke(new NetworkDelta(b.EdgesAdded, b.EdgesRemoved, b.NodesAdded, b.NodesRemoved, changed));
     }
 
+    /// <summary>Apply an authored junction configuration (control mode, per-leg roles,
+    /// size offsets). Overrides for edges no longer connected are pruned. Rebuilds the
+    /// node's derived data and raises a change event.</summary>
+    public void ConfigureJunction(NodeId id, JunctionConfig config)
+    {
+        if (!_nodes.TryGetValue(id, out var node))
+            throw new ArgumentException($"unknown node {id}");
+        node.Config = Prune(config, node.EdgeSet);
+        RebuildDerived(node);
+        Version++;
+        Changed?.Invoke(new NetworkDelta(
+            new HashSet<EdgeId>(), new HashSet<EdgeId>(),
+            new HashSet<NodeId>(), new HashSet<NodeId>(),
+            new HashSet<NodeId> { id }));
+    }
+
+    private static JunctionConfig Prune(JunctionConfig c, IReadOnlySet<EdgeId> edges)
+    {
+        if (c.RoleOverrides.Keys.All(edges.Contains) && c.LegOffsets.Keys.All(edges.Contains))
+            return c;
+        return c with
+        {
+            RoleOverrides = c.RoleOverrides.Where(kv => edges.Contains(kv.Key))
+                .ToDictionary(kv => kv.Key, kv => kv.Value),
+            LegOffsets = c.LegOffsets.Where(kv => edges.Contains(kv.Key))
+                .ToDictionary(kv => kv.Key, kv => kv.Value),
+        };
+    }
+
     /// <summary>Regenerate junction geometry and lane connectors for a node.
     /// Order matters: connectors start at the junction cuts.</summary>
     private void RebuildDerived(RoadNode node)
     {
+        node.Config = Prune(node.Config, node.EdgeSet);
         node.Junction = JunctionBuilder.Build(node, _edges);
         node.Connectors = ConnectorBuilder.Build(node, _edges);
     }

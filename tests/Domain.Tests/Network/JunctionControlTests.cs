@@ -90,6 +90,58 @@ public class JunctionControlTests
     }
 
     [Fact]
+    public void ConfigureJunctionRaisesChangedAndBumpsVersion()
+    {
+        var n = Cross(out var node);
+        int version = n.Version;
+        NetworkDelta? delta = null;
+        n.Changed += d => delta = d;
+
+        n.ConfigureJunction(node.Id, JunctionConfig.Default with { Mode = JunctionControlMode.AllWayStop });
+
+        Assert.True(n.Version > version);
+        Assert.NotNull(delta);
+        Assert.Contains(node.Id, delta!.NodesChanged);
+        Assert.Equal(JunctionControlMode.AllWayStop, node.Config.Mode);
+    }
+
+    [Fact]
+    public void ConfigureJunctionPrunesUnknownEdges()
+    {
+        var n = Cross(out var node);
+        n.ConfigureJunction(node.Id, JunctionConfig.Default with
+        {
+            RoleOverrides = new Dictionary<EdgeId, LegRole> { [new EdgeId(9999)] = LegRole.Stop },
+            LegOffsets = new Dictionary<EdgeId, float> { [new EdgeId(9999)] = 4f },
+        });
+        Assert.Empty(node.Config.RoleOverrides);
+        Assert.Empty(node.Config.LegOffsets);
+    }
+
+    [Fact]
+    public void BulldozingALegPrunesItsOverride()
+    {
+        var n = Cross(out var node);
+        var leg = node.Edges.First();
+        n.ConfigureJunction(node.Id, JunctionConfig.Default with
+        {
+            RoleOverrides = new Dictionary<EdgeId, LegRole> { [leg] = LegRole.Stop },
+        });
+        Assert.Single(node.Config.RoleOverrides);
+
+        n.RemoveEdge(leg);
+        Assert.Empty(node.Config.RoleOverrides);
+    }
+
+    [Fact]
+    public void ConfigureJunctionThrowsOnUnknownNode()
+    {
+        var n = Net.New();
+        Assert.Throws<ArgumentException>(
+            () => n.ConfigureJunction(new NodeId(4242), JunctionConfig.Default));
+    }
+
+    [Fact]
     public void ExplicitModesApplyAtJunctions()
     {
         var n = Cross(out var node);
