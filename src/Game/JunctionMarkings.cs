@@ -219,7 +219,7 @@ public static class JunctionMarkings
             var curve = valid
                 ? Bezier3.FromQuadratic(paO, corner!.Value, pbO)
                 : Bezier3.Line(paO, pbO);
-            SweepLine(st, curve, new ArcLengthTable(curve, 24), 0f, dashed);
+            SweepLine(st, curve, new ArcLengthTable(curve, 24), 0f, dashed, centerOnApex: true);
         }
     }
 
@@ -236,7 +236,8 @@ public static class JunctionMarkings
         return p + dp * s;
     }
 
-    private static void SweepLine(SurfaceTool st, Bezier3 curve, ArcLengthTable table, float offset, bool dashed)
+    private static void SweepLine(SurfaceTool st, Bezier3 curve, ArcLengthTable table, float offset, bool dashed,
+        bool centerOnApex = false)
     {
         float total = table.TotalLength;
         float hw = MeshBuilders.MarkingLineWidth / 2;
@@ -264,6 +265,23 @@ public static class JunctionMarkings
         }
 
         const float period = MeshBuilders.MarkingDashOn + MeshBuilders.MarkingDashOff;
+
+        if (centerOnApex)
+        {
+            // bends put all their curvature at mid-arc: a dash gap there reads as a
+            // straight chord hugging the inner curb, so pin a dash onto the apex
+            float half = MeshBuilders.MarkingDashOn / 2;
+            float first = total / 2 - period * MathF.Ceiling(total / (2 * period));
+            for (float c = first; c < total + half; c += period)
+            {
+                float d0 = MathF.Max(0, c - half);
+                float d1 = MathF.Min(total, c + half);
+                if (d1 - d0 > 0.6f)
+                    Quad(d0, d1);
+            }
+            return;
+        }
+
         int count = (int)MathF.Floor((total + MeshBuilders.MarkingDashOff) / period);
         if (count < 1)
         {

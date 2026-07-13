@@ -67,6 +67,17 @@ public static class JunctionBuilder
                     ? new List<Vector3> { innerCorner.point }
                     : NodeArc(node.Position, a, b, a.CwHalf, b.CwHalf);
             }
+            else if (degree == 2
+                && SolveElbowOutside(node.Position, a, b, a.FullHalf, b.FullHalf) is { } outerBend
+                && SolveElbowOutside(node.Position, a, b, a.CwHalf, b.CwHalf) is { } innerBend)
+            {
+                // reflex side of a plain bend: keep the road parallel-width around the
+                // elbow with a corner return through the offset-line intersection behind
+                // the node — a node arc here would bulge the outside of the turn
+                cornerSolved[i] = true;
+                outerInserts[i] = new List<Vector3> { outerBend };
+                innerInserts[i] = new List<Vector3> { innerBend };
+            }
             else
             {
                 outerInserts[i] = NodeArc(node.Position, a, b, a.FullHalf, b.FullHalf);
@@ -175,14 +186,29 @@ public static class JunctionBuilder
     /// the sharp corner point to the other (endpoints excluded).</summary>
     private static IEnumerable<Vector3> RoundCorner(Vector3 from, Vector3 corner, Vector3 to)
     {
-        foreach (var t in new[] { 0.25f, 0.5f, 0.75f })
+        // enough samples for ~1 m segments: small curb returns stay light, the long
+        // outside arc of an elbow doesn't show facets
+        float approx = Vector3.Distance(from, corner) + Vector3.Distance(corner, to);
+        int steps = Math.Clamp((int)MathF.Ceiling(approx), 4, 24);
+        for (int s = 1; s < steps; s++)
         {
+            float t = s / (float)steps;
             float u = 1 - t;
             yield return u * u * from + 2 * u * t * corner + t * t * to;
         }
     }
 
     private static (Vector3 point, float sa, float sb)? SolveCorner(
+        Vector3 nodePos, Leg a, Leg b, float halfA, float halfB)
+        => SolveBorders(nodePos, a, b, halfA, halfB) is { } c && c.sa >= 0 && c.sb >= 0 ? c : null;
+
+    /// <summary>Outside of a two-leg elbow: the borders intersect behind the node
+    /// (both parameters negative). Null when the legs are near-collinear (a width
+    /// transition, not a bend) — the arc handles the taper there.</summary>
+    private static Vector3? SolveElbowOutside(Vector3 nodePos, Leg a, Leg b, float halfA, float halfB)
+        => SolveBorders(nodePos, a, b, halfA, halfB) is { } c && c.sa <= 0 && c.sb <= 0 ? c.point : null;
+
+    private static (Vector3 point, float sa, float sb)? SolveBorders(
         Vector3 nodePos, Leg a, Leg b, float halfA, float halfB)
     {
         var pa = RotCcw(a.Dir) * halfA;
@@ -193,8 +219,6 @@ public static class JunctionBuilder
         var rhs = pb - pa;
         float sa = (rhs.X * -b.Dir.Y - rhs.Y * -b.Dir.X) / det;
         float sb = (a.Dir.X * rhs.Y - a.Dir.Y * rhs.X) / det;
-        if (sa < 0 || sb < 0)
-            return null;
         var corner2 = pa + a.Dir * sa;
         return (nodePos + new Vector3(corner2.X, 0, corner2.Y), sa, sb);
     }
