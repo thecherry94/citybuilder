@@ -19,6 +19,7 @@ public static class JunctionBuilder
     private const float CornerMargin = 0.5f;
     private const float MaxCutFraction = 0.3f;
     private const float ZoneMinBand = 0.05f;
+    private const float MaxExtra = 12f; // resize ceiling per leg, metres
 
     public static JunctionGeometry Build(RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges)
     {
@@ -91,7 +92,11 @@ public static class JunctionBuilder
         foreach (var leg in legs)
         {
             float len = leg.Edge.ArcLength.TotalLength;
-            float wanted = leg.CutDistance + CornerMargin;
+            // authored resize: node-wide + per-leg extra, shrink floors just above the
+            // solved corner requirement so the geometry cannot fold
+            float extra = node.Config.LegOffsets.TryGetValue(leg.Edge.Id, out var lo) ? lo : 0f;
+            extra = Math.Clamp(node.Config.SizeOffset + extra, -(CornerMargin - 0.05f), MaxExtra);
+            float wanted = leg.CutDistance + CornerMargin + extra;
             leg.CutDistance = MathF.Min(wanted, len * MaxCutFraction);
             if (leg.CutDistance < wanted - 1e-3f)
                 tightCuts.Add(leg.Edge.Id); // edge too short for the full junction
