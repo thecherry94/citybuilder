@@ -26,8 +26,14 @@ public partial class Main : Node3D
         var camera = new CameraRig { Name = "CameraRig" };
         AddChild(camera);
 
+        // Harness env vars can leak into an editor launched from a dev shell; ignore
+        // them when this instance was started by the play button so the game plays
+        // normally. Editor play runs attach the remote debugger and pass --editor-pid;
+        // OS.GetCmdlineArgs strips engine flags, so check the raw process cmdline.
+        bool fromEditor = EngineDebugger.IsActive() || RawCmdlineHasEditorPid();
+
         var shotsDir = OS.GetEnvironment("CITYBUILDER_SHOTS");
-        if (!string.IsNullOrEmpty(shotsDir))
+        if (!fromEditor && !string.IsNullOrEmpty(shotsDir))
         {
             var shots = new VisualShots { Name = "VisualShots" };
             shots.Bind(camera, shotsDir);
@@ -56,8 +62,20 @@ public partial class Main : Node3D
         toolbar.Bind(_controller, _lanes);
         ui.AddChild(toolbar);
 
-        if (OS.GetEnvironment("CITYBUILDER_SMOKE") == "1")
+        if (!fromEditor && OS.GetEnvironment("CITYBUILDER_SMOKE") == "1")
             CallDeferred(MethodName.RunSmoke);
+    }
+
+    private static bool RawCmdlineHasEditorPid()
+    {
+        try
+        {
+            return System.IO.File.ReadAllText("/proc/self/cmdline").Contains("--editor-pid");
+        }
+        catch
+        {
+            return false; // not Linux (or /proc unavailable) — debugger check covers it
+        }
     }
 
     private static Node BuildLighting()
