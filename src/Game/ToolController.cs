@@ -5,7 +5,7 @@ using Godot;
 
 namespace CityBuilder.Game;
 
-public enum ToolMode { Straight, SimpleCurve, ComplexCurve, Continuous, Grid, Bulldoze, Inspect }
+public enum ToolMode { Straight, SimpleCurve, ComplexCurve, Continuous, Grid, Bulldoze, Inspect, SpawnVehicle }
 
 /// <summary>Translates input into the domain tool state machines and keeps the ghost
 /// preview in sync. All world mutations flow through RoadNetwork.Commit/RemoveEdge.</summary>
@@ -31,10 +31,14 @@ public partial class ToolController : Node
     private System.Numerics.Vector3? _anchor;
     private EdgeId? _bulldozeTarget;
     private NodeId? _selectedNode;
+    private CityBuilder.Domain.Traffic.TrafficSim? _traffic;
+    private (EdgeId Edge, bool Forward)? _spawnOrigin;
 
     public event Action<string>? StatusFlashed;
     public event Action<string>? ReadoutChanged;
     public event Action<NodeId?>? NodeSelected;
+
+    public void BindTraffic(CityBuilder.Domain.Traffic.TrafficSim traffic) => _traffic = traffic;
 
     public ToolMode Mode => _mode;
 
@@ -55,6 +59,7 @@ public partial class ToolController : Node
         _ghost.Clear();
         _view.HighlightEdge(null);
         _bulldozeTarget = null;
+        _spawnOrigin = null;
         if (mode != ToolMode.Inspect)
             SelectNode(null);
     }
@@ -112,6 +117,15 @@ public partial class ToolController : Node
             return;
         }
 
+        if (_mode == ToolMode.SpawnVehicle)
+        {
+            var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
+            _view.HighlightEdge(hit?.id);
+            ReadoutChanged?.Invoke(hit is null ? ""
+                : _spawnOrigin is null ? "click origin road" : "click destination road");
+            return;
+        }
+
         if (_mode == ToolMode.Bulldoze)
         {
             var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
@@ -142,6 +156,12 @@ public partial class ToolController : Node
         if (_mode == ToolMode.Inspect)
         {
             SelectNode(PickNode(world));
+            return;
+        }
+
+        if (_mode == ToolMode.SpawnVehicle)
+        {
+            HandleSpawnClick(world);
             return;
         }
 
@@ -204,6 +224,34 @@ public partial class ToolController : Node
         CurrentTool?.Reset();
         _anchor = null;
         _ghost.Clear();
+    }
+
+    /// <summary>Two-click vehicle spawn: origin road (travel direction from the
+    /// clicked side, right-hand traffic), then destination road.</summary>
+    private void HandleSpawnClick(System.Numerics.Vector3 world)
+    {
+        if (_traffic is null)
+            return;
+        var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
+        if (hit is null)
+            return;
+
+        if (_spawnOrigin is null)
+        {
+            // clicked side decides direction: +offset side is forward-travel's right
+            var edge = _network.Edges[hit.Value.id];
+            var point = edge.Curve.Point(hit.Value.t);
+            var normal = edge.Curve.NormalXZ(hit.Value.t);
+            bool forward = System.Numerics.Vector3.Dot(world - point, normal) >= 0;
+            _spawnOrigin = (hit.Value.id, forward);
+            StatusFlashed?.Invoke("origin set — click destination road");
+            return;
+        }
+
+        var origin = _spawnOrigin.Value;
+        _spawnOrigin = null;
+        var vehicle = _traffic.Spawn(origin.Edge, origin.Forward, hit.Value.id);
+        StatusFlashed?.Invoke(vehicle is null ? "no route or entry blocked" : "vehicle dispatched");
     }
 
     /// <summary>Nearest node within a generous click radius; falls back to the closer

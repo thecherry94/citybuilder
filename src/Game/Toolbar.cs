@@ -53,6 +53,7 @@ public partial class Toolbar : Control
             ("Grid", ToolMode.Grid),
             ("Bulldoze", ToolMode.Bulldoze),
             ("Junction", ToolMode.Inspect),
+            ("Car", ToolMode.SpawnVehicle),
         })
         {
             var b = new Button

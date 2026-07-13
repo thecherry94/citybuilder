@@ -74,6 +74,7 @@ public partial class Main : Node3D
 
         _controller = new ToolController { Name = "ToolController" };
         _controller.Bind(_network, snap, camera, ghost, _view);
+        _controller.BindTraffic(_traffic);
         AddChild(_controller);
 
         _traffic = new CityBuilder.Domain.Traffic.TrafficSim(_network, seed: 1);
@@ -192,12 +193,20 @@ public partial class Main : Node3D
             _controller.HandleClickAt(V(0, 0));
             _view.FlushDirty();
 
+            // spawn a vehicle via the two-click tool and tick a bit of traffic
+            _controller.SetMode(ToolMode.SpawnVehicle);
+            _controller.HandleClickAt(V(-60, 1));
+            _controller.HandleClickAt(V(60, 1));
+            TrafficEnabled = true;
+            for (int i = 0; i < 60; i++)
+                _traffic.Tick(1f / 60f);
+
             await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             var img = GetViewport().GetTexture().GetImage();
             img.SavePng(OS.GetEnvironment("CITYBUILDER_UITEST"));
             var panel = GetNode<JunctionPanel>("Ui/JunctionPanel");
-            GD.Print($"UITEST OK visible={panel.Visible} rect={panel.GetGlobalRect()}");
+            GD.Print($"UITEST OK visible={panel.Visible} rect={panel.GetGlobalRect()} vehicles={_traffic.Vehicles.Count}");
             GetTree().Quit(0);
         }
         catch (Exception ex)
