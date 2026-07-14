@@ -30,6 +30,9 @@ public readonly struct Bezier3(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3)
         return 3 * u * u * (P1 - P0) + 6 * u * t * (P2 - P1) + 3 * t * t * (P3 - P2);
     }
 
+    public Vector3 SecondDerivative(float t)
+        => 6 * (1 - t) * (P2 - 2 * P1 + P0) + 6 * t * (P3 - 2 * P2 + P1);
+
     /// <summary>Normalized direction of travel at t. Degenerate-safe: zero
     /// derivatives (coincident control points) fall back to nearby samples,
     /// then to the chord.</summary>

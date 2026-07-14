@@ -118,6 +118,25 @@ public static class BezierOps
         return false;
     }
 
+    /// <summary>Smallest radius of curvature in the XZ plane, sampled. Straight
+    /// (zero-curvature) curves return +infinity.</summary>
+    public static float MinRadius(in Bezier3 c, int samples = 32)
+    {
+        float maxK = 0f;
+        for (int i = 0; i <= samples; i++)
+        {
+            float t = i / (float)samples;
+            var d = c.Derivative(t);
+            var dd = c.SecondDerivative(t);
+            float speedSq = d.X * d.X + d.Z * d.Z;
+            if (speedSq < 1e-6f)
+                continue; // degenerate spot; neighbors cover it
+            float k = MathF.Abs(d.X * dd.Z - d.Z * dd.X) / (speedSq * MathF.Sqrt(speedSq));
+            maxK = MathF.Max(maxK, k);
+        }
+        return maxK < 1e-9f ? float.PositiveInfinity : 1f / maxK;
+    }
+
     private static Vector2 ToXZ(Vector3 v) => new(v.X, v.Z);
 
     private static bool IsFlat(in Bezier3 c)

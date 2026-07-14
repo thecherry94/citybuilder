@@ -102,4 +102,34 @@ public class BezierOpsTests
         var loop = new Bezier3(new(0, 0, 0), new(20, 0, 10), new(-15, 0, 10), new(5, 0, 0));
         Assert.True(BezierOps.SelfIntersects(loop));
     }
+
+    [Fact]
+    public void MinRadiusOfStraightLineIsInfinite()
+    {
+        var line = Bezier3.Line(new Vector3(0, 0, 0), new Vector3(100, 0, 0));
+        Assert.Equal(float.PositiveInfinity, BezierOps.MinRadius(line));
+    }
+
+    [Fact]
+    public void MinRadiusRecoversCircleRadius()
+    {
+        // quarter circle of radius 50 approximated by one cubic: kappa constant ~1/50
+        const float r = 50f;
+        float k = 4f / 3f * MathF.Tan(MathF.PI / 8f) * r; // standard 90° arc handle length
+        var arc = new Bezier3(
+            new Vector3(r, 0, 0),
+            new Vector3(r, 0, k),
+            new Vector3(k, 0, r),
+            new Vector3(0, 0, r));
+        float min = BezierOps.MinRadius(arc);
+        Assert.InRange(min, r * 0.98f, r * 1.02f);
+    }
+
+    [Fact]
+    public void MinRadiusOfTightBendIsSmallerThanWideBend()
+    {
+        var wide = Bezier3.FromQuadratic(new Vector3(0, 0, 0), new Vector3(50, 0, 10), new Vector3(100, 0, 0));
+        var tight = Bezier3.FromQuadratic(new Vector3(0, 0, 0), new Vector3(50, 0, 60), new Vector3(100, 0, 0));
+        Assert.True(BezierOps.MinRadius(tight) < BezierOps.MinRadius(wide));
+    }
 }
