@@ -20,6 +20,9 @@ public sealed class RoadNetwork
     /// <summary>Minimum angle (between centerline tangents) at which two roads may cross.</summary>
     public const float MinCrossingAngleDeg = 15f;
 
+    /// <summary>Minimum angle between any two legs meeting at a node.</summary>
+    public const float MinJunctionAngleDeg = 25f;
+
     private readonly Dictionary<NodeId, RoadNode> _nodes = new();
     private readonly Dictionary<EdgeId, RoadEdge> _edges = new();
     private int _nextNode = 1, _nextEdge = 1, _nextLane = 1;
@@ -81,24 +84,149 @@ public sealed class RoadNetwork
                 errors.Add(PlacementError.Overlapping);
 
             Vector3 a = pc.Curve.Point(0), b = pc.Curve.Point(1);
-            bool shallow = false;
+            bool shallow = false, sliver = false;
+            var crossParams = new List<float>();
             foreach (var e in _edges.Values)
             foreach (var (t1, t2) in BezierOps.Intersections(pc.Curve, e.Curve))
             {
                 var p = pc.Curve.Point(t1);
-                // connections at the proposal's own endpoints are not crossings
                 if (Vector3.Distance(p, a) <= NodeReuseRadius || Vector3.Distance(p, b) <= NodeReuseRadius)
-                    continue;
+                    continue; // connection at an endpoint, not a crossing
                 crossings.Add(p);
-                // near-tangential crossings produce unbuildable junction geometry
+                crossParams.Add(t1);
                 if (CrossingAngleDeg(pc.Curve.Tangent(t1), e.Curve.Tangent(t2)) < MinCrossingAngleDeg)
                     shallow = true;
+                // crossing must not leave a sliver on the existing edge — unless it
+                // lands within reuse distance of that edge's own end, which extends the
+                // node already there (a junction, not a new short edge)
+                float dAlong = e.ArcLength.DistanceAtT(t2);
+                bool atExistingEnd = dAlong <= NodeReuseRadius || e.ArcLength.TotalLength - dAlong <= NodeReuseRadius;
+                if (!atExistingEnd)
+                {
+                    float eMin = RoadCatalog.Get(e.Type).MinSegmentLength;
+                    if (dAlong < eMin || e.ArcLength.TotalLength - dAlong < eMin)
+                        sliver = true;
+                }
             }
             if (shallow)
                 errors.Add(PlacementError.CrossingTooShallow);
+
+            // consecutive stops along the new curve (ends + crossings) must be ≥ min apart
+            if (crossParams.Count > 0)
+            {
+                crossParams.Sort();
+                float totalLen = pc.Curve.Length();
+                float prev = 0f;
+                foreach (var t in crossParams.Concat(new[] { 1f }))
+                {
+                    if ((t - prev) * totalLen < type.MinSegmentLength - 0.1f)
+                        sliver = true; // chord-scaled approximation; exact enough at these sizes
+                    prev = t;
+                }
+            }
+
+            // OnEdge endpoint bindings must not land a sliver from the edge's ends
+            sliver |= BindingLeavesSliver(pc.Start) || BindingLeavesSliver(pc.End);
+            if (sliver)
+                errors.Add(PlacementError.TooShort);
+
+            // sharp legs against the existing network at both ends
+            if (HasSharpLeg(pc.Start, a, pc.Curve.Tangent(0))
+                || HasSharpLeg(pc.End, b, -pc.Curve.Tangent(1)))
+                errors.Add(PlacementError.SharpAngle);
         }
 
+        // kinks between curves of the same proposal that share an endpoint
+        if (HasInternalKink(proposal))
+            errors.Add(PlacementError.Kinked);
+
+        errors = errors.Distinct().ToList();
         return new ValidatedPlacement(proposal, errors.Count == 0, errors, crossings, Version);
+    }
+
+    private bool BindingLeavesSliver(EndpointBinding binding)
+    {
+        if (binding is not EndpointBinding.OnEdge(var edgeId, var t) || !_edges.TryGetValue(edgeId, out var e))
+            return false;
+        float d = e.ArcLength.DistanceAtT(t);
+        float min = RoadCatalog.Get(e.Type).MinSegmentLength;
+        // within reuse radius of an end = clean node connection, not a split
+        if (d <= NodeReuseRadius || e.ArcLength.TotalLength - d <= NodeReuseRadius)
+            return false;
+        return d < min || e.ArcLength.TotalLength - d < min;
+    }
+
+    private bool HasSharpLeg(EndpointBinding binding, Vector3 pos, Vector3 newLeaving)
+    {
+        foreach (var leg in ExistingLegDirections(binding, pos))
+            if (AngleDegXZ(newLeaving, leg) < MinJunctionAngleDeg)
+                return true;
+        return false;
+    }
+
+    private IEnumerable<Vector3> ExistingLegDirections(EndpointBinding binding, Vector3 pos)
+    {
+        NodeId? nodeId = binding switch
+        {
+            EndpointBinding.AtNode(var id) when _nodes.ContainsKey(id) => id,
+            _ => null,
+        };
+        if (nodeId is null && binding is EndpointBinding.OnEdge(var eid, var t) && _edges.TryGetValue(eid, out var onEdge))
+        {
+            var tan = onEdge.Curve.Tangent(t);
+            yield return tan;
+            yield return -tan;
+            yield break;
+        }
+        nodeId ??= FindNodeNear(pos, NodeReuseRadius);
+        if (nodeId is { } id2 && _nodes.TryGetValue(id2, out var node))
+        {
+            foreach (var legEdge in node.EdgeSet)
+            {
+                var e = _edges[legEdge];
+                yield return e.StartNode == id2 ? e.Curve.Tangent(0) : -e.Curve.Tangent(1);
+            }
+            yield break;
+        }
+        if (FindClosestEdge(pos, NodeReuseRadius) is { } hit)
+        {
+            var tan = _edges[hit.id].Curve.Tangent(hit.t);
+            yield return tan;
+            yield return -tan;
+        }
+    }
+
+    private static bool SharedEndpoint(Vector3 x, Vector3 y) => Vector3.Distance(x, y) <= NodeReuseRadius;
+
+    private bool HasInternalKink(PlacementProposal proposal)
+    {
+        var curves = proposal.Curves;
+        for (int i = 0; i < curves.Count; i++)
+        for (int j = i + 1; j < curves.Count; j++)
+        {
+            var ci = curves[i].Curve;
+            var cj = curves[j].Curve;
+            // leaving directions away from the shared point, all 4 endpoint pairings
+            foreach (var (li, lj, shared) in new[]
+            {
+                (ci.Tangent(0), cj.Tangent(0), SharedEndpoint(ci.P0, cj.P0)),
+                (ci.Tangent(0), -cj.Tangent(1), SharedEndpoint(ci.P0, cj.P3)),
+                (-ci.Tangent(1), cj.Tangent(0), SharedEndpoint(ci.P3, cj.P0)),
+                (-ci.Tangent(1), -cj.Tangent(1), SharedEndpoint(ci.P3, cj.P3)),
+            })
+            {
+                if (shared && AngleDegXZ(li, lj) < MinJunctionAngleDeg)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private static float AngleDegXZ(Vector3 u, Vector3 v)
+    {
+        float cross = MathF.Abs(u.X * v.Z - u.Z * v.X);
+        float dot = u.X * v.X + u.Z * v.Z; // signed: 0° = same direction, 180° = opposite
+        return MathF.Atan2(cross, dot) * 180f / MathF.PI;
     }
 
     private static float CrossingAngleDeg(Vector3 tanA, Vector3 tanB)

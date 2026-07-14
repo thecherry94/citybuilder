@@ -27,8 +27,11 @@ public class BoulevardScenarioTests
         Assert.Equal(12, gridEdges);
         Assert.Equal(9, gridNodes);
 
-        // gentle diagonal boulevard (four-lane complex curve) across the grid
-        var boulevard = new Bezier3(new(-30, 0, 20), new(30, 0, 30), new(70, 0, 70), new(130, 0, 80));
+        // gentle diagonal boulevard (four-lane complex curve) across the grid;
+        // asymmetric control points (flat early, steep late) so the x=48 and z=48
+        // grid-line crossings land well apart instead of both grazing the (48,48)
+        // grid node — task 5's crossing-spacing guard rejects that near-duplicate pair.
+        var boulevard = new Bezier3(new(-30, 0, 10), new(60, 0, 15), new(80, 0, 70), new(130, 0, 85));
         var v = n.Validate(new PlacementProposal(
             new[] { new ProposedCurve(boulevard, EndpointBinding.None, EndpointBinding.None) },
             RoadCatalog.FourLane.Id));

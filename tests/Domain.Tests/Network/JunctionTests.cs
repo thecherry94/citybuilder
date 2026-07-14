@@ -89,7 +89,10 @@ public class JunctionTests
             }).Max();
         }
 
-        float acute = CutDistanceForAngle(15);
+        // 15° is now below MinJunctionAngleDeg (25°) and would be rejected as
+        // SharpAngle before ever reaching the junction builder; 30° keeps the
+        // scenario "acute vs. right angle" while staying just inside the limit.
+        float acute = CutDistanceForAngle(30);
         float right = CutDistanceForAngle(90);
         Assert.True(acute > right, $"acute {acute} <= right {right}");
         Assert.True(acute <= 31f, $"acute cut {acute} exceeds 30% clamp");
