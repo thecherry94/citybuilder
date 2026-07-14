@@ -9,6 +9,7 @@ namespace CityBuilder.Game;
 public partial class GhostView : Node3D
 {
     private readonly List<MeshInstance3D> _strips = new();
+    private readonly List<MeshInstance3D> _handles = new();
     private MeshInstance3D _lines = null!;
     private ImmediateMesh _linesMesh = null!;
     private MeshInstance3D _snapDot = null!;
@@ -33,11 +34,15 @@ public partial class GhostView : Node3D
         foreach (var s in _strips)
             s.QueueFree();
         _strips.Clear();
+        foreach (var h in _handles)
+            h.QueueFree();
+        _handles.Clear();
         _linesMesh.ClearSurfaces();
         _snapDot.Visible = false;
     }
 
-    public void Show(ValidatedPlacement? placement, SnapResult snap)
+    public void Show(ValidatedPlacement? placement, SnapResult snap,
+        IReadOnlyList<System.Numerics.Vector3>? handles = null, int hotHandle = -1)
     {
         Clear();
 
@@ -109,5 +114,27 @@ public partial class GhostView : Node3D
 
         if (anyLines)
             _linesMesh.SurfaceEnd();
+
+        ShowHandles(handles, hotHandle);
+    }
+
+    private void ShowHandles(IReadOnlyList<System.Numerics.Vector3>? handles, int hot)
+    {
+        foreach (var h in _handles)
+            h.QueueFree();
+        _handles.Clear();
+        if (handles is null)
+            return;
+        for (int i = 0; i < handles.Count; i++)
+        {
+            var inst = new MeshInstance3D
+            {
+                Mesh = new SphereMesh { Radius = 1.4f, Height = 2.8f },
+                MaterialOverride = i == hot ? Materials.SnapIndicator : Materials.GhostValid,
+                Position = handles[i].ToGodot() + Vector3.Up * 0.5f,
+            };
+            AddChild(inst);
+            _handles.Add(inst);
+        }
     }
 }

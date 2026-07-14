@@ -35,7 +35,8 @@ public partial class Main : Node3D
     public override void _Ready()
     {
         _network = new RoadNetwork();
-        var snap = new SnapService(_network);
+        var snap = new SnapEngine(_network);
+        var session = new DraftSession(_network, snap);
 
         // thin road markings (0.15 m) vanish below ~1 px without multisampling
         GetViewport().Msaa3D = Viewport.Msaa.Msaa4X;
@@ -73,7 +74,7 @@ public partial class Main : Node3D
         AddChild(_lanes);
 
         _controller = new ToolController { Name = "ToolController" };
-        _controller.Bind(_network, snap, camera, ghost, _view);
+        _controller.Bind(_network, session, camera, ghost, _view);
         _controller.BindTraffic(_traffic);
         AddChild(_controller);
 

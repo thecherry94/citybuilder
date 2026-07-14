@@ -308,10 +308,11 @@ public partial class VisualShots : Node3D
 
         yield return new Scenario("boulevard_grid", n =>
         {
-            var grid = new GridTool { RoadType = RoadCatalog.TwoLane.Id };
-            grid.AddClick(SnapResult.Free(new NVec(0, 0, 0)));
-            grid.AddClick(SnapResult.Free(new NVec(144, 0, 0)));
-            var gp = grid.AddClick(SnapResult.Free(new NVec(144, 0, 144)))!;
+            var grid = new RoadDraft(new GridStampShape(), RoadCatalog.TwoLane.Id);
+            grid.AddHandle(SnapResult.Free(new NVec(0, 0, 0)));
+            grid.AddHandle(SnapResult.Free(new NVec(144, 0, 0)));
+            grid.AddHandle(SnapResult.Free(new NVec(144, 0, 144)));
+            var gp = grid.BuildProposal()!;
             Commit(n, gp);
             Commit(n, new PlacementProposal(new[]
             {

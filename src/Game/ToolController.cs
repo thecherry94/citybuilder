@@ -5,30 +5,20 @@ using Godot;
 
 namespace CityBuilder.Game;
 
-public enum ToolMode { Straight, SimpleCurve, ComplexCurve, Continuous, Grid, Bulldoze, Inspect, SpawnVehicle }
+public enum ToolMode { Straight, SimpleCurve, ComplexCurve, Arc, Continuous, Grid, Bulldoze, Inspect, SpawnVehicle }
 
-/// <summary>Translates input into the domain tool state machines and keeps the ghost
-/// preview in sync. All world mutations flow through RoadNetwork.Commit/RemoveEdge.</summary>
+/// <summary>Thin adapter: raycasts input into the domain DraftSession and renders its
+/// ghost state. All world mutations flow through the session (roads) or
+/// RoadNetwork.RemoveEdge (bulldoze).</summary>
 public partial class ToolController : Node
 {
     private RoadNetwork _network = null!;
-    private SnapService _snap = null!;
+    private DraftSession _session = null!;
     private CameraRig _camera = null!;
     private GhostView _ghost = null!;
     private RoadNetworkView _view = null!;
 
-    private readonly Dictionary<ToolMode, IPlacementTool> _tools = new()
-    {
-        [ToolMode.Straight] = new StraightTool(),
-        [ToolMode.SimpleCurve] = new SimpleCurveTool(),
-        [ToolMode.ComplexCurve] = new ComplexCurveTool(),
-        [ToolMode.Continuous] = new ContinuousTool(),
-        [ToolMode.Grid] = new GridTool(),
-    };
-
     private ToolMode _mode = ToolMode.Straight;
-    private SnapTypes _snapTypes = SnapTypes.All;
-    private System.Numerics.Vector3? _anchor;
     private EdgeId? _bulldozeTarget;
     private NodeId? _selectedNode;
     private CityBuilder.Domain.Traffic.TrafficSim? _traffic;
@@ -38,24 +28,29 @@ public partial class ToolController : Node
     public event Action<string>? ReadoutChanged;
     public event Action<NodeId?>? NodeSelected;
 
+    public ToolMode Mode => _mode;
+    public DraftSession Session => _session;
+
     public void BindTraffic(CityBuilder.Domain.Traffic.TrafficSim traffic) => _traffic = traffic;
 
-    public ToolMode Mode => _mode;
-
-    public void Bind(RoadNetwork network, SnapService snap, CameraRig camera, GhostView ghost, RoadNetworkView view)
+    public void Bind(RoadNetwork network, DraftSession session, CameraRig camera,
+        GhostView ghost, RoadNetworkView view)
     {
         _network = network;
-        _snap = snap;
+        _session = session;
         _camera = camera;
         _ghost = ghost;
         _view = view;
+        _session.Flashed += m => StatusFlashed?.Invoke(m);
     }
 
     public void SetMode(ToolMode mode)
     {
-        CurrentTool?.Reset();
         _mode = mode;
-        _anchor = null;
+        if (DraftModeOf(mode) is { } dm)
+            _session.SetMode(dm);
+        else
+            _session.Cancel();
         _ghost.Clear();
         _view.HighlightEdge(null);
         _bulldozeTarget = null;
@@ -63,6 +58,19 @@ public partial class ToolController : Node
         if (mode != ToolMode.Inspect)
             SelectNode(null);
     }
+
+    private static DraftMode? DraftModeOf(ToolMode m) => m switch
+    {
+        ToolMode.Straight => DraftMode.Straight,
+        ToolMode.SimpleCurve => DraftMode.QuadCurve,
+        ToolMode.ComplexCurve => DraftMode.CubicCurve,
+        ToolMode.Arc => DraftMode.Arc,
+        ToolMode.Continuous => DraftMode.Chain,
+        ToolMode.Grid => DraftMode.GridStamp,
+        _ => null,
+    };
+
+    private bool IsRoadMode => DraftModeOf(_mode) is not null;
 
     private void SelectNode(NodeId? id)
     {
@@ -72,16 +80,10 @@ public partial class ToolController : Node
         NodeSelected?.Invoke(id);
     }
 
-    public void SetRoadType(RoadTypeId type)
-    {
-        foreach (var tool in _tools.Values)
-            tool.RoadType = type;
-    }
+    public void SetRoadType(RoadTypeId type) => _session.RoadType = type;
 
     public void SetSnapType(SnapTypes flag, bool enabled)
-        => _snapTypes = enabled ? _snapTypes | flag : _snapTypes & ~flag;
-
-    private IPlacementTool? CurrentTool => _tools.GetValueOrDefault(_mode);
+        => _session.EnabledSnaps = enabled ? _session.EnabledSnaps | flag : _session.EnabledSnaps & ~flag;
 
     // ------------------------------------------------------------------- input
 
@@ -94,8 +96,12 @@ public partial class ToolController : Node
                     HandleHoverAt(hover.ToNumerics());
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true }:
-                if (_camera.MouseGroundPoint() is { } click)
-                    HandleClickAt(click.ToNumerics());
+                if (_camera.MouseGroundPoint() is { } down)
+                    HandleMouseDownAt(down.ToNumerics());
+                break;
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false }:
+                if (IsRoadMode)
+                    HandleMouseUpAt();
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true }:
                 StepBack();
@@ -103,10 +109,40 @@ public partial class ToolController : Node
             case InputEventKey { Keycode: Key.Escape, Pressed: true }:
                 CancelGesture();
                 break;
+            case InputEventKey { Keycode: Key.Enter, Pressed: true }:
+                ConfirmDraft();
+                break;
         }
     }
 
     // ---------------------------------------------------- world-space handlers
+
+    /// <summary>Mouse-down: near a draft handle starts a drag, otherwise a click.</summary>
+    public void HandleMouseDownAt(System.Numerics.Vector3 world)
+    {
+        if (IsRoadMode
+            && _session.State != SessionState.Idle
+            && _session.TryBeginHandleDrag(world, MathF.Max(3f, _camera.SnapRadius() * 0.6f)))
+        {
+            RenderGhost();
+            return;
+        }
+        HandleClickAt(world);
+    }
+
+    public void HandleMouseUpAt()
+    {
+        _session.EndHandleDrag();
+        RenderGhost();
+    }
+
+    public void ConfirmDraft()
+    {
+        if (!IsRoadMode)
+            return;
+        _session.Confirm();
+        RenderGhost();
+    }
 
     public void HandleHoverAt(System.Numerics.Vector3 world)
     {
@@ -136,34 +172,14 @@ public partial class ToolController : Node
             return;
         }
 
-        var tool = CurrentTool;
-        if (tool is null)
-            return;
-
-        var snap = ResolveSnap(world);
-        var proposal = tool.Preview(snap);
-        ValidatedPlacement? validated = proposal is null ? null : _network.Validate(proposal);
-        _ghost.Show(validated, snap);
-
-        var readout = tool.Readout(snap);
-        ReadoutChanged?.Invoke(readout is { } r
-            ? $"{r.lengthM:0.#} m   {NormalizeDeg(r.angleDeg):0.#}°"
-            : "");
+        _session.PointerMoved(world, _camera.SnapRadius());
+        RenderGhost();
     }
 
     public void HandleClickAt(System.Numerics.Vector3 world)
     {
-        if (_mode == ToolMode.Inspect)
-        {
-            SelectNode(PickNode(world));
-            return;
-        }
-
-        if (_mode == ToolMode.SpawnVehicle)
-        {
-            HandleSpawnClick(world);
-            return;
-        }
+        if (_mode == ToolMode.Inspect) { SelectNode(PickNode(world)); return; }
+        if (_mode == ToolMode.SpawnVehicle) { HandleSpawnClick(world); return; }
 
         if (_mode == ToolMode.Bulldoze)
         {
@@ -177,53 +193,34 @@ public partial class ToolController : Node
             return;
         }
 
-        var tool = CurrentTool;
-        if (tool is null)
-            return;
-
-        var snap = ResolveSnap(world);
-        var proposal = tool.AddClick(snap);
-        _anchor = snap.Position;
-
-        if (proposal is not null)
-        {
-            var validated = _network.Validate(proposal);
-            if (validated.IsValid)
-            {
-                var result = _network.Commit(validated);
-                if (!result.Success)
-                    StatusFlashed?.Invoke(result.FailureReason ?? "could not build");
-            }
-            else
-            {
-                StatusFlashed?.Invoke("invalid placement: " + string.Join(", ", validated.Errors));
-            }
-            if (tool.ClickCount == 0)
-                _anchor = null;
-            _ghost.Clear();
-        }
-
-        HandleHoverAt(world);
+        _session.Click(world, _camera.SnapRadius());
+        RenderGhost();
     }
 
     public void StepBack()
     {
-        var tool = CurrentTool;
-        if (tool is null)
+        if (!IsRoadMode)
             return;
-        tool.StepBack();
-        if (tool.ClickCount == 0)
-        {
-            _anchor = null;
-            _ghost.Clear();
-        }
+        _session.StepBack();
+        RenderGhost();
     }
 
     public void CancelGesture()
     {
-        CurrentTool?.Reset();
-        _anchor = null;
+        _session.Cancel();
         _ghost.Clear();
+        ReadoutChanged?.Invoke("");
+    }
+
+    private void RenderGhost()
+    {
+        var handles = _session.Draft?.Handles.Select(h => h.Position).ToArray();
+        _ghost.Show(_session.Ghost, _session.LastSnap, handles, _session.DraggingHandle);
+        ReadoutChanged?.Invoke(_session.Readout is { } r
+            ? r.RadiusM is { } rad && rad < 10000f
+                ? $"{r.LengthM:0.#} m   {NormalizeDeg(r.AngleDeg):0.#}°   R {rad:0} m"
+                : $"{r.LengthM:0.#} m   {NormalizeDeg(r.AngleDeg):0.#}°"
+            : "");
     }
 
     /// <summary>Two-click vehicle spawn: origin road (travel direction from the
@@ -271,10 +268,6 @@ public partial class ToolController : Node
         }
         return null;
     }
-
-    private SnapResult ResolveSnap(System.Numerics.Vector3 world)
-        => _snap.Resolve(world, _camera.SnapRadius(), _snapTypes,
-            new SnapContext(CurrentTool?.ClickCount > 0 ? _anchor : null, null));
 
     private static float NormalizeDeg(float deg)
     {
