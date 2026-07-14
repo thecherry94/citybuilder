@@ -64,11 +64,15 @@ public sealed class RoadNetwork
     {
         var errors = new List<PlacementError>();
         var crossings = new List<Vector3>();
+        var type = RoadCatalog.Get(proposal.Type);
 
         foreach (var pc in proposal.Curves)
         {
-            if (pc.Curve.Length() < GeoConstants.MinEdgeLength)
+            if (pc.Curve.Length() < type.MinSegmentLength)
                 errors.Add(PlacementError.TooShort);
+
+            if (BezierOps.MinRadius(pc.Curve) < type.MinRadius)
+                errors.Add(PlacementError.RadiusTooTight);
 
             if (BezierOps.SelfIntersects(pc.Curve))
                 errors.Add(PlacementError.SelfIntersecting);

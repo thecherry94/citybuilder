@@ -169,4 +169,46 @@ public class PlacementTests
         var p = Assert.Single(v.CrossingPoints);
         Assert.True(Vector3.Distance(p, Vector3.Zero) < 0.1f);
     }
+
+    [Fact]
+    public void SegmentShorterThanTypeMinimumIsRejected()
+    {
+        var n = Net.New();
+        // 10 m FourLane: above the old 4 m floor, below FourLane's 16 m minimum
+        var v = n.Validate(Net.Straight(new(0, 0, 0), new(10, 0, 0), RoadCatalog.FourLane.Id));
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.TooShort, v.Errors);
+    }
+
+    [Fact]
+    public void SegmentAtTypeMinimumIsAccepted()
+    {
+        var n = Net.New();
+        var v = n.Validate(Net.Straight(new(0, 0, 0), new(16.5f, 0, 0), RoadCatalog.FourLane.Id));
+        Assert.True(v.IsValid, string.Join(",", v.Errors));
+    }
+
+    [Fact]
+    public void CurveTighterThanTypeMinRadiusIsRejected()
+    {
+        var n = Net.New();
+        // hairpin quadratic: control far off-axis → radius well under TwoLane's 20 m
+        var curve = Bezier3.FromQuadratic(new(0, 0, 0), new(15, 0, 40), new(30, 0, 0));
+        var v = n.Validate(new PlacementProposal(
+            new[] { new ProposedCurve(curve, EndpointBinding.None, EndpointBinding.None) },
+            RoadCatalog.TwoLane.Id));
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.RadiusTooTight, v.Errors);
+    }
+
+    [Fact]
+    public void GentleCurveIsAccepted()
+    {
+        var n = Net.New();
+        var curve = Bezier3.FromQuadratic(new(0, 0, 0), new(60, 0, 15), new(120, 0, 0));
+        var v = n.Validate(new PlacementProposal(
+            new[] { new ProposedCurve(curve, EndpointBinding.None, EndpointBinding.None) },
+            RoadCatalog.TwoLane.Id));
+        Assert.True(v.IsValid, string.Join(",", v.Errors));
+    }
 }

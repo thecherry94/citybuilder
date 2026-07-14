@@ -24,7 +24,11 @@ public sealed record ProposedCurve(Bezier3 Curve, EndpointBinding Start, Endpoin
 
 public sealed record PlacementProposal(IReadOnlyList<ProposedCurve> Curves, RoadTypeId Type);
 
-public enum PlacementError { TooShort, SelfIntersecting, Overlapping, CrossingTooShallow }
+public enum PlacementError
+{
+    TooShort, SelfIntersecting, Overlapping, CrossingTooShallow,
+    RadiusTooTight, SharpAngle, Kinked,
+}
 
 /// <summary>Result of dry-running a proposal against the network. Only a valid,
 /// current ValidatedPlacement can be committed.</summary>
