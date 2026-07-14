@@ -192,4 +192,72 @@ public static class BezierOps
         v = (qp.X * r.Y - qp.Y * r.X) / denom;
         return u >= -1e-6f && u <= 1 + 1e-6f && v >= -1e-6f && v <= 1 + 1e-6f;
     }
+
+    /// <summary>Circular arc in XZ from <paramref name="start"/> leaving along
+    /// <paramref name="tangent"/>, ending at <paramref name="end"/>. Unique circle;
+    /// one cubic ≤ 90° sweep, two cubics above; null when the sweep exceeds 175° or the
+    /// end lies collinearly behind the start. Collinear ahead → straight line, radius ∞.</summary>
+    public static (Bezier3[] Curves, float Radius)? ArcFromTangent(Vector3 start, Vector3 tangent, Vector3 end)
+    {
+        const float maxSweepRad = 175f * MathF.PI / 180f;
+        var d2 = new Vector2(tangent.X, tangent.Z);
+        if (d2.LengthSquared() < 1e-12f)
+            return null;
+        d2 = Vector2.Normalize(d2);
+        var s = new Vector2(start.X, start.Z);
+        var e = new Vector2(end.X, end.Z);
+        var m = e - s;
+        float mLen = m.Length();
+        if (mLen < GeoConstants.Eps)
+            return null;
+
+        var n = new Vector2(-d2.Y, d2.X); // left normal of the travel direction
+        float h = Vector2.Dot(m, n);      // signed lateral offset of the end point
+        if (MathF.Abs(h) < 1e-3f * mLen)  // collinear
+            return Vector2.Dot(m, d2) > 0
+                ? (new[] { Bezier3.Line(start, end) }, float.PositiveInfinity)
+                : null;
+
+        float rho = mLen * mLen / (2f * h);     // signed radius (+ = center left, CCW travel)
+        float r = MathF.Abs(rho);
+        var c = s + n * rho;
+
+        var v0 = s - c;
+        var v1 = e - c;
+        float ang = MathF.Atan2(v0.X * v1.Y - v0.Y * v1.X, Vector2.Dot(v0, v1)); // signed [-π, π]
+        // travel direction: CCW when rho > 0 → sweep must have the sign of rho
+        float sweep = rho > 0
+            ? (ang >= 0 ? ang : ang + 2 * MathF.PI)
+            : (ang <= 0 ? ang : ang - 2 * MathF.PI);
+        if (MathF.Abs(sweep) > maxSweepRad)
+            return null;
+
+        int segments = MathF.Abs(sweep) > MathF.PI / 2f ? 2 : 1;
+        float theta0 = MathF.Atan2(v0.Y, v0.X);
+        float y = start.Y;
+        var curves = new Bezier3[segments];
+        for (int i = 0; i < segments; i++)
+        {
+            float a0 = theta0 + sweep * i / segments;
+            float a1 = theta0 + sweep * (i + 1) / segments;
+            float delta = a1 - a0;
+            float k = 4f / 3f * MathF.Tan(MathF.Abs(delta) / 4f) * r;
+            Vector2 P(float a) => c + r * new Vector2(MathF.Cos(a), MathF.Sin(a));
+            // unit travel tangent at angle a: CCW = (-sin, cos), CW = (sin, -cos)
+            Vector2 T(float a) => sweep > 0
+                ? new Vector2(-MathF.Sin(a), MathF.Cos(a))
+                : new Vector2(MathF.Sin(a), -MathF.Cos(a));
+            var p0 = P(a0); var p3 = P(a1);
+            var p1 = p0 + T(a0) * k;
+            var p2 = p3 - T(a1) * k;
+            curves[i] = new Bezier3(
+                new Vector3(p0.X, y, p0.Y), new Vector3(p1.X, y, p1.Y),
+                new Vector3(p2.X, y, p2.Y), new Vector3(p3.X, y, p3.Y));
+        }
+        // pin exact endpoints (float noise from the trig round-trip)
+        curves[0] = new Bezier3(start, curves[0].P1, curves[0].P2, curves[0].P3);
+        int last = segments - 1;
+        curves[last] = new Bezier3(curves[last].P0, curves[last].P1, curves[last].P2, end);
+        return (curves, r);
+    }
 }

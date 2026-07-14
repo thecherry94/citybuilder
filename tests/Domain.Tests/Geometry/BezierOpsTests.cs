@@ -132,4 +132,57 @@ public class BezierOpsTests
         var tight = Bezier3.FromQuadratic(new Vector3(0, 0, 0), new Vector3(50, 0, 60), new Vector3(100, 0, 0));
         Assert.True(BezierOps.MinRadius(tight) < BezierOps.MinRadius(wide));
     }
+
+    [Fact]
+    public void ArcFromTangentCollinearAheadIsStraightLine()
+    {
+        var r = BezierOps.ArcFromTangent(new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(80, 0, 0));
+        Assert.NotNull(r);
+        Assert.Equal(float.PositiveInfinity, r.Value.Radius);
+        var c = Assert.Single(r.Value.Curves);
+        Assert.Equal(new Vector3(80, 0, 0), c.P3);
+    }
+
+    [Fact]
+    public void ArcFromTangentCollinearBehindIsNull()
+    {
+        Assert.Null(BezierOps.ArcFromTangent(new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(-80, 0, 0)));
+    }
+
+    [Fact]
+    public void QuarterArcHasConstantRadiusAndCorrectEndpoints()
+    {
+        // start at origin heading +X, end at (50, 0, 50): quarter circle radius 50
+        var r = BezierOps.ArcFromTangent(new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(50, 0, 50));
+        Assert.NotNull(r);
+        Assert.InRange(r.Value.Radius, 49.9f, 50.1f);
+        var c = Assert.Single(r.Value.Curves);
+        Assert.True(Vector3.Distance(c.P0, new Vector3(0, 0, 0)) < 1e-3f);
+        Assert.True(Vector3.Distance(c.P3, new Vector3(50, 0, 50)) < 1e-3f);
+        // start tangent preserved (G1 with the requested direction)
+        Assert.True(Vector3.Dot(c.Tangent(0), new Vector3(1, 0, 0)) > 0.999f);
+        // constant curvature within 2%
+        Assert.InRange(BezierOps.MinRadius(c), 49f, 51f);
+    }
+
+    [Fact]
+    public void WideSweepSplitsIntoTwoCubics()
+    {
+        // ~135° sweep: start +X, end behind-left of the circle
+        var r = BezierOps.ArcFromTangent(new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(35f, 0, 85f));
+        Assert.NotNull(r);
+        Assert.Equal(2, r.Value.Curves.Length);
+        // G1 at the joint: end tangent of first == start tangent of second
+        var a = r.Value.Curves[0];
+        var b = r.Value.Curves[1];
+        Assert.True(Vector3.Distance(a.P3, b.P0) < 1e-3f);
+        Assert.True(Vector3.Dot(a.Tangent(1), b.Tangent(0)) > 0.999f);
+    }
+
+    [Fact]
+    public void SweepBeyondCapIsNull()
+    {
+        // end almost directly behind start but offset — sweep > 175°
+        Assert.Null(BezierOps.ArcFromTangent(new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(-80f, 0, 1f)));
+    }
 }
