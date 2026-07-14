@@ -199,7 +199,9 @@ public partial class Main : Node3D
             _view.FlushDirty();
 
             // draft-handle drag: place a straight draft in adjust mode, drag its end, confirm
+            // (grid snap stays on until after the screenshot so it captures the overlay)
             _controller.Session.AdjustMode = true;
+            _controller.SetSnapType(SnapTypes.Grid, true);
             _controller.SetMode(ToolMode.Straight);
             _controller.HandleClickAt(V(-80, 60));
             _controller.HandleClickAt(V(0, 60));       // complete → Adjustable
@@ -221,10 +223,13 @@ public partial class Main : Node3D
             for (int i = 0; i < 60; i++)
                 _traffic.Tick(1f / 60f);
 
+            // park the cursor over open ground so the grid overlay lands deterministically
+            Input.WarpMouse(GetViewport().GetVisibleRect().Size * new Vector2(0.72f, 0.55f));
             await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             var img = GetViewport().GetTexture().GetImage();
             img.SavePng(OS.GetEnvironment("CITYBUILDER_UITEST"));
+            _controller.SetSnapType(SnapTypes.Grid, false);
             var panel = GetNode<JunctionPanel>("Ui/JunctionPanel");
             GD.Print($"UITEST OK visible={panel.Visible} rect={panel.GetGlobalRect()} vehicles={_traffic.Vehicles.Count}");
             GetTree().Quit(0);

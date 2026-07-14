@@ -118,6 +118,7 @@ public static class Materials
     public static readonly StandardMaterial3D DebugLines = new()
     {
         VertexColorUseAsAlbedo = true,
+        Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
         ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
