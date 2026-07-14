@@ -307,4 +307,120 @@ public class PlacementTests
         Assert.False(v.IsValid);
         Assert.Contains(PlacementError.TooShort, v.Errors);
     }
+
+    // ------------------------------------------------ M4 final-review fixes
+
+    private static PlacementProposal GridStamp(Vector3 origin, Vector3 extent1, Vector3 extent2)
+    {
+        var d = new RoadDraft(new GridStampShape(), RoadCatalog.TwoLane.Id);
+        d.AddHandle(SnapResult.Free(origin));
+        d.AddHandle(SnapResult.Free(extent1));
+        d.AddHandle(SnapResult.Free(extent2));
+        var p = d.BuildProposal();
+        Assert.NotNull(p);
+        return p!;
+    }
+
+    // C2a: crossings from SEVERAL proposal curves landing on the same existing edge
+    // used to be spacing-checked only against that edge's ends, never against each
+    // other — a grid stamp over a diagonal committed 5.66/4.00/4.00 m slivers.
+    [Fact]
+    public void GridStampCrossingsTooCloseOnTheSameExistingEdgeAreRejected()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(30, 0, 26), new(70, 0, 66))); // 45° diagonal
+        // 2×2 stamp: lines x/z = 0,48,96 cross the diagonal 5.66 m apart
+        var v = n.Validate(GridStamp(new(0, 0, 0), new(96, 0, 0), new(96, 0, 96)));
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.TooShort, v.Errors);
+    }
+
+    [Fact]
+    public void GridStampOnEmptyGroundRemainsValid()
+    {
+        var n = Net.New();
+        var v = n.Validate(GridStamp(new(0, 0, 0), new(96, 0, 0), new(96, 0, 96)));
+        Assert.True(v.IsValid, string.Join(",", v.Errors));
+    }
+
+    // C2b: a FREE endpoint that commit resolves onto an edge used to bypass the
+    // OnEdge sliver check entirely and committed a 5.00 m edge.
+    [Fact]
+    public void FreeEndpointResolvingOntoAnEdgeNearItsEndIsRejected()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 0, 0)));
+        // free end lands exactly on the edge 5 m from its end node (TwoLane min 8)
+        var v = n.Validate(Net.Straight(new(95, 0, -30), new(95, 0, 0)));
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.TooShort, v.Errors);
+    }
+
+    // I1: crossings are future junctions — they obey the 25° junction floor, not
+    // the old 15° crossing floor.
+    [Fact]
+    public void CrossingAt22DegreesIsRejectedAsTooShallow()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0)));
+        var v = n.Validate(Net.Straight(new(-100, 0, -40.4f), new(100, 0, 40.4f))); // tan22° ≈ 0.404
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.CrossingTooShallow, v.Errors);
+    }
+
+    [Fact]
+    public void CrossingAt30DegreesRemainsValid()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0)));
+        var v = n.Validate(Net.Straight(new(-100, 0, -57.7f), new(100, 0, 57.7f))); // tan30° ≈ 0.577
+        Assert.True(v.IsValid, string.Join(",", v.Errors));
+    }
+
+    // C1a: a G1 (tangential) departure from mid-edge is a legal ramp exit; the
+    // BoundTangent lock produces exactly this geometry and must be committable.
+    [Fact]
+    public void TangentialDepartureFromMidEdgeIsValidAndCommits()
+    {
+        var n = Net.New();
+        var r = Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 0, 0)));
+        var edge = r.CreatedEdges[0];
+        // quad leaving (50,0,0) exactly along the edge tangent, bending away
+        var ramp = Bezier3.FromQuadratic(new(50, 0, 0), new(78.8f, 0, 0), new(90, 0, 60));
+        var v = n.Validate(new PlacementProposal(new[]
+        {
+            new ProposedCurve(ramp, new EndpointBinding.OnEdge(edge, 0.5f), EndpointBinding.None),
+        }, RoadCatalog.TwoLane.Id));
+        Assert.True(v.IsValid, string.Join(",", v.Errors));
+        Assert.True(n.Commit(v).Success);
+        Assert.Equal(3, n.Edges.Count); // split halves + ramp
+    }
+
+    // C1a boundaries: >1° off the tangent from an OnEdge binding is still a bump...
+    [Fact]
+    public void NonTangentialDepartureFromMidEdgeIsStillSharp()
+    {
+        var n = Net.New();
+        var r = Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 0, 0)));
+        var edge = r.CreatedEdges[0];
+        // leaves mid-edge at ~10° to the tangent
+        var v = n.Validate(Net.Straight(new(50, 0, 0), new(110, 0, 10.58f),
+            start: new EndpointBinding.OnEdge(edge, 0.5f)));
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.SharpAngle, v.Errors);
+    }
+
+    // ...and AtNode bindings stay fully strict: 0° at a node is a blocked bump.
+    [Fact]
+    public void NearTangentialDepartureAtNodeStaysBlocked()
+    {
+        var n = Net.New();
+        var r = Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 0, 0)));
+        var end = n.Edges[r.CreatedEdges[0]].EndNode;
+        // doubles back over the edge at ~2°
+        var v = n.Validate(Net.Straight(new(100, 0, 0), new(0, 0, 3.5f),
+            start: new EndpointBinding.AtNode(end)));
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.SharpAngle, v.Errors);
+    }
 }

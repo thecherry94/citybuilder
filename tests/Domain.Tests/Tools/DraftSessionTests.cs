@@ -125,4 +125,88 @@ public class DraftSessionTests
         s.Click(new Vector3(50, 0, 1f), 5f); // snaps onto the edge
         Assert.True(s.Draft!.TangentLocked);
     }
+
+    // C1: the spec's flagship gesture — tangent-locked curve starting mid-edge —
+    // must validate (G1 ramp exit) and commit, not die on SharpAngle.
+    [Fact]
+    public void TangentLockedQuadFromMidEdgeCommits()
+    {
+        var (n, s) = Setup();
+        Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 0, 0)));
+        s.SetMode(DraftMode.QuadCurve);
+        s.EnabledSnaps = SnapTypes.Nodes | SnapTypes.Edges; // keep click positions exact
+        s.Click(new Vector3(50, 0, 0.3f), 5f);              // snaps onto the edge, locks
+        Assert.True(s.Draft!.TangentLocked);
+        s.Click(new Vector3(90, 0, 60), 5f);                // locked quad: 2nd click completes
+        Assert.Equal(SessionState.Idle, s.State);           // committed instantly
+        Assert.Equal(3, n.Edges.Count);                     // edge split in two + ramp
+        var ramp = n.Edges.Values.Single(e => e.Curve.Point(1).Z > 50f);
+        Assert.True(ramp.Curve.Tangent(0).X > 0.999f, "ramp must leave G1 along the edge tangent");
+    }
+
+    // C1b: T (game layer) releases the lock; the shape falls back to its unlocked
+    // handle count and a free-angle departure can be drawn instead.
+    [Fact]
+    public void ReleaseTangentLockRestoresFreeControl()
+    {
+        var (n, s) = Setup();
+        Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 0, 0)));
+        s.SetMode(DraftMode.QuadCurve);
+        s.EnabledSnaps = SnapTypes.Nodes | SnapTypes.Edges;
+        s.Click(new Vector3(50, 0, 0.3f), 5f);
+        Assert.True(s.Draft!.TangentLocked);
+        s.ReleaseTangentLock();
+        Assert.False(s.Draft!.TangentLocked);
+        s.Click(new Vector3(50, 0, 40), 5f);   // unlocked quad needs a control handle again
+        Assert.Equal(SessionState.Placing, s.State);
+        s.Click(new Vector3(90, 0, 60), 5f);   // perpendicular departure — legal unlocked
+        Assert.Equal(SessionState.Idle, s.State);
+        Assert.Equal(3, n.Edges.Count);
+    }
+
+    // I3: stepping back from Adjustable must actually shorten the draft — the next
+    // click then completes the corrected geometry instead of appending junk handles.
+    [Fact]
+    public void StepBackFromAdjustableThenClickCommitsCorrectedGeometry()
+    {
+        var (n, s) = Setup();
+        s.SetMode(DraftMode.Straight);
+        ClickAt(s, 0, 0);
+        ClickAt(s, 5, 0); // 5 m TwoLane: TooShort → Adjustable
+        Assert.Equal(SessionState.Adjustable, s.State);
+        s.StepBack();
+        Assert.Equal(SessionState.Placing, s.State);
+        Assert.Single(s.Draft!.Handles);      // genuinely incomplete again
+        ClickAt(s, 100, 0);                   // corrected end point
+        Assert.Equal(SessionState.Idle, s.State);
+        var edge = Assert.Single(n.Edges.Values);
+        Assert.Equal(100f, edge.Curve.Length(), 0);
+    }
+
+    // I2: while dragging handle i > 0 the snap anchor must be the FIXED start
+    // handle, not the dragged handle itself (which made angle snap self-referential).
+    [Fact]
+    public void DraggingEndHandleAnchorsAngleSnapAtStartHandle()
+    {
+        var (n, s) = Setup();
+        s.EnabledSnaps = SnapTypes.None; // place raw handles first
+        s.AdjustMode = true;
+        s.SetMode(DraftMode.Straight);
+        ClickAt(s, 0, 0);
+        s.Click(new Vector3(100, 0, 3), 5f);
+        Assert.Equal(SessionState.Adjustable, s.State);
+        s.EnabledSnaps = SnapTypes.Angle;
+        Assert.True(s.TryBeginHandleDrag(new Vector3(100, 0, 3), 3f));
+        s.PointerMoved(new Vector3(120, 0, 8), 5f);
+        // measured from handle 0 at the origin: 3.8° → snaps onto the 0° ray (z = 0);
+        // anchored at the dragged handle it would read 14° and snap to the 15° ray
+        Assert.Equal(SnapKind.Angle, s.LastSnap.Kind);
+        Assert.Equal(0f, s.LastSnap.SnappedAngleDeg!.Value, 1);
+        Assert.True(MathF.Abs(s.LastSnap.Position.Z) < 0.01f, $"snapped Z {s.LastSnap.Position.Z}");
+        s.EndHandleDrag();
+        s.Confirm();
+        Assert.Equal(SessionState.Idle, s.State);
+        var edge = Assert.Single(n.Edges.Values);
+        Assert.True(MathF.Abs(edge.Curve.P3.Z) < 0.01f, "committed end must sit on the 0° ray");
+    }
 }

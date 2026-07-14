@@ -39,6 +39,10 @@ public sealed class RoadDraft(IDraftShape shape, RoadTypeId type)
     /// <summary>Seed the lock for chained segments (continuous mode).</summary>
     public void LockStartTangent(Vector3 tangent) => StartTangent = tangent;
 
+    /// <summary>Release the G1 start lock (spec'd toggle — the shape falls back to its
+    /// unlocked handle count and the start leaves freely).</summary>
+    public void UnlockStartTangent() => StartTangent = null;
+
     public void AddHandle(SnapResult snap, Vector3? boundTangent = null)
     {
         if (_handles.Count == 0 && boundTangent is { } t)
@@ -90,17 +94,6 @@ public sealed class RoadDraft(IDraftShape shape, RoadTypeId type)
                 _handles.Count == 1 ? BindingOf(_handles[0].Snap) : EndpointBinding.None,
                 BindingOf(hover)),
         }, Type);
-    }
-
-    public float? MinRadius()
-    {
-        var curves = shape.Curves(_handles, StartTangent);
-        if (curves is null || curves.Count == 0)
-            return null;
-        float min = float.PositiveInfinity;
-        foreach (var c in curves)
-            min = MathF.Min(min, BezierOps.MinRadius(c));
-        return min;
     }
 
     private PlacementProposal? Proposal(IReadOnlyList<DraftHandle> handles)

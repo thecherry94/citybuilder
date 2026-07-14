@@ -112,6 +112,9 @@ public partial class ToolController : Node
             case InputEventKey { Keycode: Key.Enter, Pressed: true }:
                 ConfirmDraft();
                 break;
+            case InputEventKey { Keycode: Key.T, Pressed: true }:
+                ReleaseTangentLock();
+                break;
         }
     }
 
@@ -141,6 +144,15 @@ public partial class ToolController : Node
         if (!IsRoadMode)
             return;
         _session.Confirm();
+        RenderGhost();
+    }
+
+    /// <summary>T key: release the G1 start-tangent lock on the current draft.</summary>
+    public void ReleaseTangentLock()
+    {
+        if (!IsRoadMode)
+            return;
+        _session.ReleaseTangentLock();
         RenderGhost();
     }
 

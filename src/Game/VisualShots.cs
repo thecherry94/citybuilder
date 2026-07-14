@@ -319,11 +319,14 @@ public partial class VisualShots : Node3D
             Commit(n, gp);
             Commit(n, new PlacementProposal(new[]
             {
-                // control points widened vs. the original diagonal so the crossings
-                // with the grid's (96,96) corner edges stay >= FourLane's 16 m
-                // consecutive-crossing minimum apart (M4's sliver-crossing guard).
+                // ~45° diagonal along z = x + 24: crosses every grid line near the
+                // middle of its 48 m segment, ~34 m between consecutive crossings —
+                // clear of the 25° crossing floor (M4 final: was 15°) and both
+                // sliver guards (TwoLane 8 m on grid edges, FourLane 16 m along the
+                // diagonal). Gently bowed: an exactly straight diagonal trips the
+                // known SelfIntersects false positive (see docs/gotchas.md).
                 new ProposedCurve(
-                    new Bezier3(new(-30, 0, 30), new(50, 0, 40), new(100, 0, 100), new(190, 0, 130)),
+                    new Bezier3(new(-30, 0, -6), new(32.4f, 0, 64.9f), new(99.1f, 0, 131.6f), new(170, 0, 194)),
                     EndpointBinding.None, EndpointBinding.None)
             }, RoadCatalog.FourLane.Id));
         }, new[] { Top(new(72, 0, 72), 220), Oblique(new(72, 0, 72), 150) });

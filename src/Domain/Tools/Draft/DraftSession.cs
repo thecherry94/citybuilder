@@ -57,7 +57,15 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             return;
         if (State == SessionState.Adjustable)
         {
-            State = SessionState.Placing; // back to editing clicks
+            // back to editing clicks: the draft must be genuinely incomplete again,
+            // or the next click would append a junk handle past the shape's count
+            State = SessionState.Placing;
+            if (!d.RemoveLastHandle() || d.Handles.Count == 0)
+            {
+                Cancel();
+                return;
+            }
+            Revalidate();
             return;
         }
         if (!d.RemoveLastHandle() || d.Handles.Count == 0)
@@ -102,6 +110,13 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             }
             State = SessionState.Placing;
         }
+        if (d.IsComplete)
+        {
+            // belt-and-braces: a click on an already-complete draft routes to the
+            // completion path instead of appending a handle the shape ignores
+            CompleteDraft(d);
+            return;
+        }
         d.AddHandle(s, d.Handles.Count == 0 ? BoundTangent(s) : null);
         if (!d.IsComplete)
         {
@@ -109,6 +124,16 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             return;
         }
         CompleteDraft(d);
+    }
+
+    /// <summary>Release the G1 start-tangent lock on the current draft (spec'd lock
+    /// toggle — game layer binds it to a key).</summary>
+    public void ReleaseTangentLock()
+    {
+        if (Draft is not { } d || !d.TangentLocked)
+            return;
+        d.UnlockStartTangent();
+        Revalidate();
     }
 
     public void Confirm()
@@ -152,7 +177,9 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         Ghost = validated;
         if (validated is null || !validated.IsValid || AdjustMode)
         {
-            if (validated is { IsValid: false })
+            if (validated is null)
+                Flashed?.Invoke("shape is not buildable here");
+            else if (!validated.IsValid)
                 Flashed?.Invoke("invalid placement: " + string.Join(", ", validated.Errors));
             State = SessionState.Adjustable;
             return;
@@ -239,7 +266,11 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         Vector3? reference = null;
         if (Draft is { } d && d.Handles.Count > 0 && forHandleIndex != 0)
         {
-            anchor = d.Handles[^1].Position;
+            // the anchor must be a FIXED handle: while dragging handle i > 0 it is
+            // the start handle (anchoring to the dragged handle itself makes angle
+            // snap wiggle and feeds perpendicular snap a noise direction); when
+            // placing the next click it is the last placed handle as before
+            anchor = forHandleIndex > 0 ? d.Handles[0].Position : d.Handles[^1].Position;
             reference = d.StartTangent;
         }
         var ctx = new SnapContext(anchor, reference,

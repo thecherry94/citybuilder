@@ -16,10 +16,10 @@
 ## Key constants
 | What | Value |
 |---|---|
-| MinEdgeLength | 4 m |
-| NodeReuseRadius | 0.5 m (crossing split reuse < 4 m) |
-| MinCrossingAngleDeg | 15° (`CrossingTooShallow`) |
-| MinJunctionAngleDeg | 25° (`SharpAngle`; also the sliver-crossing/kink floor) |
+| MinEdgeLength | 4 m (geometric floor inside curve math only) |
+| NodeReuseRadius | 0.5 m (crossing/endpoint node-connection exemption; split absorb uses the edge type's MinSegmentLength) |
+| MinJunctionAngleDeg | 25° (`SharpAngle` at endpoint bindings, `Kinked` inside a proposal, and the `CrossingTooShallow` floor for proposal-vs-existing crossings; sliver crossings are governed by per-type MinSegmentLength, not this angle) |
+| TangentContinuationDeg | 1° (OnEdge departures within it are legal G1 ramp exits, exempt from `SharpAngle`; AtNode stays strict) |
 | Per-type MinSegmentLength (`max(8 m, Width)`) | TwoLane 8, FourLane 16, Street 12, Avenue 21 m |
 | Per-type MinRadius | TwoLane 20, FourLane 35, Street 10, Avenue 25 m |
 | Grid tool cell (`GridStampShape`) | 48 m |

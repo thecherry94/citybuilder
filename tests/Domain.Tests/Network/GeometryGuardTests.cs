@@ -23,6 +23,9 @@ public class GeometryGuardTests
         TryCommit(n, Net.Straight(new(0, 0, -30), new(200, 0, 130)));       // diagonal, crosses several
         TryCommit(n, Net.Straight(new(52, 0, -48), new(50, 0, 150)));       // near-duplicate — must be rejected, not committed
         TryCommit(n, Net.Straight(new(148, 0, 2), new(152, 0, 98)));        // sliver-ish vertical near existing
+        TryCommit(n, Net.Straight(new(0, 0, 20), new(200, 0, 100.8f)));     // 22° crossings (15–25° band) — must be rejected
+        TryCommit(n, Net.Straight(new(10, 0, -45), new(50, 0, -45)));       // free end splits a road 5 m from its end — must be rejected
+        TryCommit(n, GridStamp(new(20, 0, 16), new(116, 0, 16), new(116, 0, 112))); // stamp slivers the diagonal — must be rejected
         foreach (var e in n.Edges.Values)
         {
             float min = RoadCatalog.Get(e.Type).MinSegmentLength;
@@ -53,5 +56,14 @@ public class GeometryGuardTests
         var v = n.Validate(p);
         if (v.IsValid)
             n.Commit(v);
+    }
+
+    private static PlacementProposal GridStamp(Vector3 origin, Vector3 extent1, Vector3 extent2)
+    {
+        var d = new RoadDraft(new GridStampShape(), RoadCatalog.TwoLane.Id);
+        d.AddHandle(SnapResult.Free(origin));
+        d.AddHandle(SnapResult.Free(extent1));
+        d.AddHandle(SnapResult.Free(extent2));
+        return d.BuildProposal()!;
     }
 }

@@ -17,11 +17,14 @@ public sealed class RoadNetwork
     /// <summary>Distance under which a free endpoint picks up an existing node.</summary>
     public const float NodeReuseRadius = 0.5f;
 
-    /// <summary>Minimum angle (between centerline tangents) at which two roads may cross.</summary>
-    public const float MinCrossingAngleDeg = 15f;
-
-    /// <summary>Minimum angle between any two legs meeting at a node.</summary>
+    /// <summary>Minimum angle between any two legs meeting at a node. Also the floor
+    /// for proposal-vs-existing crossings (`CrossingTooShallow`) — a crossing *is* a
+    /// future junction, so it obeys the same 25° rule.</summary>
     public const float MinJunctionAngleDeg = 25f;
+
+    /// <summary>Departures from an OnEdge binding within this angle of the edge tangent
+    /// are G1 continuations (ramp exits), not sharp bumps — SharpAngle exempts them.</summary>
+    public const float TangentContinuationDeg = 1f;
 
     private readonly Dictionary<NodeId, RoadNode> _nodes = new();
     private readonly Dictionary<EdgeId, RoadEdge> _edges = new();
@@ -68,6 +71,9 @@ public sealed class RoadNetwork
         var errors = new List<PlacementError>();
         var crossings = new List<Vector3>();
         var type = RoadCatalog.Get(proposal.Type);
+        // crossing arc-distances per EXISTING edge, aggregated across ALL proposal
+        // curves — consecutive crossings on the same edge must not leave slivers
+        var hitsPerExistingEdge = new Dictionary<EdgeId, List<float>>();
 
         foreach (var pc in proposal.Curves)
         {
@@ -94,7 +100,7 @@ public sealed class RoadNetwork
                     continue; // connection at an endpoint, not a crossing
                 crossings.Add(p);
                 crossParams.Add(t1);
-                if (CrossingAngleDeg(pc.Curve.Tangent(t1), e.Curve.Tangent(t2)) < MinCrossingAngleDeg)
+                if (CrossingAngleDeg(pc.Curve.Tangent(t1), e.Curve.Tangent(t2)) < MinJunctionAngleDeg)
                     shallow = true;
                 // crossing must not leave a sliver on the existing edge — unless it
                 // lands within reuse distance of that edge's own end, which extends the
@@ -106,6 +112,9 @@ public sealed class RoadNetwork
                     float eMin = RoadCatalog.Get(e.Type).MinSegmentLength;
                     if (dAlong < eMin || e.ArcLength.TotalLength - dAlong < eMin)
                         sliver = true;
+                    if (!hitsPerExistingEdge.TryGetValue(e.Id, out var along))
+                        hitsPerExistingEdge[e.Id] = along = new List<float>();
+                    along.Add(dAlong);
                 }
             }
             if (shallow)
@@ -125,8 +134,10 @@ public sealed class RoadNetwork
                 }
             }
 
-            // OnEdge endpoint bindings must not land a sliver from the edge's ends
-            sliver |= BindingLeavesSliver(pc.Start) || BindingLeavesSliver(pc.End);
+            // endpoint bindings must not land a sliver from the edge's ends — for
+            // OnEdge bindings directly, and for Free endpoints that commit would
+            // resolve onto an edge (mirrors ResolveBinding's node/edge fallback)
+            sliver |= BindingLeavesSliver(pc.Start, a) || BindingLeavesSliver(pc.End, b);
             if (sliver)
                 errors.Add(PlacementError.TooShort);
 
@@ -134,6 +145,23 @@ public sealed class RoadNetwork
             if (HasSharpLeg(pc.Start, a, pc.Curve.Tangent(0))
                 || HasSharpLeg(pc.End, b, -pc.Curve.Tangent(1)))
                 errors.Add(PlacementError.SharpAngle);
+        }
+
+        // consecutive crossings landing on the SAME existing edge (one curve crossing
+        // twice, or several curves of one proposal — e.g. a grid stamp) must be at
+        // least that edge type's minimum apart, or commit would manufacture slivers
+        foreach (var (edgeId, along) in hitsPerExistingEdge)
+        {
+            if (along.Count < 2 || !_edges.TryGetValue(edgeId, out var e))
+                continue;
+            float eMin = RoadCatalog.Get(e.Type).MinSegmentLength;
+            along.Sort();
+            for (int i = 0; i + 1 < along.Count; i++)
+                if (along[i + 1] - along[i] < eMin - 0.1f)
+                {
+                    errors.Add(PlacementError.TooShort);
+                    break;
+                }
         }
 
         // kinks between curves of the same proposal that share an endpoint
@@ -144,10 +172,27 @@ public sealed class RoadNetwork
         return new ValidatedPlacement(proposal, errors.Count == 0, errors, crossings, Version);
     }
 
-    private bool BindingLeavesSliver(EndpointBinding binding)
+    private bool BindingLeavesSliver(EndpointBinding binding, Vector3 pos)
     {
-        if (binding is not EndpointBinding.OnEdge(var edgeId, var t) || !_edges.TryGetValue(edgeId, out var e))
-            return false;
+        switch (binding)
+        {
+            case EndpointBinding.OnEdge(var edgeId, var t) when _edges.TryGetValue(edgeId, out var e):
+                return SplitLeavesSliver(e, t);
+            case EndpointBinding.Free:
+                // mirror ResolveBinding: a free endpoint near a node reuses it (clean
+                // connection); near an edge it splits that edge, so sliver-check it
+                if (FindNodeNear(pos, NodeReuseRadius) is not null)
+                    return false;
+                if (FindClosestEdge(pos, NodeReuseRadius) is { } hit)
+                    return SplitLeavesSliver(_edges[hit.id], hit.t);
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    private static bool SplitLeavesSliver(RoadEdge e, float t)
+    {
         float d = e.ArcLength.DistanceAtT(t);
         float min = RoadCatalog.Get(e.Type).MinSegmentLength;
         // within reuse radius of an end = clean node connection, not a split
@@ -158,13 +203,20 @@ public sealed class RoadNetwork
 
     private bool HasSharpLeg(EndpointBinding binding, Vector3 pos, Vector3 newLeaving)
     {
-        foreach (var leg in ExistingLegDirections(binding, pos))
-            if (AngleDegXZ(newLeaving, leg) < MinJunctionAngleDeg)
+        foreach (var (leg, fromEdge) in ExistingLegDirections(binding, pos))
+        {
+            float deg = AngleDegXZ(newLeaving, leg);
+            // near-tangential departure from mid-edge is a G1 continuation (ramp
+            // exit), not a bump — legal. AtNode legs stay fully strict.
+            if (fromEdge && deg <= TangentContinuationDeg)
+                continue;
+            if (deg < MinJunctionAngleDeg)
                 return true;
+        }
         return false;
     }
 
-    private IEnumerable<Vector3> ExistingLegDirections(EndpointBinding binding, Vector3 pos)
+    private IEnumerable<(Vector3 dir, bool fromEdge)> ExistingLegDirections(EndpointBinding binding, Vector3 pos)
     {
         NodeId? nodeId = binding switch
         {
@@ -174,8 +226,8 @@ public sealed class RoadNetwork
         if (nodeId is null && binding is EndpointBinding.OnEdge(var eid, var t) && _edges.TryGetValue(eid, out var onEdge))
         {
             var tan = onEdge.Curve.Tangent(t);
-            yield return tan;
-            yield return -tan;
+            yield return (tan, true);
+            yield return (-tan, true);
             yield break;
         }
         nodeId ??= FindNodeNear(pos, NodeReuseRadius);
@@ -184,15 +236,15 @@ public sealed class RoadNetwork
             foreach (var legEdge in node.EdgeSet)
             {
                 var e = _edges[legEdge];
-                yield return e.StartNode == id2 ? e.Curve.Tangent(0) : -e.Curve.Tangent(1);
+                yield return (e.StartNode == id2 ? e.Curve.Tangent(0) : -e.Curve.Tangent(1), false);
             }
             yield break;
         }
         if (FindClosestEdge(pos, NodeReuseRadius) is { } hit)
         {
             var tan = _edges[hit.id].Curve.Tangent(hit.t);
-            yield return tan;
-            yield return -tan;
+            yield return (tan, true);
+            yield return (-tan, true);
         }
     }
 
@@ -392,17 +444,18 @@ public sealed class RoadNetwork
     }
 
     /// <summary>Split an edge at local parameter t, unless the split point is within
-    /// MinEdgeLength of an end — then that end's node is reused and nothing is split.
-    /// Returns the node at the split point and, if a split happened, the edge covering
-    /// the part after t (for remapping subsequent split params).</summary>
+    /// the edge type's MinSegmentLength of an end — then that end's node is reused and
+    /// nothing is split. Returns the node at the split point and, if a split happened,
+    /// the edge covering the part after t (for remapping subsequent split params).</summary>
     private (NodeId node, EdgeId? after) SplitEdgeWithReuse(EdgeId edgeId, float t,
         List<NodeId>? createdNodes)
     {
         var edge = _edges[edgeId];
+        float minLen = RoadCatalog.Get(edge.Type).MinSegmentLength;
         float d = edge.ArcLength.DistanceAtT(t);
-        if (d < GeoConstants.MinEdgeLength)
+        if (d < minLen)
             return (edge.StartNode, null);
-        if (edge.ArcLength.TotalLength - d < GeoConstants.MinEdgeLength)
+        if (edge.ArcLength.TotalLength - d < minLen)
             return (edge.EndNode, null);
 
         var (a, b) = edge.Curve.Split(t);

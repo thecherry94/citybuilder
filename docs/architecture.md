@@ -47,8 +47,17 @@ Road types are pure data: `LaneSpec(Offset, Direction, Width, Kind)` lists per t
 TwoLane (8 m), FourLane (16 m), Street (12 m, sidewalks), Avenue (21 m, bikes+sidewalks).
 
 ### Tools (`src/Domain/Tools`)
-`IPlacementTool` implementations (Straight, SimpleCurve, ComplexCurve, Continuous, Grid),
-`SnapService` (priority: Node > GuidelineIntersection > Edge > Guideline > Angle > Free).
+- `DraftSession` — the tool state machine (`Idle → Placing → Adjustable`): owns the
+  current `RoadDraft`, resolves snapping in context (anchor, chain/lock tangent, grid),
+  validates/commits via `RoadNetwork`, exposes ghost + readout state. The game layer
+  only forwards input.
+- `RoadDraft` + `IDraftShape` strategies (`Straight`, `QuadCurve`, `CubicCurve`, `Arc`,
+  `Chain` via quad, `GridStamp`) — editable handle lists mapped to proposal curves;
+  G1 start-tangent lock when a draft starts on a node/edge (releasable, `T` in-game).
+- `SnapEngine` (`Tools/Snapping`) — candidate-scored snapping: node / edge / guideline /
+  guide-intersection / grid point+line / perpendicular producers, score =
+  distance ÷ kind weight, angle-snap fallback from the reference tangent; parallel
+  guides off straight-ish edges.
 
 ### Traffic (`src/Domain/Traffic`)
 Two-layer design:
@@ -75,5 +84,5 @@ Two-layer design:
 `JunctionMarkings` (stop lines/teeth by role, turn arrows from actual movements,
 crosswalks, guidance, degree-2 corner continuations) · `JunctionProps` (signs, light
 poles) · `SignalLampView` (animated lamps) · `TrafficView` (MultiMesh cars) ·
-`ToolController`/`Toolbar`/`JunctionPanel`/`GhostView`/`SnapService` UI ·
+`ToolController`/`Toolbar`/`JunctionPanel`/`GhostView`/`GridOverlay` UI ·
 `VisualShots` (screenshot + motion-filmstrip harness) · `CameraRig` · `Materials`.

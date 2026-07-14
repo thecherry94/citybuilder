@@ -25,6 +25,9 @@ verified build.
   curve starts everywhere plus a constant-radius arc mode with a live radius readout,
   geometry guards (per-type min segment length/radius, 25° junction floor, kink +
   sliver-crossing blocks), grid overlay + toolbar controls.
+  Known limits (M5 candidates): no G1 lock when starting on multi-edge junction nodes,
+  parallel guides require the Guides toggle on, no anchor-handle drag in chain mode,
+  numpad-Enter doesn't confirm, radius readout doesn't turn red when too tight.
 
 ## Next up (roughly in order — each is one milestone)
 
