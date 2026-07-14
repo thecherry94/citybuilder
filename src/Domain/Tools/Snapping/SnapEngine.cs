@@ -207,7 +207,8 @@ public sealed class SnapEngine(RoadNetwork network)
                 guides.Add(new Guideline(node.Position, Vector3.Normalize(-leaving), GuidelineReach));
             }
         }
-        // Task 9 adds parallel guides here when (enabled & SnapTypes.Parallel) != 0.
+        if ((enabled & SnapTypes.Parallel) != 0 && ctx.DrawingType is { } drawType)
+            AddParallelGuides(near, drawType, guides);
         return guides;
     }
 
@@ -221,6 +222,40 @@ public sealed class SnapEngine(RoadNetwork network)
 
     private static IReadOnlyList<Guideline> NearbyGuides(List<Guideline> guides, Vector3 pos, float radius)
         => guides.Where(g => ProjectOntoGuide(g, pos) is { } p && Vector3.Distance(p, pos) <= radius).ToArray();
+
+    private void AddParallelGuides(Vector3 near, RoadTypeId drawType, List<Guideline> guides)
+    {
+        float newHalf = RoadCatalog.Get(drawType).OuterHalf;
+        foreach (var e in network.Edges.Values)
+        {
+            var chord = e.Curve.P3 - e.Curve.P0;
+            chord.Y = 0;
+            float len = chord.Length();
+            if (len < 10f)
+                continue;
+            var dir = chord / len;
+            // straightness: both control points within 0.5 m of the chord line (XZ)
+            if (DistToLineXZ(e.Curve.P1, e.Curve.P0, dir) > 0.5f
+                || DistToLineXZ(e.Curve.P2, e.Curve.P0, dir) > 0.5f)
+                continue;
+            if (BezierOps.ClosestPoint(e.Curve, near).dist > GuidelineSearch)
+                continue;
+            float off = RoadCatalog.Get(e.Type).OuterHalf + newHalf;
+            var n = Vector3.Cross(dir, Vector3.UnitY);
+            n.Y = 0;
+            if (n.LengthSquared() < GeoConstants.Eps)
+                continue;
+            n = Vector3.Normalize(n);
+            guides.Add(new Guideline(e.Curve.P0 + n * off, dir, len));
+            guides.Add(new Guideline(e.Curve.P0 - n * off, dir, len));
+        }
+    }
+
+    private static float DistToLineXZ(Vector3 p, Vector3 origin, Vector3 dir)
+    {
+        var rel = p - origin;
+        return MathF.Abs(rel.X * dir.Z - rel.Z * dir.X);
+    }
 
     // ----------------------------------------------------------------- angle
 

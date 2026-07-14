@@ -1,4 +1,6 @@
 using System.Numerics;
+using CityBuilder.Domain.Catalog;
+using CityBuilder.Domain.Geometry;
 using CityBuilder.Domain.Network;
 using CityBuilder.Domain.Tests.Network;
 using CityBuilder.Domain.Tools;
@@ -142,5 +144,30 @@ public class SnapEngineTests
         var (_, snap) = Setup();
         var result = snap.Resolve(new Vector3(43, 0, 0.5f), 5f, SnapTypes.Perpendicular, SnapContext.Empty);
         Assert.Equal(SnapKind.Free, result.Kind);
+    }
+
+    [Fact]
+    public void ParallelGuideSitsCurbToCurb()
+    {
+        var (_, snap) = Setup(); // TwoLane (width 8, OuterHalf 4) along z=0
+        var ctx = SnapContext.Empty with { DrawingType = RoadCatalog.TwoLane.Id };
+        // expected guide at z = ±(4 + 4) = ±8; cursor near z=7.4 above mid-edge
+        var result = snap.Resolve(new Vector3(50, 0, 7.4f), 3f, SnapTypes.Parallel | SnapTypes.Guidelines, ctx);
+        Assert.Equal(SnapKind.Guideline, result.Kind);
+        Assert.Equal(8f, result.Position.Z, 2);
+    }
+
+    [Fact]
+    public void CurvedEdgeSpawnsNoParallelGuide()
+    {
+        var n = Net.New();
+        var bend = Bezier3.FromQuadratic(new(0, 0, 0), new(50, 0, 40), new(100, 0, 0));
+        Net.Commit(n, new PlacementProposal(
+            new[] { new ProposedCurve(bend, EndpointBinding.None, EndpointBinding.None) },
+            RoadCatalog.TwoLane.Id));
+        var snap = new SnapEngine(n);
+        var ctx = SnapContext.Empty with { DrawingType = RoadCatalog.TwoLane.Id };
+        var result = snap.Resolve(new Vector3(50, 0, 28f), 3f, SnapTypes.Parallel | SnapTypes.Guidelines, ctx);
+        Assert.NotEqual(SnapKind.Guideline, result.Kind);
     }
 }
