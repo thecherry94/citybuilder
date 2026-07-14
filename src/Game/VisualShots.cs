@@ -187,7 +187,10 @@ public partial class VisualShots : Node3D
         yield return new Scenario("acute_y", n =>
         {
             Commit(n, Straight(new(0, 0, 0), new(120, 0, 0)));
-            float rad = 20 * MathF.PI / 180;
+            // 30°: as acute as the M4 MinJunctionAngleDeg (25°) floor allows with margin;
+            // also dodges BezierOps.SelfIntersects' known false-positive angles on
+            // straight lines (27/28/31/33/35/40°, see docs/gotchas.md).
+            float rad = 30 * MathF.PI / 180;
             Commit(n, Straight(new(0, 0, 0), new(120 * MathF.Cos(rad), 0, 120 * MathF.Sin(rad))));
         }, Standard(new(25, 0, 6), 55));
 
@@ -316,8 +319,11 @@ public partial class VisualShots : Node3D
             Commit(n, gp);
             Commit(n, new PlacementProposal(new[]
             {
+                // control points widened vs. the original diagonal so the crossings
+                // with the grid's (96,96) corner edges stay >= FourLane's 16 m
+                // consecutive-crossing minimum apart (M4's sliver-crossing guard).
                 new ProposedCurve(
-                    new Bezier3(new(-30, 0, 30), new(50, 0, 40), new(90, 0, 110), new(180, 0, 120)),
+                    new Bezier3(new(-30, 0, 30), new(50, 0, 40), new(100, 0, 100), new(190, 0, 130)),
                     EndpointBinding.None, EndpointBinding.None)
             }, RoadCatalog.FourLane.Id));
         }, new[] { Top(new(72, 0, 72), 220), Oblique(new(72, 0, 72), 150) });
@@ -418,6 +424,30 @@ public partial class VisualShots : Node3D
                     sim.Tick(1f / 60f);
             }
         }, WarmupTicks: 300);
+
+        yield return new Scenario("m4_drafting", n =>
+        {
+            // straight base road
+            Commit(n, Straight(new(-70, 0, 0), new(0, 0, 0)));
+            var baseEdge = n.Edges.Values.Single();
+            var endNode = n.Nodes[baseEdge.EndNode];
+            var tangent = baseEdge.Curve.Tangent(1);
+
+            // arc continuing from the base road's end node, tangent-locked to it —
+            // this is the RoadDraft + ArcShape path a real drag gesture takes.
+            var arc = new RoadDraft(new ArcShape(), RoadCatalog.TwoLane.Id);
+            arc.AddHandle(
+                new SnapResult(endNode.Position, SnapKind.Node, endNode.Id, null, null, Array.Empty<Guideline>()),
+                tangent);
+            arc.AddHandle(SnapResult.Free(new NVec(50, 0, 50)));
+            Commit(n, arc.BuildProposal()!);
+
+            // parallel road exactly curb-to-curb: offset by the sum of both types'
+            // OuterHalf (built directly here, not via snapping — VisualShots commits
+            // proposals straight into the network).
+            float offset = RoadCatalog.TwoLane.OuterHalf + RoadCatalog.TwoLane.OuterHalf;
+            Commit(n, Straight(new(-70, 0, -offset), new(0, 0, -offset)));
+        }, Standard(new(-5, 0, 25), 105));
 
         yield return new Scenario("lanes_overlay", n =>
         {

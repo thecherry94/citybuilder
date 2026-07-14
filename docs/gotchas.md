@@ -48,6 +48,11 @@ Hard-won. Read the relevant section before touching that area.
 - Healing fits must be tangent-constrained with closest-point reparameterization
   (≤16 iterations); free-control least squares biases outward.
 - A cubic can legitimately cross a line 3 times — don't "fix" intersection counts.
+- **Known issue:** `BezierOps.SelfIntersects` has pre-existing intermittent false
+  positives on exactly-straight lines at certain angles (27/28/31/33/35/40° seen so
+  far) — its sampled-segment check occasionally flags near-collinear adjacent spans as
+  crossing. Discovered during M4 Task 5, out of scope for that milestone. Avoid those
+  angles in new visual scenarios rather than "fixing" a scenario into the bug.
 
 ## Traffic sim
 - **`Vehicle.S` is the front bumper.** The rendered centre trails by half a length and

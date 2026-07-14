@@ -18,13 +18,20 @@ verified build.
   following, dynamic lane changes + turn-lane assignment, conflict-set junction
   arbitration, cycling signals, ambient + manual spawning, MultiMesh rendering,
   motion-continuity test harness.
+- **M4 — Road-building UX** (2026-07-14): draft/gesture model with draggable handles
+  (`RoadDraft` + `IDraftShape` + `DraftSession` replace the old click tools),
+  candidate-scored snapping (node/edge/guideline/guide-intersection/grid
+  point+line/perpendicular-with-arrival-constraint/parallel guides), tangent-locked
+  curve starts everywhere plus a constant-radius arc mode with a live radius readout,
+  geometry guards (per-type min segment length/radius, 25° junction floor, kink +
+  sliver-crossing blocks), grid overlay + toolbar controls.
 
 ## Next up (roughly in order — each is one milestone)
 
 1. **Editing comfort: undo/redo + upgrade tool.** Invertible `NetworkDelta`s (the
    batching already exists), upgrade-in-place (change a road's type without redrawing,
-   preserving junction configs), maybe parallel-road drawing mode. CS2's most-loved
-   road UX. Small, self-contained, huge daily payoff.
+   preserving junction configs). CS2's most-loved road UX. Small, self-contained, huge
+   daily payoff.
 2. **Traffic depth pass.** Protected left phases + movement-level priorities (conflict
    sets already exist), junction merging for very short blocks, taper markings at
    type-change transitions, dropped curbs at crosswalks. Turns M3's known limits into
