@@ -131,7 +131,41 @@ public sealed class SnapEngine(RoadNetwork network)
     private void AddPerpendicularCandidates(Vector3 raw, float radius, Vector3 anchor,
         List<SnapCandidate> outList)
     {
-        // Task 8 implements; empty here so Task 6 compiles.
+        foreach (var e in network.Edges.Values)
+        {
+            // f(t) = (P(t) − anchor) · T(t) is zero where the chord is perpendicular
+            const int coarse = 32;
+            float F(float t)
+            {
+                var p = e.Curve.Point(t) - anchor;
+                var tan = e.Curve.Tangent(t);
+                return p.X * tan.X + p.Z * tan.Z;
+            }
+            float f0 = F(0);
+            for (int i = 1; i <= coarse; i++)
+            {
+                float t1 = i / (float)coarse;
+                float f1 = F(t1);
+                if (f0 * f1 <= 0 && (f0 != 0 || f1 != 0))
+                {
+                    float lo = (i - 1) / (float)coarse, hi = t1;
+                    for (int k = 0; k < 24; k++)
+                    {
+                        float mid = (lo + hi) / 2;
+                        if (F(lo) * F(mid) <= 0) hi = mid;
+                        else lo = mid;
+                    }
+                    float tm = (lo + hi) / 2;
+                    var foot = e.Curve.Point(tm);
+                    var dir = foot - anchor;
+                    dir.Y = 0;
+                    if (Vector3.Distance(foot, raw) <= radius && dir.LengthSquared() > 1e-6f)
+                        outList.Add(new SnapCandidate(foot, SnapKind.Perpendicular, WeightPerpendicular,
+                            Edge: (e.Id, tm), Direction: Vector3.Normalize(dir)));
+                }
+                f0 = f1;
+            }
+        }
     }
 
     private static void AddGridCandidates(Vector3 raw, float radius, GridConfig grid,

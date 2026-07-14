@@ -119,4 +119,28 @@ public class SnapEngineTests
         var result = snap.Resolve(new Vector3(302.2f, 0, 297.9f), 5f, SnapTypes.Grid, SnapContext.Empty);
         Assert.Equal(SnapKind.Free, result.Kind);
     }
+
+    [Fact]
+    public void PerpendicularFootSnapsToExact90Degrees()
+    {
+        var (n, snap) = Setup(); // edge (0,0,0)→(100,0,0)
+        var anchor = new Vector3(40, 0, 60);
+        // cursor near the edge but 3 m off the true foot (40, 0, 0)
+        var ctx = new SnapContext(anchor, null);
+        var result = snap.Resolve(new Vector3(43, 0, 0.5f), 5f, SnapTypes.Perpendicular, ctx);
+        Assert.Equal(SnapKind.Perpendicular, result.Kind);
+        Assert.True(Vector3.Distance(result.Position, new Vector3(40, 0, 0)) < 0.05f,
+            $"foot at {result.Position}");
+        Assert.NotNull(result.DirectionConstraint);
+        // arrival direction points from anchor to foot: (0, 0, -1)
+        Assert.Equal(-1f, result.DirectionConstraint!.Value.Z, 2);
+    }
+
+    [Fact]
+    public void PerpendicularNeedsAnchor()
+    {
+        var (_, snap) = Setup();
+        var result = snap.Resolve(new Vector3(43, 0, 0.5f), 5f, SnapTypes.Perpendicular, SnapContext.Empty);
+        Assert.Equal(SnapKind.Free, result.Kind);
+    }
 }
