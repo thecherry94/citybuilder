@@ -16,11 +16,12 @@ public class BoulevardScenarioTests
     {
         var n = Net.New();
 
-        // 3×3-node grid via the grid tool (2 cells per axis)
-        var grid = new GridTool { RoadType = RoadCatalog.TwoLane.Id };
-        grid.AddClick(SnapResult.Free(new Vector3(0, 0, 0)));
-        grid.AddClick(SnapResult.Free(new Vector3(96, 0, 0)));
-        var gridProposal = grid.AddClick(SnapResult.Free(new Vector3(96, 0, 96)))!;
+        // 3×3-node grid via the grid stamp draft (2 cells per axis)
+        var grid = new RoadDraft(new GridStampShape(), RoadCatalog.TwoLane.Id);
+        grid.AddHandle(SnapResult.Free(new Vector3(0, 0, 0)));
+        grid.AddHandle(SnapResult.Free(new Vector3(96, 0, 0)));
+        grid.AddHandle(SnapResult.Free(new Vector3(96, 0, 96)));
+        var gridProposal = grid.BuildProposal()!;
         Assert.True(n.Commit(n.Validate(gridProposal)).Success);
         int gridEdges = n.Edges.Count;
         int gridNodes = n.Nodes.Count;
