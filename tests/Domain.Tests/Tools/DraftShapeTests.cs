@@ -120,4 +120,21 @@ public class DraftShapeTests
         Assert.Equal(2, curves.Count);
         Assert.True(Vector3.Dot(curves[0].Curve.Tangent(1), curves[1].Curve.Tangent(0)) > 0.999f);
     }
+
+    [Fact]
+    public void GridStampBuildsWholeCellsBothWays()
+    {
+        // 2 × 2 cells of 48 m: (2+1) + (2+1) = 6 lines
+        var d = Draft(new GridStampShape(), null, Free(0, 0), Free(96, 0), Free(96, 96));
+        Assert.True(d.IsComplete);
+        Assert.Equal(6, d.BuildProposal()!.Curves.Count);
+    }
+
+    [Fact]
+    public void GridStampWithLessThanOneCellHasNoProposal()
+    {
+        var d = Draft(new GridStampShape(), null, Free(0, 0), Free(40, 0), Free(40, 40));
+        Assert.True(d.IsComplete);
+        Assert.Null(d.BuildProposal());
+    }
 }

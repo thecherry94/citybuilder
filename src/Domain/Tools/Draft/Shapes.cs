@@ -143,3 +143,52 @@ public sealed class ArcShape : IDraftShape
         return BezierOps.ArcFromTangent(start, tangent, end)?.Curves;
     }
 }
+
+/// <summary>Three endpoint handles: corner, extent along the first axis,
+/// perpendicular extent. Stamps straight roads along both axes at 48 m spacing;
+/// only whole cells are kept.</summary>
+public sealed class GridStampShape : IDraftShape
+{
+    public const float CellSize = 48f;
+
+    public int RequiredHandles(bool tangentLocked) => 3;
+    public HandleRole RoleOf(int index, bool tangentLocked) => HandleRole.Endpoint;
+
+    public IReadOnlyList<Bezier3>? Curves(IReadOnlyList<DraftHandle> handles, Vector3? startTangent)
+    {
+        if (handles.Count < 3)
+            return null;
+
+        var origin = handles[0].Position;
+        var axis1 = handles[1].Position - origin;
+        axis1.Y = 0;
+        if (axis1.Length() < GeoConstants.Eps)
+            return null;
+        var dir1 = Vector3.Normalize(axis1);
+        int n1 = (int)MathF.Floor(axis1.Length() / CellSize);
+
+        var raw2 = handles[2].Position - origin;
+        raw2.Y = 0;
+        var perp = raw2 - dir1 * Vector3.Dot(raw2, dir1);
+        if (perp.Length() < GeoConstants.Eps)
+            return null;
+        var dir2 = Vector3.Normalize(perp);
+        int n2 = (int)MathF.Floor(perp.Length() / CellSize);
+
+        if (n1 < 1 || n2 < 1)
+            return null;
+
+        var curves = new List<Bezier3>();
+        for (int i = 0; i <= n1; i++)
+        {
+            var a = origin + dir1 * (i * CellSize);
+            curves.Add(Bezier3.Line(a, a + dir2 * (n2 * CellSize)));
+        }
+        for (int j = 0; j <= n2; j++)
+        {
+            var a = origin + dir2 * (j * CellSize);
+            curves.Add(Bezier3.Line(a, a + dir1 * (n1 * CellSize)));
+        }
+        return curves;
+    }
+}
