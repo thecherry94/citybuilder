@@ -80,4 +80,44 @@ public class DraftShapeTests
         Assert.Equal(new Vector3(30, 0, 30), c.P1);
         Assert.Equal(new Vector3(70, 0, 30), c.P2);
     }
+
+    [Fact]
+    public void UnlockedArcUsesDirectionHandle()
+    {
+        // start at origin, direction handle straight +X, end at (50,0,50) → quarter arc r=50
+        var d = Draft(new ArcShape(), null, Free(0, 0), Free(20, 0), Free(50, 50));
+        Assert.True(d.IsComplete);
+        var curves = d.BuildProposal()!.Curves;
+        var c = Assert.Single(curves).Curve;
+        Assert.InRange(BezierOps.MinRadius(c), 49f, 51f);
+        Assert.True(Vector3.Dot(c.Tangent(0), new Vector3(1, 0, 0)) > 0.999f);
+    }
+
+    [Fact]
+    public void LockedArcNeedsOnlyStartAndEnd()
+    {
+        var d = Draft(new ArcShape(), new Vector3(1, 0, 0), Free(0, 0), Free(50, 50));
+        Assert.True(d.IsComplete);
+        var curves = d.BuildProposal()!.Curves;
+        var c = Assert.Single(curves).Curve;
+        Assert.InRange(BezierOps.MinRadius(c), 49f, 51f);
+    }
+
+    [Fact]
+    public void ArcBeyondSweepCapHasNoProposal()
+    {
+        // end nearly behind the start: > 175° sweep
+        var d = Draft(new ArcShape(), new Vector3(1, 0, 0), Free(0, 0), Free(-80, 1));
+        Assert.True(d.IsComplete);      // handles are all there…
+        Assert.Null(d.BuildProposal()); // …but the geometry refuses
+    }
+
+    [Fact]
+    public void WideArcEmitsTwoG1Curves()
+    {
+        var d = Draft(new ArcShape(), new Vector3(1, 0, 0), Free(0, 0), Free(35, 85));
+        var curves = d.BuildProposal()!.Curves;
+        Assert.Equal(2, curves.Count);
+        Assert.True(Vector3.Dot(curves[0].Curve.Tangent(1), curves[1].Curve.Tangent(0)) > 0.999f);
+    }
 }

@@ -109,3 +109,37 @@ public sealed class CubicCurveShape : IDraftShape
         return new[] { ShapeUtil.ApplyArrival(full, handles[3]) };
     }
 }
+
+/// <summary>Constant-radius circular arc. Unlocked: start, a direction handle the
+/// arc leaves toward, end. Tangent-locked: start, end (the lock is the direction).
+/// The most predictable curve primitive — radius shown live in the readout.</summary>
+public sealed class ArcShape : IDraftShape
+{
+    public int RequiredHandles(bool tangentLocked) => tangentLocked ? 2 : 3;
+
+    public HandleRole RoleOf(int index, bool tangentLocked)
+        => !tangentLocked && index == 1 ? HandleRole.Direction : HandleRole.Endpoint;
+
+    public IReadOnlyList<Bezier3>? Curves(IReadOnlyList<DraftHandle> handles, Vector3? startTangent)
+    {
+        int needed = RequiredHandles(startTangent is not null);
+        if (handles.Count < needed)
+            return null;
+        var start = handles[0].Position;
+        var end = handles[^1].Position;
+        Vector3 tangent;
+        if (startTangent is not null)
+        {
+            tangent = startTangent.Value;
+        }
+        else
+        {
+            tangent = handles[1].Position - start;
+            tangent.Y = 0;
+            if (tangent.LengthSquared() < GeoConstants.Eps * GeoConstants.Eps)
+                return null;
+            tangent = Vector3.Normalize(tangent);
+        }
+        return BezierOps.ArcFromTangent(start, tangent, end)?.Curves;
+    }
+}
