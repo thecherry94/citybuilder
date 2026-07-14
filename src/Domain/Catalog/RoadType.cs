@@ -12,8 +12,12 @@ public sealed record RoadType(
     string Name,
     float Width,
     IReadOnlyList<LaneSpec> Lanes,
-    float DesignSpeedKmh)
+    float DesignSpeedKmh,
+    float MinRadius)
 {
+    /// <summary>Shortest committable edge of this type; junction spacing floor.</summary>
+    public float MinSegmentLength => MathF.Max(8f, Width);
+
     /// <summary>Half-width of the paved carriageway: up to the sidewalks' inner
     /// edges, or the full half-width when there are none.</summary>
     public float CarriagewayHalf
@@ -54,7 +58,7 @@ public static class RoadCatalog
             new(+1.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
             new(-1.75f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
         },
-        80f);
+        80f, 20f);
 
     public static readonly RoadType FourLane = new(
         new RoadTypeId(2), "Four-Lane Road", 16f,
@@ -65,7 +69,7 @@ public static class RoadCatalog
             new(-1.75f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
             new(-5.25f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
         },
-        100f);
+        100f, 35f);
 
     /// <summary>Urban two-lane street: driving lanes flanked by raised sidewalks.</summary>
     public static readonly RoadType Street = new(
@@ -77,7 +81,7 @@ public static class RoadCatalog
             new(+4.75f, LaneDirection.Forward, 2.5f, LaneKind.Sidewalk),
             new(-4.75f, LaneDirection.Backward, 2.5f, LaneKind.Sidewalk),
         },
-        50f);
+        50f, 10f);
 
     /// <summary>Urban four-lane avenue with bicycle lanes and sidewalks.</summary>
     public static readonly RoadType Avenue = new(
@@ -93,7 +97,7 @@ public static class RoadCatalog
             new(+9.5f, LaneDirection.Forward, 2f, LaneKind.Sidewalk),
             new(-9.5f, LaneDirection.Backward, 2f, LaneKind.Sidewalk),
         },
-        60f);
+        60f, 25f);
 
     public static readonly IReadOnlyList<RoadType> All = new[] { TwoLane, FourLane, Street, Avenue };
 
