@@ -27,7 +27,12 @@ verified build.
   sliver-crossing blocks), grid overlay + toolbar controls.
   Known limits (M5 candidates): no G1 lock when starting on multi-edge junction nodes,
   parallel guides require the Guides toggle on, no anchor-handle drag in chain mode,
-  numpad-Enter doesn't confirm, radius readout doesn't turn red when too tight.
+  numpad-Enter doesn't confirm, radius readout doesn't turn red when too tight,
+  an OnEdge binding within node-reuse distance of an edge end skips the node-leg
+  sharp-angle check (sub-1° exposure only), and a free endpoint landing on an edge
+  that the same proposal also crosses nearby commits with the endpoint absorbed up
+  to one min-segment-length away from the ghost position (invariant holds, WYSIWYG
+  dented in that corner).
 
 ## Next up (roughly in order — each is one milestone)
 
