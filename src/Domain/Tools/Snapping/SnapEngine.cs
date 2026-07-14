@@ -33,7 +33,7 @@ public sealed class SnapEngine(RoadNetwork network)
     public const float WeightPerpendicular = 2.2f;
     public const float WeightEdge = 2.0f;
     public const float WeightGuideline = 1.5f;
-    public const float WeightGridPoint = 1.2f;
+    public const float WeightGridPoint = 1.5f;
     public const float WeightGridLine = 1.0f;
 
     public SnapResult Resolve(Vector3 raw, float radius, SnapTypes enabled, SnapContext ctx)
@@ -137,7 +137,20 @@ public sealed class SnapEngine(RoadNetwork network)
     private static void AddGridCandidates(Vector3 raw, float radius, GridConfig grid,
         List<SnapCandidate> outList)
     {
-        // Task 7 implements; empty here so Task 6 compiles.
+        float cs = grid.CellSize;
+        float gx = MathF.Round(raw.X / cs) * cs;
+        float gz = MathF.Round(raw.Z / cs) * cs;
+
+        var point = new Vector3(gx, raw.Y, gz);
+        if (Vector3.Distance(point, raw) <= radius)
+            outList.Add(new SnapCandidate(point, SnapKind.GridPoint, WeightGridPoint));
+
+        // nearest grid line: keep the closer axis projection
+        var lineX = new Vector3(gx, raw.Y, raw.Z);   // vertical line x = gx
+        var lineZ = new Vector3(raw.X, raw.Y, gz);   // horizontal line z = gz
+        var line = MathF.Abs(raw.X - gx) <= MathF.Abs(raw.Z - gz) ? lineX : lineZ;
+        if (Vector3.Distance(line, raw) <= radius)
+            outList.Add(new SnapCandidate(line, SnapKind.GridLine, WeightGridLine));
     }
 
     // ---------------------------------------------------------------- guides

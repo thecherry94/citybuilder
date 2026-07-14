@@ -76,4 +76,47 @@ public class SnapEngineTests
         Assert.Equal(SnapKind.Free, result.Kind);
         Assert.Equal(raw, result.Position);
     }
+
+    [Fact]
+    public void GridPointSnapsToNearestIntersection()
+    {
+        var (_, snap) = Setup();
+        var ctx = SnapContext.Empty with { Grid = new GridConfig(8f) };
+        var result = snap.Resolve(new Vector3(302.2f, 0, 297.9f), 5f, SnapTypes.Grid, ctx);
+        Assert.Equal(SnapKind.GridPoint, result.Kind);
+        Assert.Equal(new Vector3(304, 0, 296), result.Position);
+    }
+
+    [Fact]
+    public void GridLineWinsWhenIntersectionIsFar()
+    {
+        var (_, snap) = Setup();
+        var ctx = SnapContext.Empty with { Grid = new GridConfig(8f) };
+        // 0.4 m off the x=304 line but 3.9 m from the nearest intersection:
+        // line score 0.4/1.0 = 0.4 < point score 3.92/1.2 ≈ 3.3
+        var result = snap.Resolve(new Vector3(304.4f, 0, 300f), 5f, SnapTypes.Grid, ctx);
+        Assert.Equal(SnapKind.GridLine, result.Kind);
+        Assert.Equal(304f, result.Position.X, 3);
+        Assert.Equal(300f, result.Position.Z, 3);
+    }
+
+    [Fact]
+    public void NodeStillBeatsGridWhenBothClose()
+    {
+        var (n, snap) = Setup();
+        var ctx = SnapContext.Empty with { Grid = new GridConfig(8f) };
+        // cursor past the road end so the edge can't shadow the node:
+        // node (100,0,0) 1.80 m → score .45; guideline proj 1.0 m → .67;
+        // grid point (104,0,0) 2.69 m → 2.24; grid lines ≥ 1.0 → node wins
+        var result = snap.Resolve(new Vector3(101.5f, 0, 1.0f), 5f, SnapTypes.All, ctx);
+        Assert.Equal(SnapKind.Node, result.Kind);
+    }
+
+    [Fact]
+    public void GridIgnoredWithoutConfig()
+    {
+        var (_, snap) = Setup();
+        var result = snap.Resolve(new Vector3(302.2f, 0, 297.9f), 5f, SnapTypes.Grid, SnapContext.Empty);
+        Assert.Equal(SnapKind.Free, result.Kind);
+    }
 }
