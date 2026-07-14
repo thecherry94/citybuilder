@@ -49,6 +49,7 @@ public partial class Toolbar : Control
             ("Straight", ToolMode.Straight),
             ("Curve", ToolMode.SimpleCurve),
             ("Curve+", ToolMode.ComplexCurve),
+            ("Arc", ToolMode.Arc),
             ("Chain", ToolMode.Continuous),
             ("Grid", ToolMode.Grid),
             ("Bulldoze", ToolMode.Bulldoze),
@@ -81,18 +82,34 @@ public partial class Toolbar : Control
         var snapRow = new HBoxContainer();
         box.AddChild(snapRow);
         snapRow.AddChild(new Label { Text = "Snap " });
-        foreach (var (label, flag) in new[]
+        foreach (var (label, flag, initial) in new[]
         {
-            ("Nodes", SnapTypes.Nodes),
-            ("Edges", SnapTypes.Edges),
-            ("Angle", SnapTypes.Angle),
-            ("Guides", SnapTypes.Guidelines),
+            ("Nodes", SnapTypes.Nodes, true),
+            ("Edges", SnapTypes.Edges, true),
+            ("Angle", SnapTypes.Angle, true),
+            ("Guides", SnapTypes.Guidelines, true),
+            ("Parallel", SnapTypes.Parallel, true),
+            ("Perp", SnapTypes.Perpendicular, true),
+            ("Grid", SnapTypes.Grid, false),
         })
         {
-            var cb = new CheckBox { Text = label, ButtonPressed = true };
+            var cb = new CheckBox { Text = label, ButtonPressed = initial };
             cb.Toggled += on => _controller.SetSnapType(flag, on);
             snapRow.AddChild(cb);
+            if (!initial)
+                _controller.SetSnapType(flag, false);
         }
+        var cellPick = new OptionButton();
+        foreach (var size in new[] { 4, 8, 16, 32 })
+            cellPick.AddItem($"{size} m", size);
+        cellPick.Selected = 1; // 8 m
+        cellPick.ItemSelected += idx =>
+            _controller.Session.Grid = new GridConfig(cellPick.GetItemId((int)idx));
+        snapRow.AddChild(cellPick);
+
+        var adjust = new CheckBox { Text = "Adjust before commit" };
+        adjust.Toggled += on => _controller.Session.AdjustMode = on;
+        box.AddChild(adjust);
 
         var lanesToggle = new CheckBox { Text = "Show lanes (debug)" };
         lanesToggle.Toggled += on => _lanes.SetShown(on);
@@ -117,7 +134,7 @@ public partial class Toolbar : Control
 
         var hint = new Label
         {
-            Text = "LMB place · RMB step back · Esc cancel · WASD pan · wheel zoom · Q/E rotate",
+            Text = "LMB place/drag handle · RMB step back · Enter confirm · Esc cancel · WASD pan · wheel zoom · Q/E rotate",
             Modulate = new Color(1, 1, 1, 0.6f),
         };
         box.AddChild(hint);

@@ -78,6 +78,10 @@ public partial class Main : Node3D
         _controller.BindTraffic(_traffic);
         AddChild(_controller);
 
+        var gridOverlay = new GridOverlay { Name = "GridOverlay" };
+        gridOverlay.Bind(_controller, camera);
+        AddChild(gridOverlay);
+
         _traffic = new CityBuilder.Domain.Traffic.TrafficSim(_network, seed: 1);
         var trafficView = new TrafficView { Name = "TrafficView" };
         trafficView.Bind(_traffic);
@@ -193,6 +197,21 @@ public partial class Main : Node3D
             _controller.SetMode(ToolMode.Inspect);
             _controller.HandleClickAt(V(0, 0));
             _view.FlushDirty();
+
+            // draft-handle drag: place a straight draft in adjust mode, drag its end, confirm
+            _controller.Session.AdjustMode = true;
+            _controller.SetMode(ToolMode.Straight);
+            _controller.HandleClickAt(V(-80, 60));
+            _controller.HandleClickAt(V(0, 60));       // complete → Adjustable
+            _controller.HandleMouseDownAt(V(0, 60));   // grab end handle
+            _controller.HandleHoverAt(V(40, 60));      // drag
+            _controller.HandleMouseUpAt();
+            _controller.ConfirmDraft();                // commit
+            _controller.Session.AdjustMode = false;
+            Expect(_network.Edges.Values.Any(e =>
+                    System.Numerics.Vector3.Distance(e.Curve.P3, V(40, 60)) < 1f
+                    || System.Numerics.Vector3.Distance(e.Curve.P0, V(40, 60)) < 1f),
+                "dragged draft endpoint not committed at (40, 60)");
 
             // spawn a vehicle via the two-click tool and tick a bit of traffic
             _controller.SetMode(ToolMode.SpawnVehicle);
