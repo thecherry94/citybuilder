@@ -423,4 +423,46 @@ public class PlacementTests
         Assert.False(v.IsValid);
         Assert.Contains(PlacementError.SharpAngle, v.Errors);
     }
+
+    /// <summary>Generator-independent reconstruction of fuzz finding seed 101@64
+    /// (see FuzzRegressionTests.Seed101GridStampAbsorptionKeepsCommittedGeometryClean
+    /// for the seed pin; this test survives any change to the fuzzer's RNG usage).
+    ///
+    /// Multi-curve proposals interact with THEMSELVES during commit: curve 2 crosses
+    /// curve 1's already-committed child, and because the crossing lands within the
+    /// child's MinSegmentLength of its split node, SplitEdgeWithReuse absorbs the
+    /// stop to that node — relocating it 10 m sideways. Validation ran before any of
+    /// the batch existed, so it never saw this. Pre-fix, SubCurve pinned only the
+    /// segment endpoints to the relocated node, committing a kinked ~15.6 m FourLane
+    /// edge (length AND radius below the type floors). Post-fix the displacement is
+    /// blended across the control net and the commit-side floor guard drops the
+    /// degenerate segment instead of building it, pruning its orphaned end node.</summary>
+    [Fact]
+    public void SameBatchSiblingAbsorptionNeverCommitsDegenerateSegments()
+    {
+        var n = Net.New();
+        // pre-existing cross street: splits curve 1 at (30,0,0) during the batch
+        Net.Commit(n, Net.Straight(new(30, 0, -50), new(30, 0, 50)));
+
+        // one proposal, two curves (the grid-stamp shape): curve 2 crosses curve 1's
+        // committed child [30,100] at (40,0,0) — 10 m from the split node, within
+        // FourLane's 16 m MinSegmentLength, so the stop absorbs to (30,0,0)
+        var proposal = new PlacementProposal(new[]
+        {
+            new ProposedCurve(Bezier3.Line(new(0, 0, 0), new(100, 0, 0)),
+                EndpointBinding.None, EndpointBinding.None),
+            new ProposedCurve(Bezier3.Line(new(40, 0, -12), new(40, 0, 20)),
+                EndpointBinding.None, EndpointBinding.None),
+        }, RoadCatalog.FourLane.Id);
+        Net.Commit(n, proposal);
+
+        // the relocated segment (40,-12)→(30,0) would be 15.6 m < FourLane's floor:
+        // dropped, not committed corrupt — 5 edges survive (2 existing halves,
+        // 2 curve-1 halves, 1 curve-2 remainder) and its orphaned end node is pruned
+        Assert.Equal(5, n.Edges.Count);
+        Assert.DoesNotContain(n.Nodes.Values, x => Vector3.Distance(x.Position, new(40, 0, -12)) < 1f);
+
+        // and the whole committed network honors every geometry invariant
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
 }
