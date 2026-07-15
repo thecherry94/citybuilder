@@ -50,13 +50,18 @@ public static class ConnectorBuilder
         bool junction = node.Edges.Count >= 3;
 
         // left→right rank of each incoming driving lane within its edge approach,
-        // for turn-lane assignment (lefts from the leftmost, rights from the rightmost)
+        // for turn-lane assignment (lefts from the leftmost, rights from the rightmost).
+        // Incoming lanes from one edge share a travel direction, so signed offset
+        // orders them correctly (|offset| ordering gets it backwards whenever the
+        // lane set spans 0 — see TrafficSim._adjacent for the same latent bug).
         var laneRank = new Dictionary<LaneId, (int index, int count)>();
         foreach (var group in incoming
                      .Where(x => x.lane.Kind == LaneKind.Driving)
                      .GroupBy(x => x.lane.Edge))
         {
-            var ordered = group.OrderBy(x => MathF.Abs(x.lane.Offset)).ToArray();
+            var ordered = (group.First().lane.Direction == LaneDirection.Forward
+                ? group.OrderBy(x => x.lane.Offset)
+                : group.OrderByDescending(x => x.lane.Offset)).ToArray();
             for (int i = 0; i < ordered.Length; i++)
                 laneRank[ordered[i].lane.Id] = (i, ordered.Length);
         }

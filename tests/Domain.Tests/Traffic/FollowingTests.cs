@@ -1,4 +1,5 @@
 using System.Numerics;
+using CityBuilder.Domain.Catalog;
 using CityBuilder.Domain.Network;
 using CityBuilder.Domain.Tests.Network;
 using CityBuilder.Domain.Traffic;
@@ -115,5 +116,27 @@ public class FollowingTests
         }
         Assert.True(crossed, "vehicle never entered a connector");
         Assert.Equal(1, sim.Arrived);
+    }
+
+    [Fact]
+    public void AdjacencyOrdersBySignedOffsetPerDirection()
+    {
+        // FourLane: forward lanes at +1.75 (left, inner) and +5.25 (right, outer);
+        // backward at −1.75/−5.25. Right-hand traffic: for each direction group,
+        // Left/Right must follow the travel frame, not raw |offset|.
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(0, 0, 0), new(200, 0, 0), RoadCatalog.FourLane.Id));
+        var sim = new TrafficSim(n);
+        var edge = n.Edges.Values.Single();
+        var fwd = edge.Lanes.Where(l => l.Direction == LaneDirection.Forward
+            && l.Kind == LaneKind.Driving).OrderBy(l => l.Offset).ToArray();
+        // forward: lower offset = further left
+        Assert.Equal(fwd[1].Id, sim.AdjacentOf(fwd[0].Id).Right);
+        Assert.Equal(fwd[0].Id, sim.AdjacentOf(fwd[1].Id).Left);
+        var bwd = edge.Lanes.Where(l => l.Direction == LaneDirection.Backward
+            && l.Kind == LaneKind.Driving).OrderByDescending(l => l.Offset).ToArray();
+        // backward: higher offset = further left in the travel frame
+        Assert.Equal(bwd[1].Id, sim.AdjacentOf(bwd[0].Id).Right);
+        Assert.Equal(bwd[0].Id, sim.AdjacentOf(bwd[1].Id).Left);
     }
 }

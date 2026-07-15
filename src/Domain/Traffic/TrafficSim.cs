@@ -95,6 +95,9 @@ public sealed partial class TrafficSim
     /// advancing the simulation (views need phases while the sim is paused).</summary>
     public void EnsureSynced() => Sync();
 
+    /// <summary>Test hook: left/right neighbor lanes cached for `id`'s direction.</summary>
+    internal (LaneId? Left, LaneId? Right) AdjacentOf(LaneId id) => _adjacent[id];
+
     /// <summary>Test hook: teleport a vehicle onto a specific lane at its current S.</summary>
     internal void ForceLane(Vehicle v, LaneId lane)
     {
@@ -228,15 +231,19 @@ public sealed partial class TrafficSim
         return v.Crossing is { } cr ? ConnectorSpeed(cr) : 8f;
     }
 
-    /// <summary>Comfortable speed through a junction, by movement geometry.</summary>
+    /// <summary>Comfortable speed through a junction, by movement geometry. Straights
+    /// flow at the road's limit — priority traffic doesn't brake for junctions.</summary>
     private float ConnectorSpeed((NodeId Node, int Connector) key)
-        => _network.Nodes[key.Node].Connectors[key.Connector].Turn switch
+    {
+        var conn = _network.Nodes[key.Node].Connectors[key.Connector];
+        return conn.Turn switch
         {
-            TurnKind.Straight => 14f,
-            TurnKind.Right => 8f,
-            TurnKind.Left => 9f,
+            TurnKind.Straight => MathF.Min(_runs[conn.From].SpeedLimit, _runs[conn.To].SpeedLimit),
+            TurnKind.Right => 9f,
+            TurnKind.Left => 10f,
             _ => 5f, // u-turns
         };
+    }
 
     /// <summary>Bumper gap and closing speed to the nearest leader within the
     /// look-ahead horizon, walking lane → connector → next lane.</summary>
@@ -467,14 +474,19 @@ public sealed partial class TrafficSim
         }
 
         // adjacency (left/right neighbor in travel frame) among same-direction
-        // driving lanes of each edge, ordered left → right by |offset|
+        // driving lanes of each edge, ordered left → right by signed offset per the
+        // travel direction (forward travel: left = −offset; backward travel: left =
+        // +offset — |offset| ordering gets this backwards whenever lanes span 0)
         _adjacent.Clear();
         foreach (var edge in _network.Edges.Values)
         foreach (var group in edge.Lanes
                      .Where(l => l.Kind == LaneKind.Driving)
                      .GroupBy(l => l.Direction))
         {
-            var ordered = group.OrderBy(l => MathF.Abs(l.Offset)).ToArray();
+            var ordered = (group.Key == LaneDirection.Forward
+                ? group.OrderBy(l => l.Offset)               // forward travel: left = −offset
+                : group.OrderByDescending(l => l.Offset))    // backward travel: left = +offset
+                .ToArray();
             for (int i = 0; i < ordered.Length; i++)
                 _adjacent[ordered[i].Id] = (
                     i > 0 ? ordered[i - 1].Id : null,

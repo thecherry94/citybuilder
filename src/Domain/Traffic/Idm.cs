@@ -5,7 +5,7 @@ namespace CityBuilder.Domain.Traffic;
 /// tactical layer — each vehicle only ever looks at its leader.</summary>
 public static class Idm
 {
-    public const float T = 1.1f;      // desired time headway, s
+    public const float T = 0.95f;     // desired time headway, s (assertive)
     public const float S0 = 2f;       // standstill gap, m
     public const float A = 2.6f;      // max acceleration, m/s² (snappy, game feel)
     public const float B = 2.8f;      // comfortable braking, m/s²

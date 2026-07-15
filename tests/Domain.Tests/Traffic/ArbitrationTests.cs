@@ -483,4 +483,41 @@ public class ArbitrationTests
         Assert.Contains(cars, c => c.Crossing is not null || c.StepIndex > 0);
         Assert.True(sim.Arrived > 0 || cars.Any(c => c.StepIndex > 0), "someone must have crossed");
     }
+
+    // -------------------------------------------------------- connector speed
+
+    /// <summary>4-way cross of TwoLane roads at its default (Auto) control, a single
+    /// vehicle spawned straight through with nothing else in the junction.</summary>
+    private static (TrafficSim Sim, Vehicle Through) PriorityStraightThroughEmptyCross()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(-150, 0, 0), new Vector3(150, 0, 0), RoadCatalog.TwoLane.Id));
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, -150), new Vector3(0, 0, 150), RoadCatalog.TwoLane.Id));
+
+        var sim = new TrafficSim(n);
+        var wEdge = EdgeAt(n, new Vector3(-75, 0, 0));
+        var eEdge = EdgeAt(n, new Vector3(75, 0, 0));
+        var through = sim.Spawn(wEdge, true, eEdge)!;
+        return (sim, through);
+    }
+
+    [Fact]
+    public void StraightConnectorFlowsAtRoadSpeed()
+    {
+        // straight-through on an empty junction: crossing must not force a slowdown
+        // below the lane speed limit envelope, regardless of the leg's row
+        var (sim, through) = PriorityStraightThroughEmptyCross();
+        float minSpeed = float.MaxValue;
+        bool crossed = false;
+        for (int i = 0; i < 60 * 30 && through.StepIndex == 0; i++)
+        {
+            sim.Tick(1f / 60f);
+            crossed |= through.Crossing is not null;
+            if (crossed)
+                minSpeed = MathF.Min(minSpeed, through.Speed);
+        }
+        // TwoLane limit 22.2 m/s: pre-change the 14 m/s cap forces braking; now the
+        // vehicle should stay above 18 m/s throughout the empty junction
+        Assert.True(minSpeed > 18f, $"slowed to {minSpeed:F1} m/s through an empty junction");
+    }
 }
