@@ -26,7 +26,6 @@ public static class MeshBuilders
     private const float ChordTolerance = 0.15f;
     private const float MarkingWidth = 0.15f;
     private const float DashOn = 3f, DashOff = 3f;
-    private const float EdgeLineInset = 0.4f;
     private const float CurbRampLength = 1.4f;
     private const float BikeTintY = SurfaceY + 0.004f;
 
@@ -221,6 +220,11 @@ public static class MeshBuilders
             else
                 AddSolidLine(st, edge, offset, tStart, tEnd);
         }
+
+        if (type.BackwardCount == 0)
+            foreach (var lane in type.Lanes.Where(l => l.Kind == LaneKind.Driving))
+                AddLaneArrows(st, edge, lane.Offset, tStart, tEnd);
+
         st.GenerateNormals();
         return st;
     }
@@ -229,46 +233,9 @@ public static class MeshBuilders
     public const float MarkingLineWidth = MarkingWidth;
 
     /// <summary>Paint rules from lane adjacency, valid for any lane profile.
-    /// Also used to continue markings across degree-2 corner junctions.</summary>
-    public static IEnumerable<(float offset, bool dashed)> MarkingLayout(RoadType type)
-    {
-        var driving = type.Lanes.Where(l => l.Kind == LaneKind.Driving).OrderBy(l => l.Offset).ToArray();
-        if (driving.Length == 0)
-            yield break;
-
-        for (int i = 0; i + 1 < driving.Length; i++)
-        {
-            float boundary = (driving[i].Offset + driving[i].Width / 2
-                + driving[i + 1].Offset - driving[i + 1].Width / 2) / 2;
-            if (driving[i].Direction == driving[i + 1].Direction)
-                yield return (boundary, true);              // lane separator
-            else if (driving.Length <= 2)
-                yield return (boundary, true);              // small road: dashed center
-            else
-            {
-                yield return (boundary - 0.18f, false);     // double solid center
-                yield return (boundary + 0.18f, false);
-            }
-        }
-
-        foreach (int side in new[] { -1, +1 })
-        {
-            var outermost = side < 0 ? driving[0] : driving[^1];
-            float carriagewayEdge = outermost.Offset + side * outermost.Width / 2;
-            var beyond = type.Lanes
-                .Where(l => l.Kind != LaneKind.Driving
-                    && MathF.Sign(l.Offset) == side
-                    && MathF.Abs(l.Offset) > MathF.Abs(outermost.Offset))
-                .OrderBy(l => MathF.Abs(l.Offset))
-                .FirstOrDefault();
-
-            if (beyond is null)
-                yield return (side * (type.Width / 2 - EdgeLineInset), false); // rural edge line
-            else if (beyond.Kind == LaneKind.Bicycle)
-                yield return (carriagewayEdge, false);      // solid bike separation
-            // sidewalk adjacent: the curb is the boundary, no paint
-        }
-    }
+    /// Also used to continue markings across degree-2 corner junctions.
+    /// Delegates to the pure domain implementation so it stays testable headlessly.</summary>
+    public static IEnumerable<(float offset, bool dashed)> MarkingLayout(RoadType type) => MarkingRules.Layout(type);
 
     private static void AddSolidLine(SurfaceTool st, RoadEdge edge, float offset, float tStart, float tEnd)
     {
@@ -316,6 +283,43 @@ public static class MeshBuilders
         var b1 = edge.Curve.OffsetPoint(tb, offset - hw).ToGodot() + up;
         var b2 = edge.Curve.OffsetPoint(tb, offset + hw).ToGodot() + up;
         AddQuad(st, a1, a2, b2, b1);
+    }
+
+    /// <summary>Forward direction arrows painted on a lane every ~30 m (one-way roads).</summary>
+    private static void AddLaneArrows(SurfaceTool st, RoadEdge edge, float offset, float tStart, float tEnd)
+    {
+        float dStart = edge.ArcLength.DistanceAtT(tStart);
+        float dEnd = edge.ArcLength.DistanceAtT(tEnd);
+        const float spacing = 30f, shaft = 1.6f, head = 1.2f, halfW = 0.12f, headHalfW = 0.45f;
+        for (float d = dStart + spacing / 2; d + shaft + head < dEnd; d += spacing)
+        {
+            float t0 = edge.ArcLength.TAtDistance(d);
+            float t1 = edge.ArcLength.TAtDistance(d + shaft);
+            float t2 = edge.ArcLength.TAtDistance(d + shaft + head);
+            AddOffsetQuad(st, edge, t0, t1, offset, halfW);          // shaft
+            AddOffsetTriangle(st, edge, t1, t2, offset, headHalfW);  // head
+        }
+    }
+
+    private static void AddOffsetQuad(SurfaceTool st, RoadEdge edge, float ta, float tb, float offset, float halfWidth)
+    {
+        var up = Vector3.Up * MarkingY;
+        var a1 = edge.Curve.OffsetPoint(ta, offset - halfWidth).ToGodot() + up;
+        var a2 = edge.Curve.OffsetPoint(ta, offset + halfWidth).ToGodot() + up;
+        var b1 = edge.Curve.OffsetPoint(tb, offset - halfWidth).ToGodot() + up;
+        var b2 = edge.Curve.OffsetPoint(tb, offset + halfWidth).ToGodot() + up;
+        AddQuad(st, a1, a2, b2, b1);
+    }
+
+    private static void AddOffsetTriangle(SurfaceTool st, RoadEdge edge, float ta, float tb, float offset, float halfWidth)
+    {
+        var up = Vector3.Up * MarkingY;
+        var a1 = edge.Curve.OffsetPoint(ta, offset - halfWidth).ToGodot() + up;
+        var a2 = edge.Curve.OffsetPoint(ta, offset + halfWidth).ToGodot() + up;
+        var apex = edge.Curve.OffsetPoint(tb, offset).ToGodot() + up;
+        st.AddVertex(a1);
+        st.AddVertex(a2);
+        st.AddVertex(apex);
     }
 
     // ------------------------------------------------------------------ junctions
