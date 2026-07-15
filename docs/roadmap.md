@@ -33,6 +33,23 @@ verified build.
   that the same proposal also crosses nearby commits with the endpoint absorbed up
   to one min-segment-length away from the ghost position (invariant holds, WYSIWYG
   dented in that corner).
+- **M5 — Traffic depth** (2026-07-15): conflict-point arbitration (arc-distance conflict
+  points per node, past-point clearance via a 0.5 m `ClearMargin` + `Vehicle.Length`),
+  movement ranks + right-hand rule + a deadlock breaker for junction priority, impatience
+  gap acceptance (2.8 s fresh, shrinking to a 2.2 s floor the longer a vehicle waits),
+  straights flowing at road speed through junctions, One-Way and Asymmetric 2+1 road
+  types, and standing safety + throughput regression guards.
+  Known limits (M6+ candidates): protected left-turn phases, junction merging for short
+  blocks, and signal-timing + lane-connector editing UI are still deferred. The safety
+  guard is a two-fault test: either `ClearMargin` or `AcceptedGap` alone is enough to
+  keep the sim collision-free, so a regression that weakens only one of those two
+  parameters slips past the co-occupancy invariant and would only show up as a
+  throughput/behavior-test regression instead — worth remembering before trusting the
+  safety test alone to validate a future change to either constant. Merge-type conflict
+  points sit at the connector's end, so a vehicle that has just exited a connector has a
+  momentarily invisible tail to the conflict scan; rear-end separation enforced on the
+  shared downstream lane covers the gap in practice, but it isn't covered by the
+  conflict-point mechanism itself.
 
 ## Next up (roughly in order — each is one milestone)
 
@@ -40,25 +57,21 @@ verified build.
    batching already exists), upgrade-in-place (change a road's type without redrawing,
    preserving junction configs). CS2's most-loved road UX. Small, self-contained, huge
    daily payoff.
-2. **Traffic depth pass.** Protected left phases + movement-level priorities (conflict
-   sets already exist), junction merging for very short blocks, taper markings at
-   type-change transitions, dropped curbs at crosswalks. Turns M3's known limits into
-   features.
-3. **Elevation & bridges.** The domain carries Y everywhere but is flat: gradient
+2. **Elevation & bridges.** The domain carries Y everywhere but is flat: gradient
    limits, ramps, pillars, over/underpasses (crossing rule changes: grade-separated
    crossings don't create junctions), retaining-wall/bridge meshes. Big win for network
    expressiveness; prerequisite for highways.
-4. **Zoning & buildings.** Zone strips along edges (the offset machinery generalizes),
+3. **Zoning & buildings.** Zone strips along edges (the offset machinery generalizes),
    demand-free procedural growth first: lots, simple building shells, despawn on
    bulldoze. Purely visual city-ness; no economy yet.
-5. **Citizens & destinations.** Trips get meaning: buildings spawn/attract vehicle
+4. **Citizens & destinations.** Trips get meaning: buildings spawn/attract vehicle
    trips (home→work), pedestrians walk the sidewalk graph (it's already a lane kind!),
    crosswalk usage ties into signals. This is where the sim starts feeling like CS.
-6. **Public transport (first line).** Bus stops on sidewalk lanes, a line editor,
+5. **Public transport (first line).** Bus stops on sidewalk lanes, a line editor,
    buses as vehicles with stop dwell — exercises everything above.
-7. **Economy & services (long game).** Demand model driving zoning growth, service
+6. **Economy & services (long game).** Demand model driving zoning growth, service
    buildings with coverage (fire/police/garbage as vehicle trips), districts/policies.
-   Only start when 1–6 feel solid.
+   Only start when 1–5 feel solid.
 
 ## Standing constraints
 
@@ -66,5 +79,5 @@ verified build.
   data-oriented; batching/jobs are an optimization later, not a rewrite.
 - Save/load doesn't exist yet — before the feature set grows much more (latest: before
   zoning), add serialization of `RoadNetwork` + `JunctionConfig` + catalog refs.
-- Signal timing, movement priorities and lane-connector editing UI are deferred, not
-  forgotten (traffic depth pass).
+- Protected left-turn phases, junction merging, and lane-connector/signal-timing editing
+  UI are deferred, not forgotten (movement-level priorities landed in M5).

@@ -77,6 +77,22 @@ Hard-won. Read the relevant section before touching that area.
 - Signals: `IsGreen` is consulted at entry; amber blocks. Controllers persist across
   unrelated network edits (phase timers survive), rebuilt only when the node's mode
   changes.
+- **Never order lane groups by `|offset|` — it breaks on direction-asymmetric lanes**
+  (M5's OneWay, both driving lanes `Forward` at ±1.75 m; Asymmetric 2+1, mixed
+  directions at −4.25/−0.75/+2.75 m). Absolute-offset ordering misorders left/right
+  relative to travel direction whenever a same-direction lane group spans 0. Use
+  direction-aware *signed* ordering instead: `OrderBy(Offset)` for `Forward` groups,
+  `OrderByDescending(Offset)` for `Backward` groups. The two fixed sites are
+  `TrafficSim._adjacent` (left/right neighbor for lane changes) and
+  `ConnectorBuilder.laneRank` (left→right rank for turn-lane assignment) — they
+  cross-reference each other in comments; check both if you touch lane adjacency logic.
+- **`LaneGraph.IsStronglyConnected` must be scoped to a `LaneKind`** on any network that
+  can carry sidewalks (e.g. OneWay). `ConnectorBuilder` never links `Sidewalk`/`Bicycle`
+  lanes to `Driving` ones by design (they're deliberately separate graphs), so an
+  unscoped all-kinds check fails the instant a sidewalk-carrying type enters the network
+  regardless of the driving topology's actual connectivity. Call with
+  `kind: LaneKind.Driving` (see `Main.cs`'s smoke connectivity check) and, if you need to
+  verify sidewalks/bike lanes too, check each kind separately.
 
 ## Junction control
 - Auto main-road heuristic scores by **corridor width (`OuterHalf`)**, not carriageway
