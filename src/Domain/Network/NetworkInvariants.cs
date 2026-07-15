@@ -159,7 +159,14 @@ public static class NetworkInvariants
 
     /// <summary>The standing guard behind the M5 arrow bug: whatever the mix of road
     /// types, an approach never sends more straight connectors into an arm than that
-    /// arm has receiving driving lanes.</summary>
+    /// arm has receiving driving lanes — UNLESS the approach had no left/right
+    /// alternative to shed the surplus into. This mirrors ConnectorBuilder's own
+    /// documented drop logic exactly: surplus straight lanes drop into a dedicated
+    /// left (then right) turn when such an arm with receiving capacity exists, and
+    /// "lanes with neither alternative keep a merge-straight rather than going dead"
+    /// (never-strand, spec amendment 2026-07-16). So surplus is only a violation when
+    /// the assignment demonstrably could have done better: allowed sources =
+    /// max(receiving capacity, approach lanes − availableLeft − availableRight).</summary>
     public static void CheckStraightCapacity(RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges, List<string> o)
     {
         var laneById = node.Edges.SelectMany(edgeId => edges[edgeId].Lanes).ToDictionary(l => l.Id, l => l);
@@ -173,7 +180,23 @@ public static class NetworkInvariants
             bool leavesAtNode = target.StartNode == node.Id;
             int capacity = target.Lanes.Count(l => l.Kind == LaneKind.Driving
                 && (l.Direction == LaneDirection.Forward) == leavesAtNode);
-            if (sources > capacity)
+            if (sources <= capacity)
+                continue;
+
+            // merge-fallback allowance: a left/right arm exists for this approach
+            // iff the builder emitted a Left/Right driving connector from it (it
+            // always does when such an arm has receiving capacity — the leftmost/
+            // rightmost lane is unconditionally entitled to it)
+            var approach = edges[group.Key.From];
+            bool arrivesForward = approach.EndNode == node.Id;
+            int n = approach.Lanes.Count(l => l.Kind == LaneKind.Driving
+                && (l.Direction == LaneDirection.Forward) == arrivesForward);
+            bool hasLeft = node.Connectors.Any(c => c.Turn == TurnKind.Left
+                && laneById[c.From].Kind == LaneKind.Driving && laneById[c.From].Edge == group.Key.From);
+            bool hasRight = node.Connectors.Any(c => c.Turn == TurnKind.Right
+                && laneById[c.From].Kind == LaneKind.Driving && laneById[c.From].Edge == group.Key.From);
+            int allowed = Math.Max(capacity, n - (hasLeft ? 1 : 0) - (hasRight ? 1 : 0));
+            if (sources > allowed)
                 o.Add($"node {node.Id.Value}: {sources} straight source lanes into {capacity} receiving on edge {target.Id.Value}");
         }
     }

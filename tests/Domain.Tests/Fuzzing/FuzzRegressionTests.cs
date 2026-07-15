@@ -96,6 +96,23 @@ public class FuzzRegressionTests
         Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
     }
 
+    /// <summary>Root cause: at a 3-way where a FourLane approach's only non-U-turn
+    /// outlet is a single-receiving-lane arm (the third arm doubles back, classifying
+    /// UTurn — no left/right alternative anywhere), ConnectorBuilder's documented
+    /// merge-straight fallback correctly sends both lanes into the one receiving lane
+    /// ("lanes with neither alternative keep a merge-straight rather than going
+    /// dead"), but CheckStraightCapacity flagged the merge as surplus. The checker
+    /// now mirrors the builder's own drop logic: surplus straight sources are only a
+    /// violation when a left/right alternative with receiving capacity existed to
+    /// shed them into (allowed = max(capacity, approach lanes − left − right)) — the
+    /// M5 arrow-bug guard is unchanged wherever alternatives exist.</summary>
+    [Fact]
+    public void Seed202MergeStraightWithoutAlternativeIsLegal()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(202, 155));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
     /// <summary>The minimal direct-draw shape of the amendment (from the Task 4
     /// BLOCKED report): a OneWay ending where an Asymmetric continues. The
     /// Asymmetric's arriving backward lane has categorically zero destinations
