@@ -457,6 +457,46 @@ public partial class VisualShots : Node3D
             Commit(n, Straight(new(-60, 0, 0), new(60, 0, 0), RoadCatalog.FourLane.Id));
             Commit(n, Straight(new(0, 0, -60), new(0, 0, 60)));
         }, Standard(new(0, 0, 0), 55), ShowLanes: true);
+
+        yield return new Scenario("m5_new_types", n =>
+        {
+            // one-way street (both lanes forward, painted arrows) crossing an
+            // Asymmetric 2+1 (double-solid center line off-center at -2.5m,
+            // toward the single backward lane's side — see MarkingRules.Layout)
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.OneWay.Id));
+            Commit(n, Straight(new(0, 0, -80), new(0, 0, 80), RoadCatalog.Asymmetric.Id));
+        }, Standard(new(0, 0, 0), 55));
+
+        yield return new Scenario("m5_congestion", n =>
+        {
+            // busy priority x minor cross: TwoLane (E-W, priority) x Street (N-S,
+            // minor). Street is nominally wider (OuterHalf 6 vs TwoLane's 4), so Auto
+            // control would flip the priority — override all four legs explicitly
+            // (mirrors AssertivenessGuardTests.BusyCross).
+            Commit(n, Straight(new(-200, 0, 0), new(200, 0, 0), RoadCatalog.TwoLane.Id));
+            Commit(n, Straight(new(0, 0, -200), new(0, 0, 200), RoadCatalog.Street.Id));
+            var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+            EdgeId At(NVec mid) => n.Edges.Values.Single(e => NVec.Distance(e.Curve.Point(0.5f), mid) < 5f).Id;
+            var wEdge = At(new(-100, 0, 0));
+            var eEdge = At(new(100, 0, 0));
+            var nEdge = At(new(0, 0, -100));
+            var sEdge = At(new(0, 0, 100));
+            n.ConfigureJunction(node.Id, node.Config with
+            {
+                Mode = JunctionControlMode.PrioritySigns,
+                RoleOverrides = new Dictionary<EdgeId, LegRole>
+                {
+                    [wEdge] = LegRole.Main,
+                    [eEdge] = LegRole.Main,
+                    [nEdge] = LegRole.Yield,
+                    [sEdge] = LegRole.Yield,
+                },
+            });
+        }, new[]
+        {
+            Top(new(0, 0, 0), 70),
+            Oblique(new(0, 0, 0), 55),
+        }, Traffic: (n, sim) => sim.TargetPopulation = 40, WarmupTicks: 1800);
     }
 
     // ---------------------------------------------------------------- helpers

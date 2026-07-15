@@ -275,6 +275,23 @@ public partial class Main : Node3D
             _controller.HandleClickAt(V(200, 0));
             Expect(_network.Edges.Count == 17, $"expected 17 edges after link, got {_network.Edges.Count}");
 
+            // one-way triangle loop off the grid: a lone one-way stub would break
+            // strong connectivity, so close it into a loop (three one-way edges),
+            // tied back to the grid corner by a two-way link
+            _controller.HandleClickAt(V(296, 96));
+            _controller.HandleClickAt(V(320, 140));
+            Expect(_network.Edges.Count == 18, $"expected 18 edges after loop link-in, got {_network.Edges.Count}");
+
+            _controller.SetRoadType(RoadCatalog.OneWay.Id);
+            _controller.HandleClickAt(V(320, 140));
+            _controller.HandleClickAt(V(400, 140));
+            _controller.HandleClickAt(V(400, 140));
+            _controller.HandleClickAt(V(400, 220));
+            _controller.HandleClickAt(V(400, 220));
+            _controller.HandleClickAt(V(320, 140));
+            Expect(_network.Edges.Count == 21, $"expected 21 edges after one-way loop, got {_network.Edges.Count}");
+            _controller.SetRoadType(RoadCatalog.TwoLane.Id);
+
             // meshes exist for every entity
             _view.FlushDirty();
             Expect(_view.EdgeInstanceCount == _network.Edges.Count,
@@ -285,11 +302,17 @@ public partial class Main : Node3D
             // bulldoze the north leg of the cross -> T junction, network heals derived data
             _controller.SetMode(ToolMode.Bulldoze);
             _controller.HandleClickAt(V(0, 50));
-            Expect(_network.Edges.Count == 16, $"expected 16 edges after bulldoze, got {_network.Edges.Count}");
+            Expect(_network.Edges.Count == 20, $"expected 20 edges after bulldoze, got {_network.Edges.Count}");
 
             // lane overlay renders without errors
             _lanes.SetShown(true);
-            Expect(LaneGraph.IsStronglyConnected(_network), "lane graph not strongly connected");
+            // kind: Driving — the one-way loop's sidewalks are their own isolated
+            // graph by design (ConnectorBuilder never links Sidewalk/Bicycle lanes;
+            // see UrbanRoadTests.MixedKindNetworkIsNotConnectedAcrossKinds), so the
+            // all-kinds check would fail the moment any sidewalk-carrying type (like
+            // OneWay) enters the network regardless of the driving topology.
+            Expect(LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
+                "driving lane graph not strongly connected");
 
             // junction control: lights + resize on the T junction left by the bulldoze
             var tee = _network.Nodes.Values.First(n => n.Edges.Count == 3);
