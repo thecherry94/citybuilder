@@ -213,4 +213,103 @@ public class ArbitrationTests
             sim.Tick(1f / 60f);
         Assert.NotNull(entering.Crossing); // took the gap behind the crossed car
     }
+
+    /// <summary>Drivable length of `edgeId`'s lane run, mirroring TrafficSim's own
+    /// (private) LaneRun.Length computation from the node junction cuts — lets a test
+    /// place a vehicle at an exact distance from its stop line via public network state.</summary>
+    private static float ApproachRunLength(RoadNetwork n, EdgeId edgeId)
+    {
+        var edge = n.Edges[edgeId];
+        float tStart = 0f, tEnd = 1f;
+        if (n.Nodes.TryGetValue(edge.StartNode, out var sn) && sn.Junction.CutT.TryGetValue(edgeId, out var a))
+            tStart = a;
+        if (n.Nodes.TryGetValue(edge.EndNode, out var en) && en.Junction.CutT.TryGetValue(edgeId, out var b))
+            tEnd = b;
+        float dA = edge.ArcLength.DistanceAtT(tStart);
+        float dB = edge.ArcLength.DistanceAtT(tEnd);
+        return MathF.Max(0.5f, dB - dA);
+    }
+
+    /// <summary>Cross of TwoLane (E-W, priority/Free) x Street (N-S, minor/Yield —
+    /// forced via RoleOverrides since Auto would otherwise pick the wider Street as
+    /// main). `entering` spawns on the south Street leg heading north through the
+    /// junction and is ticked to within 10 m of its stop line. `rival` is a ghost
+    /// (spawned then Despawn'd off the live vehicle list, so it never advances on its
+    /// own) placed on the west TwoLane leg at the S/speed pair whose ratio is
+    /// `ttaSeconds` — the ConflictApproachClear time-to-arrival the arbiter sees for it
+    /// against `entering`'s connector.</summary>
+    private static (TrafficSim Sim, Vehicle Entering, Vehicle Rival) YieldEntryWithApproachingRival(
+        float ttaSeconds)
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(-200, 0, 0), new Vector3(200, 0, 0), RoadCatalog.TwoLane.Id));
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, -200), new Vector3(0, 0, 200), RoadCatalog.Street.Id));
+        var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+        var wEdge = EdgeAt(n, new Vector3(-100, 0, 0));
+        var eEdge = EdgeAt(n, new Vector3(100, 0, 0));
+        var nEdge = EdgeAt(n, new Vector3(0, 0, -100));
+        var sEdge = EdgeAt(n, new Vector3(0, 0, 100));
+
+        // Auto would make Street (wider, OuterHalf 6 vs TwoLane's 4) the main pair;
+        // force the reverse explicitly so TwoLane is priority/Free and Street yields.
+        n.ConfigureJunction(node.Id, node.Config with
+        {
+            Mode = JunctionControlMode.PrioritySigns,
+            RoleOverrides = new Dictionary<EdgeId, LegRole>
+            {
+                [wEdge] = LegRole.Main,
+                [eEdge] = LegRole.Main,
+                [nEdge] = LegRole.Yield,
+                [sEdge] = LegRole.Yield,
+            },
+        });
+
+        var sim = new TrafficSim(n);
+        var entering = sim.Spawn(sEdge, false, nEdge)!;
+        var rival = sim.Spawn(wEdge, true, eEdge)!;
+        var rivalLane = rival.Lane!.Value;
+        sim.Despawn(rival); // ghost: removed from the live list, so it never moves on its own
+
+        for (int i = 0; i < 30 * 60 && entering.Lane is not null; i++)
+        {
+            var (pos, _) = sim.Pose(entering);
+            if (Vector3.Distance(pos, node.Position) < 10f)
+                break;
+            sim.Tick(Dt);
+        }
+        Assert.NotNull(entering.Lane); // must still be approaching, not already through
+
+        const float rivalSpeed = 10f;
+        float runLength = ApproachRunLength(n, wEdge);
+        rival.Speed = rivalSpeed;
+        rival.S = MathF.Max(0f, runLength - ttaSeconds * rivalSpeed);
+        sim.ForceLane(rival, rivalLane);
+
+        return (sim, entering, rival);
+    }
+
+    [Fact]
+    public void WaitingShrinksTheAcceptedGap()
+    {
+        // rival approaching with tta ≈ 2.5 s: blocks a fresh driver (2.8 s gap),
+        // accepted by one who has waited 25 s (gap floor 2.2 s)
+        var (sim, entering, _) = YieldEntryWithApproachingRival(ttaSeconds: 2.5f);
+        entering.JunctionWait = 0f;
+        sim.Tick(1f / 60f);
+        Assert.NotNull(entering.Lane);           // fresh driver holds
+
+        entering.JunctionWait = 25f;
+        for (int i = 0; i < 120 && entering.Crossing is null; i++)
+            sim.Tick(1f / 60f);
+        Assert.NotNull(entering.Crossing);       // impatient driver takes it
+    }
+
+    [Fact]
+    public void BlockedVehicleAccumulatesWaitAndGetsATicket()
+    {
+        var (sim, entering, _) = YieldEntryWithApproachingRival(ttaSeconds: 1.0f);
+        for (int i = 0; i < 120; i++) sim.Tick(1f / 60f);
+        Assert.True(entering.JunctionWait > 1f, $"wait {entering.JunctionWait}");
+        Assert.True(entering.WaitArrivalOrder > 0, "ticket must stamp on first block");
+    }
 }

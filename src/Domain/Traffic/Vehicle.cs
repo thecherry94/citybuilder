@@ -31,6 +31,8 @@ public sealed class Vehicle
     public float StuckTime { get; set; }
     public bool HasStopped { get; set; }          // stop-sign compliance latch
     public float WaitArrivalOrder { get; set; }   // all-way stop FIFO ticket
+    public float JunctionWait { get; set; }       // seconds blocked at the line (impatience)
+    public bool BlockedAtLine { get; set; }       // set by the arbiter wall each tick
 
     // dynamic lane change: while changing, the vehicle also occupies ChangeFrom
     public LaneId? ChangeFrom { get; set; }

@@ -137,13 +137,18 @@ public sealed partial class TrafficSim
         AdvanceSignals(dt);
 
         foreach (var v in _vehicles)
+        {
+            v.BlockedAtLine = false;
             v.Accel = ComputeAccel(v);
+        }
 
         foreach (var v in _vehicles)
         {
             v.Speed = MathF.Max(0, v.Speed + v.Accel * dt);
             v.S += v.Speed * dt;
             v.StuckTime = v.Speed < 0.1f ? v.StuckTime + dt : 0f;
+            if (v.BlockedAtLine)
+                v.JunctionWait += dt;
             UpdateLaneChange(v, dt);
         }
 
@@ -173,6 +178,12 @@ public sealed partial class TrafficSim
             float remaining = _runs[laneId].Length - 0.4f - v.S;
             if (remaining < 40f && !MayEnter(v, pc.Node, pc.Connector))
             {
+                if (remaining < StopLineZone)
+                {
+                    v.BlockedAtLine = true;
+                    if (v.WaitArrivalOrder == 0)
+                        v.WaitArrivalOrder = Time + v.Id * 1e-6f; // FIFO ticket, unique
+                }
                 if (remaining < gap)
                 {
                     gap = MathF.Max(remaining, 0.05f);
@@ -328,6 +339,7 @@ public sealed partial class TrafficSim
                     v.S = overshoot;
                     v.HasStopped = false;
                     v.WaitArrivalOrder = 0;
+                    v.JunctionWait = 0;
                     _connectorVehicles[pc].Add(v);
                 }
                 else

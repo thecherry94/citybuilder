@@ -9,7 +9,6 @@ namespace CityBuilder.Domain.Traffic;
 /// </summary>
 public sealed partial class TrafficSim
 {
-    private const float GapAcceptanceSec = 4f;
     private const float StopLineZone = 3f;      // "at the line" distance
     private const float ApproachHorizon = 60f;  // how far to scan for priority traffic
     private const float ClearMargin = 0.5f;     // rear-bumper clearance past a conflict point
@@ -39,17 +38,17 @@ public sealed partial class TrafficSim
                 return true;
 
             case RightOfWay.Signal:
-                return IsGreen(nodeId, LaneRunEdge(v)) && ConflictApproachClear(node, nodeId, ci, freeOnly: true);
+                return IsGreen(nodeId, LaneRunEdge(v)) && ConflictApproachClear(node, nodeId, ci, v, freeOnly: true);
 
             case RightOfWay.Yield:
-                return ConflictApproachClear(node, nodeId, ci, freeOnly: true);
+                return ConflictApproachClear(node, nodeId, ci, v, freeOnly: true);
 
             case RightOfWay.Stop:
                 if (!AtLineStopped(v))
                     return false;
                 return _controls[nodeId].Mode == JunctionControlMode.AllWayStop
                     ? FifoTurn(v, nodeId)
-                    : ConflictApproachClear(node, nodeId, ci, freeOnly: true);
+                    : ConflictApproachClear(node, nodeId, ci, v, freeOnly: true);
 
             default:
                 return true;
@@ -73,9 +72,13 @@ public sealed partial class TrafficSim
         return v.HasStopped;
     }
 
+    /// <summary>Gap a vehicle will accept before entering: 2.8 s fresh, shrinking to a
+    /// 2.2 s floor as it waits longer at the line (impatience).</summary>
+    private static float AcceptedGap(Vehicle v) => MathF.Max(2.2f, 2.8f - 0.03f * v.JunctionWait);
+
     /// <summary>No priority traffic about to use a conflicting connector within the
-    /// gap-acceptance window.</summary>
-    private bool ConflictApproachClear(RoadNode node, NodeId nodeId, int ci, bool freeOnly)
+    /// entering vehicle's accepted-gap window.</summary>
+    private bool ConflictApproachClear(RoadNode node, NodeId nodeId, int ci, Vehicle v, bool freeOnly)
     {
         foreach (var cp in node.ConnectorConflicts[ci])
         {
@@ -92,7 +95,7 @@ public sealed partial class TrafficSim
                 if (dist > ApproachHorizon)
                     continue;
                 float tta = dist / MathF.Max(rival.Speed, 0.5f);
-                if (tta < GapAcceptanceSec)
+                if (tta < AcceptedGap(v))
                     return false;
             }
         }
