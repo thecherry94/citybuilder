@@ -113,6 +113,26 @@ public class FuzzRegressionTests
         Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
     }
 
+    /// <summary>Root cause: commit-time stop relocation. Validation approves crossing
+    /// spacing using exact intersection points, but commit may substitute a reused
+    /// node — by up to NodeReuseRadius against edges validation saw, and by up to the
+    /// split edge's own MinSegmentLength against SAME-BATCH siblings validation never
+    /// saw (one grid-stamp line splitting another line of the same proposal that
+    /// existing roads had already subdivided). The old SubCurve pinned only P0/P3 to
+    /// the relocated nodes, so a straight grid line came out kinked (observed radius
+    /// 1.6 m on a FourLane, min 35) and/or below the length floor (observed 15.7 m
+    /// and 10.0 m vs 15.9). Fixed twofold: SubCurve blends endpoint displacement
+    /// linearly across the whole control net (straight stays straight), and
+    /// CommitCurve refuses to build segments below the type's length/radius floors
+    /// (honoring RoadNetwork's documented "no sliver edges" contract), pruning any
+    /// nodes left edgeless by the drop.</summary>
+    [Fact]
+    public void Seed101GridStampAbsorptionKeepsCommittedGeometryClean()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(101, 65));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
     /// <summary>The minimal direct-draw shape of the amendment (from the Task 4
     /// BLOCKED report): a OneWay ending where an Asymmetric continues. The
     /// Asymmetric's arriving backward lane has categorically zero destinations

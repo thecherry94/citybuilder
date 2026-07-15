@@ -335,6 +335,14 @@ public sealed partial class RoadNetwork
         BeginBatch();
         foreach (var pc in placement.Proposal.Curves)
             CommitCurve(pc, placement.Proposal.Type, createdEdges, createdNodes);
+        // nodes created for stops whose every adjacent segment was dropped by the
+        // sliver guard would linger edgeless — prune them before the delta fires
+        foreach (var id in _batch!.NodesAdded
+                     .Where(id => _nodes.TryGetValue(id, out var nd) && nd.EdgeSet.Count == 0).ToList())
+        {
+            _nodes.Remove(id);
+            _batch!.NodesRemoved.Add(id);
+        }
         EndBatch();
 
         // report only survivors (an edge created for one grid line may be split by the next)
@@ -394,6 +402,7 @@ public sealed partial class RoadNetwork
         stops.AddRange(crossings);
         stops.Add((1, endNode));
 
+        var floors = RoadCatalog.Get(type);
         for (int i = 0; i + 1 < stops.Count; i++)
         {
             var (ta, na) = stops[i];
@@ -402,6 +411,17 @@ public sealed partial class RoadNetwork
                 continue;
             var seg = SubCurve(curve, ta, tb, _nodes[na].Position, _nodes[nb].Position);
             if (seg.Length() < GeoConstants.Eps)
+                continue;
+            // Commit's documented contract: no sliver edges. Stop relocation from
+            // reuse absorption (up to NodeReuseRadius against edges the validation
+            // pass saw, up to the split edge's own MinSegmentLength against
+            // same-batch siblings validation NEVER saw — e.g. one grid-stamp line
+            // crossing another already-committed line of the same proposal) can
+            // shrink a validated segment below the type's floors; such segments are
+            // not built at all rather than committed corrupt. Thresholds mirror
+            // NetworkInvariants.CheckEdgeGeometry's 0.1 slack.
+            if (seg.Length() < floors.MinSegmentLength - 0.1f
+                || BezierOps.MinRadius(seg) < floors.MinRadius - 0.1f)
                 continue;
             createdEdges.Add(AddEdgeInternal(na, nb, seg, type).Id);
         }
@@ -469,13 +489,24 @@ public sealed partial class RoadNetwork
     }
 
     /// <summary>Extract curve range [ta, tb] and pin its endpoints to the given
-    /// node positions (which may differ slightly after node reuse).</summary>
+    /// node positions (which may differ after node reuse). The displacement is
+    /// blended linearly across the whole control net — moving only P0/P3 while
+    /// keeping the interior control points bends the curve (a straight source line
+    /// can come out kinked with a near-zero radius when a stop is relocated by
+    /// reuse absorption); the blend keeps straight lines straight and preserves
+    /// the curve's shape under endpoint relocation.</summary>
     private static Bezier3 SubCurve(in Bezier3 curve, float ta, float tb, Vector3 posA, Vector3 posB)
     {
         var (_, rest) = curve.Split(ta);
         float tbLocal = ta >= 1f ? 1f : (tb - ta) / (1 - ta);
         var (seg, _) = rest.Split(Math.Clamp(tbLocal, 0f, 1f));
-        return new Bezier3(posA, seg.P1, seg.P2, posB);
+        var dA = posA - seg.P0;
+        var dB = posB - seg.P3;
+        return new Bezier3(
+            posA,
+            seg.P1 + dA * (2f / 3f) + dB * (1f / 3f),
+            seg.P2 + dA * (1f / 3f) + dB * (2f / 3f),
+            posB);
     }
 
     // ---------------------------------------------------------------- removal
