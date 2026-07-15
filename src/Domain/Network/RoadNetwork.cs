@@ -12,7 +12,7 @@ namespace CityBuilder.Domain.Network;
 /// nodes, derived data (lanes, junction geometry, lane connectors) always fresh.
 /// Raises one aggregated <see cref="Changed"/> event per mutation batch.
 /// </summary>
-public sealed class RoadNetwork
+public sealed partial class RoadNetwork
 {
     /// <summary>Distance under which a free endpoint picks up an existing node.</summary>
     public const float NodeReuseRadius = 0.5f;
