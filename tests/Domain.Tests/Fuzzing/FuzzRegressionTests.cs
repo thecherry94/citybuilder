@@ -29,4 +29,24 @@ public class FuzzRegressionTests
         var result = GestureFuzzer.Run(new FuzzOptions(202, 5));
         Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
     }
+
+    /// <summary>Root cause: the same tangent-continuation ramp (above) can land a
+    /// SECOND arm within <c>ConnectorBuilder.Classify</c>'s +-30 deg "Straight" window
+    /// for one approach, alongside the arm it was already straight-through with (here:
+    /// the ramp's own arm has less receiving capacity than the "real" through-arm).
+    /// <c>ConnectorBuilder.Build</c>'s capacity-aware straight-block sizing sized each
+    /// (source, target) pair independently against the FULL incoming lane count, so
+    /// the smaller-capacity ramp target still claimed every source lane on top of the
+    /// through-arm already covering them — double-booking lanes and tripping
+    /// <see cref="CityBuilder.Domain.Network.NetworkInvariants.CheckStraightCapacity"/>.
+    /// Fixed by capping each simultaneous Straight target to its OWN receiving
+    /// capacity (a lane can still be eligible for several targets at once — that's a
+    /// legitimate fork/wye, see <c>RoutePlannerTests.ControlDelaySwaysRouteChoice</c> —
+    /// but no single target is ever handed more lanes than it can receive).</summary>
+    [Fact]
+    public void Seed202DualStraightTargetsDoNotDoubleBookLanes()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(202, 8));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
 }

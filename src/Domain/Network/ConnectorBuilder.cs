@@ -96,22 +96,48 @@ public static class ConnectorBuilder
         // first when a left arm exists (inner lanes become dedicated lefts), then
         // from the right when a right arm exists; lanes with neither alternative
         // keep a merge-straight rather than going dead.
+        //
+        // One approach can have more than one simultaneous "Straight" target: a
+        // genuine fork/wye (two separate roads splitting off, each its own driver
+        // choice — see ControlDelaySwaysRouteChoice, where a single lane must reach
+        // BOTH branches) or a tangent-continuation ramp landing within Classify()'s
+        // +-30 deg window right alongside the "real" through-arm (see
+        // RoadNetwork.TangentContinuationDeg: a new edge legitimately departs an
+        // OnEdge split within ~1 deg of the split edge's own tangent). Sizing every
+        // pair independently against the full incoming count is right for the fork
+        // (each branch's own capacity already covers the shared lane) but wrong for
+        // the ramp: a target with less capacity than the approach would then still
+        // claim every source lane, double-booking lanes the "real" arm already
+        // covers in full. So each target is capped to its OWN receiving capacity
+        // whenever more than one simultaneous Straight target exists — a lane can
+        // still be eligible for several targets at once (that's the fork), but no
+        // single target is ever handed more lanes than it can receive. With only one
+        // target, the existing uncapped merge-straight fallback is untouched (a
+        // narrowing road must not leave a lane with zero connectors).
         var straightBlock = new Dictionary<(EdgeId From, EdgeId To), (int Start, int End)>();
-        foreach (var ((a, b), turnAb) in armTurn)
+        foreach (var srcGroup in armTurn.Where(kv => kv.Value == TurnKind.Straight).GroupBy(kv => kv.Key.From))
         {
-            if (turnAb != TurnKind.Straight)
-                continue;
+            var a = srcGroup.Key;
+            var targets = srcGroup.Select(kv => kv.Key.To).ToArray();
             int n = incoming.Count(x => x.lane.Edge == a && x.lane.Kind == LaneKind.Driving);
-            int r = repOut[b].Count;
             bool hasLeft = armTurn.Any(kv => kv.Key.From == a
                 && kv.Value == TurnKind.Left && repOut[kv.Key.To].Count > 0);
             bool hasRight = armTurn.Any(kv => kv.Key.From == a
                 && kv.Value == TurnKind.Right && repOut[kv.Key.To].Count > 0);
-            int surplus = Math.Max(0, n - r);
-            int dropLeft = hasLeft && surplus > 0 ? 1 : 0;
-            surplus -= dropLeft;
-            int dropRight = hasRight && surplus > 0 ? 1 : 0;
-            straightBlock[(a, b)] = (dropLeft, n - dropRight);
+
+            foreach (var b in targets)
+            {
+                int r = repOut[b].Count;
+                int surplus = Math.Max(0, n - r);
+                int dropLeft = hasLeft && surplus > 0 ? 1 : 0;
+                surplus -= dropLeft;
+                int dropRight = hasRight && surplus > 0 ? 1 : 0;
+                int start = dropLeft;
+                int end = n - dropRight;
+                if (targets.Length > 1)
+                    end = Math.Min(end, start + r);
+                straightBlock[(a, b)] = (start, end);
+            }
         }
 
         // straight emission: the lane must sit inside its approach's straight block
