@@ -34,7 +34,13 @@ future tools all call:
 covering: every edge ≥ its type's `MinSegmentLength` and ≥ its type's `MinRadius`;
 no junction leg pair under `MinJunctionAngleDeg` (25°); junction geometry sane
 (`CutT` within [0,1], corner zones non-degenerate); every arriving driving lane has
-≥ 1 connector; straight-capacity rule (no approach sends more straight source lanes
+≥ 1 connector **whenever the node offers ≥ 1 departing driving lane on another edge**
+(amended after fuzz finding, user-decided 2026-07-16: direction-asymmetric types can
+create lanes with categorically zero destinations — e.g. a two-way continuing past a
+one-way's end, or bulldozing arms off a junction. CS2-style ruling: such placements
+commit, the stranded lane is a legal state routing never uses, and a later milestone
+adds visual feedback. Turn-lane rules must never strand a lane when receiving
+capacity exists — that remains a hard invariant); straight-capacity rule (no approach sends more straight source lanes
 into an arm than it has receiving driving lanes); `MarkingRules.Layout` offsets
 within ±Width/2 for every type in use; per-node `ConnectorConflicts` symmetric.
 A companion `SimInvariants.CheckBurst(RoadNetwork n, int seed, int ticks)` spawns a
