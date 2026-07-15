@@ -188,6 +188,45 @@ public static class ConnectorBuilder
             connectors.Add(new LaneConnector(
                 inLane.Id, outLane.Id, curve, turn, RowFor(control, inLane.Edge)));
         }
+
+        // never-strand guarantee (hard invariant, spec amendment 2026-07-16): the
+        // turn-lane rules above are heuristics for clean lane assignment, not
+        // reachability contracts — with direction-asymmetric road types in the mix,
+        // an arriving driving lane's ONLY geometric destination can be an arm its
+        // rank isn't entitled to (e.g. a second-from-left lane whose sole target
+        // classifies as Left). Whenever a driving lane ends up with zero connectors
+        // while the node still has departing driving lanes on OTHER edges, relax the
+        // rank rules for that lane and connect it to its geometrically nearest such
+        // departure — same philosophy as the straight-block merge fallback ("lanes
+        // with neither alternative keep a merge-straight rather than going dead").
+        // Lanes with categorically zero destinations (no departing driving lane on
+        // any other edge) stay unconnected: that is the legal stranded state
+        // NetworkInvariants.CheckLaneCoverage now permits.
+        var connectedFrom = connectors.Select(c => c.From).ToHashSet();
+        foreach (var (inLane, inPos, inDir) in incoming)
+        {
+            if (inLane.Kind != LaneKind.Driving || connectedFrom.Contains(inLane.Id))
+                continue;
+            (Lane lane, Vector3 pos, Vector3 dir)? best = null;
+            float bestD = float.MaxValue;
+            foreach (var cand in outgoing)
+            {
+                if (cand.lane.Kind != LaneKind.Driving || cand.lane.Edge == inLane.Edge)
+                    continue;
+                float d = Vector3.Distance(inPos, cand.pos);
+                if (d < bestD || (d == bestD && best is { } b && cand.lane.Id.Value < b.lane.Id.Value))
+                {
+                    bestD = d;
+                    best = cand;
+                }
+            }
+            if (best is not { } target)
+                continue; // legally stranded — no receiving capacity on another edge
+            float reach = MathF.Max(Vector3.Distance(inPos, target.pos) / 3f, 0.1f);
+            var curve = new Bezier3(inPos, inPos + inDir * reach, target.pos - target.dir * reach, target.pos);
+            connectors.Add(new LaneConnector(inLane.Id, target.lane.Id, curve,
+                Classify(inDir, target.dir), RowFor(control, inLane.Edge)));
+        }
         return connectors;
     }
 
