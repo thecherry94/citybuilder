@@ -116,7 +116,7 @@ public class ArbitrationTests
             sim.Tick(Dt);
             if (a.Crossing is { } ca && b.Crossing is { } cb && ca.Node == cb.Node)
             {
-                var conflicts = node.ConnectorConflicts[ca.Connector];
+                var conflicts = node.ConnectorConflicts[ca.Connector].Select(c => c.Other).ToArray();
                 Assert.DoesNotContain(cb.Connector, conflicts);
             }
         }

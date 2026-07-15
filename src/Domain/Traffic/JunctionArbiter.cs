@@ -24,8 +24,8 @@ public sealed partial class TrafficSim
             return false;
 
         // never enter while a conflicting path is occupied
-        foreach (var j in node.ConnectorConflicts[ci])
-            if (_connectorVehicles[(nodeId, j)].Count > 0)
+        foreach (var cp in node.ConnectorConflicts[ci])
+            if (_connectorVehicles[(nodeId, cp.Other)].Count > 0)
                 return false;
 
         switch (conn.Row)
@@ -72,16 +72,16 @@ public sealed partial class TrafficSim
     /// gap-acceptance window.</summary>
     private bool ConflictApproachClear(RoadNode node, NodeId nodeId, int ci, bool freeOnly)
     {
-        foreach (var j in node.ConnectorConflicts[ci])
+        foreach (var cp in node.ConnectorConflicts[ci])
         {
-            var other = node.Connectors[j];
+            var other = node.Connectors[cp.Other];
             if (freeOnly && other.Row != RightOfWay.Free)
                 continue;
             var feed = _laneVehicles[other.From];
             for (int k = 0; k < feed.Count; k++)
             {
                 var rival = feed[k];
-                if (rival.PlannedConnector is not { } pc || pc.Node != nodeId || pc.Connector != j)
+                if (rival.PlannedConnector is not { } pc || pc.Node != nodeId || pc.Connector != cp.Other)
                     continue;
                 float dist = _runs[other.From].Length - rival.S;
                 if (dist > ApproachHorizon)

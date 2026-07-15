@@ -3,6 +3,11 @@ using CityBuilder.Domain.Geometry;
 
 namespace CityBuilder.Domain.Network;
 
+/// <summary>A conflict between two connectors of one node: the other connector's
+/// index and the arc distance to the crossing point along each curve (curve ends
+/// for same-target merges).</summary>
+public readonly record struct ConflictPoint(int Other, float SMine, float STheirs);
+
 /// <summary>
 /// Generates lane connectors at a node: for every lane arriving at the node, one
 /// connector curve to every departing lane on a different edge (no U-turns at
@@ -88,14 +93,20 @@ public static class ConnectorBuilder
         return connectors;
     }
 
-    /// <summary>Pairwise conflicts between a node's connectors: curves that cross in
-    /// XZ, or two different sources merging into the same target lane. Connectors
-    /// sharing the source lane are queue-ordered, not conflicting.</summary>
-    public static IReadOnlyList<int[]> BuildConflicts(IReadOnlyList<LaneConnector> connectors)
+    /// <summary>Pairwise conflicts between a node's connectors — where, not just
+    /// whether: crossing points carry arc distances along both curves so arbitration
+    /// can tell "approaching my path" from "already past it". Same-target merges use
+    /// both curve ends. Connectors sharing the source lane are queue-ordered, not
+    /// conflicting.</summary>
+    public static IReadOnlyList<ConflictPoint[]> BuildConflicts(IReadOnlyList<LaneConnector> connectors)
     {
-        var sets = new List<int>[connectors.Count];
+        var tables = new ArcLengthTable[connectors.Count];
         for (int i = 0; i < connectors.Count; i++)
-            sets[i] = new List<int>();
+            tables[i] = new ArcLengthTable(connectors[i].Curve, 24);
+
+        var sets = new List<ConflictPoint>[connectors.Count];
+        for (int i = 0; i < connectors.Count; i++)
+            sets[i] = new List<ConflictPoint>();
 
         for (int i = 0; i < connectors.Count; i++)
         for (int j = i + 1; j < connectors.Count; j++)
@@ -104,13 +115,18 @@ public static class ConnectorBuilder
             var b = connectors[j];
             if (a.From == b.From)
                 continue;
-            bool conflict = a.To == b.To
-                || BezierOps.Intersections(a.Curve, b.Curve).Count > 0;
-            if (conflict)
+            if (a.To == b.To)
             {
-                sets[i].Add(j);
-                sets[j].Add(i);
+                sets[i].Add(new ConflictPoint(j, tables[i].TotalLength, tables[j].TotalLength));
+                sets[j].Add(new ConflictPoint(i, tables[j].TotalLength, tables[i].TotalLength));
+                continue;
             }
+            var hits = BezierOps.Intersections(a.Curve, b.Curve);
+            if (hits.Count == 0)
+                continue;
+            var (t1, t2) = hits.OrderBy(h => h.t1).First(); // first crossing along my travel
+            sets[i].Add(new ConflictPoint(j, tables[i].DistanceAtT(t1), tables[j].DistanceAtT(t2)));
+            sets[j].Add(new ConflictPoint(i, tables[j].DistanceAtT(t2), tables[i].DistanceAtT(t1)));
         }
         return sets.Select(s => s.ToArray()).ToArray();
     }
