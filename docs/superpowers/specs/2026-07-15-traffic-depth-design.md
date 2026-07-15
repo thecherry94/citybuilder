@@ -107,8 +107,11 @@ unchanged (`dist / max(speed, 0.5)`).
 ## 5. Verification
 
 - **Safety invariant (new, standing):** over a long busy-junction run, no two
-  vehicles on mutually conflicting connectors are ever both within 1 m of their
-  mutual conflict point on the same tick — catches over-assertiveness forever.
+  vehicles on mutually conflicting connectors ever have their bodies (full vehicle
+  extent + 0.3 m margin) covering their mutual conflict point on the same tick —
+  catches over-assertiveness forever. (Amended post-implementation: the body-extent
+  formulation is what the test enforces; it is the meaningful "physical overlap at
+  the crossing" property the original 1 m point-distance sketch approximated.)
 - **Throughput regression (new, standing):** a scripted priority-road × minor-road
   4-way with continuous priority traffic and queued minor-road vehicles must
   discharge the minor queue at a rate calibrated during implementation to the fixed

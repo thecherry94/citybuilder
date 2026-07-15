@@ -68,8 +68,10 @@ Two-layer design:
 - **Tactical (per tick)**: `Idm` car-following on per-lane queues (leader-only, O(1));
   `LaneChange` MOBIL-lite (discretionary gain > 0.3 m/s² with follower-safety, mandatory
   merges toward turn-serving lanes within 80 m with urgency, changes occupy **both**
-  lanes for 2 s); `JunctionArbiter` (conflict-set reservation, yield/stop 4 s gap
-  acceptance, stop-line compliance, all-way FIFO, signal phases); `SignalController`
+  lanes for 2 s); `JunctionArbiter` (conflict-*point* arbitration with passed-point
+  clearance, movement ranks + right-hand rule + deadlock breaker, impatience gap
+  acceptance 2.8→2.2 s, stop-line compliance, all-way FIFO, signal phases — see
+  conventions.md for the constants); `SignalController`
   (two direction-clustered phases, 12 s green / 3 s amber / 1 s all-red);
   `TrafficSpawner` (seeded ambient population, fringe origins, stuck replans after 20 s).
 - `TrafficSim.Tick(dt)` is fixed-step and deterministic under a seed. A hard

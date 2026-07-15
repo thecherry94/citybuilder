@@ -20,8 +20,8 @@
 | NodeReuseRadius | 0.5 m (crossing/endpoint node-connection exemption; split absorb uses the edge type's MinSegmentLength) |
 | MinJunctionAngleDeg | 25° (`SharpAngle` at endpoint bindings, `Kinked` inside a proposal, and the `CrossingTooShallow` floor for proposal-vs-existing crossings; sliver crossings are governed by per-type MinSegmentLength, not this angle) |
 | TangentContinuationDeg | 1° (OnEdge departures within it are legal G1 ramp exits, exempt from `SharpAngle`; AtNode stays strict) |
-| Per-type MinSegmentLength (`max(8 m, Width)`) | TwoLane 8, FourLane 16, Street 12, Avenue 21 m |
-| Per-type MinRadius | TwoLane 20, FourLane 35, Street 10, Avenue 25 m |
+| Per-type MinSegmentLength (`max(8 m, Width)`) | TwoLane 8, FourLane 16, Street 12, Avenue 21, OneWay 12, Asymmetric 12 m |
+| Per-type MinRadius | TwoLane 20, FourLane 35, Street 10, Avenue 25, OneWay 10, Asymmetric 20 m |
 | Grid tool cell (`GridStampShape`) | 48 m |
 | Snap grid cell (`GridConfig.Default`, toolbar-selectable) | 8 m (4/8/16/32 also offered), off by default |
 | Snap weights (`SnapEngine`, distance/weight scoring — higher wins ties) | Node 4.0 > GuideIntersection 2.5 > Perpendicular 2.2 > Edge 2.0 > Guideline 1.5 = GridPoint 1.5 > GridLine 1.0 |

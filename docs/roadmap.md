@@ -49,7 +49,11 @@ verified build.
   points sit at the connector's end, so a vehicle that has just exited a connector has a
   momentarily invisible tail to the conflict scan; rear-end separation enforced on the
   shared downstream lane covers the gap in practice, but it isn't covered by the
-  conflict-point mechanism itself.
+  conflict-point mechanism itself. The direction-aware signed-offset lane ordering
+  (TrafficSim adjacency, ConnectorBuilder turn ranks) currently has no discriminating
+  regression test — no catalog type distinguishes signed from |offset| ordering; an
+  early M6 task should add a test-only lane profile (e.g. forward lanes at −4/+1)
+  that does.
 
 ## Next up (roughly in order — each is one milestone)
 
