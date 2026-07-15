@@ -38,7 +38,9 @@ public class RoadCatalogTests
     [Fact]
     public void ForwardLanesSitOnPositiveOffsets()
     {
-        foreach (var type in RoadCatalog.All)
+        // Asymmetric roads (one-way, 2+1) intentionally break the spatial convention
+        // where drawing direction differs from traffic direction; skip them.
+        foreach (var type in RoadCatalog.All.Where(t => !t.IsDirectionAsymmetric))
         foreach (var lane in type.Lanes)
             Assert.True(lane.Direction == LaneDirection.Forward ? lane.Offset > 0 : lane.Offset < 0,
                 $"{type.Name} lane offset {lane.Offset} direction {lane.Direction}");

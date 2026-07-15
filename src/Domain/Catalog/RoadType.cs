@@ -45,6 +45,11 @@ public sealed record RoadType(
                 .Select(l => MathF.Abs(l.Offset) + l.Width / 2)
                 .DefaultIfEmpty(0f)
                 .Max());
+
+    public int ForwardCount => Lanes.Count(l => l.Kind == LaneKind.Driving && l.Direction == LaneDirection.Forward);
+    public int BackwardCount => Lanes.Count(l => l.Kind == LaneKind.Driving && l.Direction == LaneDirection.Backward);
+    /// <summary>Drawing direction matters for these (one-way, 2+1): ghost shows arrows.</summary>
+    public bool IsDirectionAsymmetric => ForwardCount != BackwardCount;
 }
 
 public static class RoadCatalog
@@ -99,7 +104,32 @@ public static class RoadCatalog
         },
         60f, 25f);
 
-    public static readonly IReadOnlyList<RoadType> All = new[] { TwoLane, FourLane, Street, Avenue };
+    /// <summary>Directional street: two same-way lanes between sidewalks. Drawing
+    /// direction = travel direction.</summary>
+    public static readonly RoadType OneWay = new(
+        new RoadTypeId(5), "One-Way Street", 12f,
+        new LaneSpec[]
+        {
+            new(-1.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
+            new(+1.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
+            new(+4.75f, LaneDirection.Forward, 2.5f, LaneKind.Sidewalk),
+            new(-4.75f, LaneDirection.Backward, 2.5f, LaneKind.Sidewalk),
+        },
+        50f, 10f);
+
+    /// <summary>2+1 road: two forward lanes, one backward. The opposing separation
+    /// line sits off the geometric centerline (at −2.5 m), on purpose.</summary>
+    public static readonly RoadType Asymmetric = new(
+        new RoadTypeId(6), "Asymmetric 2+1", 12f,
+        new LaneSpec[]
+        {
+            new(-4.25f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
+            new(-0.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
+            new(+2.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
+        },
+        60f, 20f);
+
+    public static readonly IReadOnlyList<RoadType> All = new[] { TwoLane, FourLane, Street, Avenue, OneWay, Asymmetric };
 
     public static RoadType Get(RoadTypeId id)
         => All.FirstOrDefault(t => t.Id == id)

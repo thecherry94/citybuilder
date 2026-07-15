@@ -28,4 +28,19 @@ public class RoadTypeLimitsTests
         Assert.Equal(12f, RoadCatalog.Street.MinSegmentLength);   // width 12
         Assert.Equal(21f, RoadCatalog.Avenue.MinSegmentLength);   // width 21
     }
+
+    [Fact]
+    public void NewTypesHaveExpectedLaneProfiles()
+    {
+        Assert.Equal(2, RoadCatalog.OneWay.ForwardCount);
+        Assert.Equal(0, RoadCatalog.OneWay.BackwardCount);
+        Assert.True(RoadCatalog.OneWay.IsDirectionAsymmetric);
+        Assert.Equal(2, RoadCatalog.Asymmetric.ForwardCount);
+        Assert.Equal(1, RoadCatalog.Asymmetric.BackwardCount);
+        Assert.False(RoadCatalog.TwoLane.IsDirectionAsymmetric);
+        Assert.Contains(RoadCatalog.OneWay, RoadCatalog.All);
+        Assert.Contains(RoadCatalog.Asymmetric, RoadCatalog.All);
+        Assert.Equal(10f, RoadCatalog.OneWay.MinRadius);
+        Assert.Equal(20f, RoadCatalog.Asymmetric.MinRadius);
+    }
 }
