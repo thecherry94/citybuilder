@@ -1,7 +1,9 @@
 using System.Numerics;
 using CityBuilder.Domain.Catalog;
 using CityBuilder.Domain.Network;
+using CityBuilder.Domain.Persistence;
 using CityBuilder.Domain.Tools;
+using CityBuilder.Domain.Traffic;
 
 namespace CityBuilder.Domain.Tests.Fuzzing;
 
@@ -99,6 +101,70 @@ public static class GestureFuzzer
                     Failure = violations[0],
                     ActionTail = tail.ToArray(),
                 };
+            }
+
+            if (opts.BurstEvery > 0 && (i + 1) % opts.BurstEvery == 0)
+            {
+                int burstSeed = opts.Seed ^ i;
+                IReadOnlyList<string> burstViolations;
+                try
+                {
+                    burstViolations = SimInvariants.CheckBurst(network, seed: burstSeed, ticks: 180, population: 8);
+                }
+                catch (Exception ex)
+                {
+                    return new FuzzResult
+                    {
+                        Ok = false,
+                        FailedAtAction = i,
+                        Failure = $"burst: exception (seed {burstSeed}): {ex}",
+                        ActionTail = tail.ToArray(),
+                    };
+                }
+
+                if (burstViolations.Count > 0)
+                {
+                    return new FuzzResult
+                    {
+                        Ok = false,
+                        FailedAtAction = i,
+                        Failure = $"burst: {burstViolations[0]}",
+                        ActionTail = tail.ToArray(),
+                    };
+                }
+            }
+
+            if (opts.RoundTripEvery > 0 && (i + 1) % opts.RoundTripEvery == 0)
+            {
+                string? roundTripFailure = null;
+                try
+                {
+                    string saved1 = SaveLoad.Save(network);
+                    var loaded = SaveLoad.Load(saved1);
+                    string saved2 = SaveLoad.Save(loaded);
+
+                    if (saved1 != saved2)
+                        roundTripFailure = "roundtrip: Save(Load(Save(n))) is not byte-equal to Save(n)";
+                    else if (loaded.Nodes.Count != network.Nodes.Count)
+                        roundTripFailure = $"roundtrip: node count mismatch (expected {network.Nodes.Count}, got {loaded.Nodes.Count})";
+                    else if (loaded.Edges.Count != network.Edges.Count)
+                        roundTripFailure = $"roundtrip: edge count mismatch (expected {network.Edges.Count}, got {loaded.Edges.Count})";
+                }
+                catch (Exception ex)
+                {
+                    roundTripFailure = $"roundtrip: exception: {ex}";
+                }
+
+                if (roundTripFailure != null)
+                {
+                    return new FuzzResult
+                    {
+                        Ok = false,
+                        FailedAtAction = i,
+                        Failure = roundTripFailure,
+                        ActionTail = tail.ToArray(),
+                    };
+                }
             }
         }
 
