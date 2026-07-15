@@ -118,20 +118,40 @@ public static class NetworkInvariants
         }
     }
 
-    /// <summary>Every arriving driving lane at a real junction (>= 2 edges) must have
-    /// at least one outgoing connector — otherwise traffic reaching that lane has
-    /// nowhere to go.</summary>
+    /// <summary>Every arriving driving lane at a node with >= 2 edges must have at
+    /// least one outgoing connector IF AND ONLY IF the node offers >= 1 departing
+    /// driving lane on a DIFFERENT edge (U-turns are not junction movements, so
+    /// same-edge departures don't count). When no other edge can receive, the lane
+    /// is LEGALLY stranded — spec amendment 2026-07-16 (CS2-style, user-decided):
+    /// direction-asymmetric road types can create lanes with categorically zero
+    /// destinations (e.g. a two-way continuing past a one-way's end, or bulldozing
+    /// arms off a junction); such placements commit, routing simply never uses the
+    /// stranded lane, and a later milestone adds visual feedback. Stranding a lane
+    /// when receiving capacity DOES exist remains a hard violation.</summary>
     public static void CheckLaneCoverage(RoadNode node, IReadOnlyDictionary<EdgeId, RoadEdge> edges, List<string> o)
     {
         var withConnectors = node.Connectors.Select(c => c.From).ToHashSet();
+
+        // driving lanes departing the node, per edge (a lane departs if travelling
+        // away from this node: Forward lanes on edges starting here, Backward on
+        // edges ending here)
+        var departingByEdge = node.Edges.ToDictionary(edgeId => edgeId, edgeId =>
+        {
+            var e = edges[edgeId];
+            bool startsHere = e.StartNode == node.Id;
+            return e.Lanes.Count(l => l.Kind == LaneKind.Driving
+                && ((l.Direction == LaneDirection.Forward) ? startsHere : !startsHere));
+        });
+
         foreach (var edgeId in node.Edges)
         {
             var edge = edges[edgeId];
             bool startsHere = edge.StartNode == node.Id;
+            bool otherEdgeReceives = departingByEdge.Any(kv => kv.Key != edgeId && kv.Value > 0);
             foreach (var lane in edge.Lanes.Where(l => l.Kind == LaneKind.Driving
                 && ((l.Direction == LaneDirection.Forward) ? !startsHere : startsHere)))
             {
-                if (!withConnectors.Contains(lane.Id))
+                if (otherEdgeReceives && !withConnectors.Contains(lane.Id))
                     o.Add($"node {node.Id.Value}: lane {lane.Id.Value} on edge {edge.Id.Value} arrives with no outgoing connector");
             }
         }

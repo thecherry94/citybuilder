@@ -1,3 +1,9 @@
+using System.Numerics;
+using CityBuilder.Domain.Catalog;
+using CityBuilder.Domain.Geometry;
+using CityBuilder.Domain.Network;
+using CityBuilder.Domain.Tools;
+using CityBuilder.Domain.Traffic;
 using Xunit;
 
 namespace CityBuilder.Domain.Tests.Fuzzing;
@@ -49,4 +55,80 @@ public class FuzzRegressionTests
         var result = GestureFuzzer.Run(new FuzzOptions(202, 8));
         Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
     }
+
+    // ------------------------------------------------------------------------
+    // Spec amendment 2026-07-16 (commit ceb1887, CS2-style, user-decided):
+    // direction-asymmetric road types can create arriving driving lanes with
+    // categorically zero destinations; such placements commit, the stranded lane is
+    // a LEGAL state routing never uses, and stranding a lane when receiving capacity
+    // DOES exist on another edge remains a hard violation (never-strand fallback in
+    // ConnectorBuilder). The three default fuzz seeds all hit the pre-amendment
+    // false positive at these action counts; pinned so the amendment semantics
+    // (CheckLaneCoverage iff-rule + never-strand fallback) stay covered.
+    // ------------------------------------------------------------------------
+
+    /// <summary>Pre-amendment failure: "lane on edge arrives with no outgoing
+    /// connector" after bulldozing arms off a mixed OneWay junction.</summary>
+    [Fact]
+    public void Seed202StrandedLanesAfterBulldozeAreLegal()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(202, 28));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
+    /// <summary>Pre-amendment failure: same class via a OneWay/Asymmetric mix drawn
+    /// directly (no bulldozing required).</summary>
+    [Fact]
+    public void Seed101StrandedLanesFromDirectionAsymmetricTypesAreLegal()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(101, 48));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
+    /// <summary>Pre-amendment failure at a live 3-way junction (two OneWays + a
+    /// FourLane): the FourLane's second arriving lane was stranded by rank rules even
+    /// though a OneWay offered departing capacity — now covered by the never-strand
+    /// fallback, while truly destination-less lanes at the same node stay legal.</summary>
+    [Fact]
+    public void Seed303NeverStrandFallbackCoversRestrictedLanes()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(303, 143));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
+    /// <summary>The minimal direct-draw shape of the amendment (from the Task 4
+    /// BLOCKED report): a OneWay ending where an Asymmetric continues. The
+    /// Asymmetric's arriving backward lane has categorically zero destinations
+    /// (the OneWay offers no departing driving lane) — legally stranded, zero
+    /// violations — and the network must stay DRIVABLE for ambient traffic: the
+    /// spawner/routing operate on the connector graph, so the stranded lane is
+    /// simply never used.</summary>
+    [Fact]
+    public void OneWayIntoAsymmetricContinuationIsLegalAndDrivable()
+    {
+        var n = new RoadNetwork();
+        Commit(n, Line(new Vector3(0, 0, 0), new Vector3(100, 0, 0), RoadCatalog.OneWay.Id));
+        Commit(n, Line(new Vector3(100, 0, 0), new Vector3(200, 0, 0), RoadCatalog.Asymmetric.Id));
+
+        Assert.Empty(NetworkInvariants.Check(n));
+        Assert.Empty(SimInvariants.CheckBurst(n, seed: 42));
+
+        // the stranded backward lane really is stranded (no connector from it) —
+        // this guards the iff: legal absence, not accidental coverage
+        var mid = n.Nodes.Values.Single(x => Vector3.Distance(x.Position, new Vector3(100, 0, 0)) < 1f);
+        var asym = n.Edges.Values.Single(e => e.Type == RoadCatalog.Asymmetric.Id);
+        var strandedLane = asym.Lanes.Single(l =>
+            l.Kind == LaneKind.Driving && l.Direction == LaneDirection.Backward);
+        Assert.DoesNotContain(mid.Connectors, c => c.From == strandedLane.Id);
+    }
+
+    private static void Commit(RoadNetwork n, PlacementProposal p)
+    {
+        var v = n.Validate(p);
+        Assert.True(v.IsValid, "expected valid placement, errors: " + string.Join(",", v.Errors));
+        Assert.True(n.Commit(v).Success);
+    }
+
+    private static PlacementProposal Line(Vector3 a, Vector3 b, RoadTypeId type)
+        => new(new[] { new ProposedCurve(Bezier3.Line(a, b), EndpointBinding.None, EndpointBinding.None) }, type);
 }
