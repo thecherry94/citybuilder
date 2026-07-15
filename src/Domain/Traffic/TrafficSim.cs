@@ -115,6 +115,17 @@ public sealed partial class TrafficSim
     internal IReadOnlyList<Vehicle> VehiclesOnConnector(NodeId node, int connector)
         => _connectorVehicles.TryGetValue((node, connector), out var q) ? q : Array.Empty<Vehicle>();
 
+    /// <summary>Invariant-checking hook: every lane and connector queue in the sim,
+    /// each already sorted front-to-back (see <see cref="SortQueue"/>) — lets a burst
+    /// checker scan for penetration without knowing about lane/connector storage.</summary>
+    internal IEnumerable<IReadOnlyList<Vehicle>> AllQueues()
+    {
+        foreach (var q in _laneVehicles.Values)
+            yield return q;
+        foreach (var q in _connectorVehicles.Values)
+            yield return q;
+    }
+
     /// <summary>Test hook: place a vehicle on a junction connector at arc position s.</summary>
     internal void ForceConnector(Vehicle v, NodeId node, int connector, float s)
     {

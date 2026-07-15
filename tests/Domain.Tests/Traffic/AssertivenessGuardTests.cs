@@ -56,28 +56,13 @@ public class AssertivenessGuardTests
         }
     }
 
+    /// <summary>Delegates to SimInvariants (the burst checker's one source of truth for
+    /// this rule) so the standing guard and the M6 fuzz/burst harness can never drift
+    /// apart.</summary>
     private static void AssertNoConflictPointCoOccupancy(TrafficSim sim, RoadNetwork n)
     {
-        const float margin = 0.3f;
-        foreach (var node in n.Nodes.Values)
-        {
-            for (int i = 0; i < node.Connectors.Count; i++)
-            foreach (var cp in node.ConnectorConflicts[i])
-            {
-                if (cp.Other <= i)
-                    continue; // each pair once
-                var mine = sim.VehiclesOnConnector(node.Id, i);
-                var theirs = sim.VehiclesOnConnector(node.Id, cp.Other);
-                foreach (var a in mine)
-                foreach (var b in theirs)
-                {
-                    bool aAt = a.S + margin > cp.SMine && a.S - Vehicle.Length - margin < cp.SMine;
-                    bool bAt = b.S + margin > cp.STheirs && b.S - Vehicle.Length - margin < cp.STheirs;
-                    Assert.False(aAt && bAt,
-                        $"vehicles {a.Id} and {b.Id} co-occupy a conflict point at node {node.Id}");
-                }
-            }
-        }
+        foreach (var violation in SimInvariants.ConflictPointCoOccupancyViolations(sim, n))
+            Assert.Fail(violation);
     }
 
     // ---------------------------------------------------------- throughput
