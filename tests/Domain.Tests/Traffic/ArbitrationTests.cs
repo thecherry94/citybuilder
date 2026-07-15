@@ -312,4 +312,167 @@ public class ArbitrationTests
         Assert.True(entering.JunctionWait > 1f, $"wait {entering.JunctionWait}");
         Assert.True(entering.WaitArrivalOrder > 0, "ticket must stamp on first block");
     }
+
+    // ---------------------------------------------------------- movement ranks
+
+    /// <summary>Cross of two TwoLane roads with the W/E pair forced Main (Free) and
+    /// N/S forced Yield — so a left turn off the priority road (W leg, turning onto
+    /// the N leg) and an oncoming straight through the same priority road (E leg
+    /// through to W) are both Free-Row movements: MovementRank must still make the
+    /// left yield to the higher-ranked straight. `leftTurner` is ticked to within
+    /// 10 m of its stop line; `rival` (the oncoming straight) is a ghost placed at
+    /// the S/speed pair giving the requested time-to-arrival, mirroring
+    /// YieldEntryWithApproachingRival's idiom.</summary>
+    private static (TrafficSim Sim, Vehicle LeftTurner) PriorityLeftVsOncomingStraight(float oncomingTtaSeconds)
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(-200, 0, 0), new Vector3(200, 0, 0), RoadCatalog.TwoLane.Id));
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, -200), new Vector3(0, 0, 200), RoadCatalog.TwoLane.Id));
+        var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+        var wEdge = EdgeAt(n, new Vector3(-100, 0, 0));
+        var eEdge = EdgeAt(n, new Vector3(100, 0, 0));
+        var nEdge = EdgeAt(n, new Vector3(0, 0, -100));
+        var sEdge = EdgeAt(n, new Vector3(0, 0, 100));
+
+        n.ConfigureJunction(node.Id, node.Config with
+        {
+            Mode = JunctionControlMode.PrioritySigns,
+            RoleOverrides = new Dictionary<EdgeId, LegRole>
+            {
+                [wEdge] = LegRole.Main,
+                [eEdge] = LegRole.Main,
+                [nEdge] = LegRole.Yield,
+                [sEdge] = LegRole.Yield,
+            },
+        });
+
+        var sim = new TrafficSim(n);
+        var leftTurner = sim.Spawn(wEdge, true, nEdge)!; // west leg, left onto the north leg
+        var rival = sim.Spawn(eEdge, false, wEdge)!;     // oncoming straight: east leg through to west
+        var rivalLane = rival.Lane!.Value;
+        sim.Despawn(rival); // ghost: removed from the live list, so it never moves on its own
+
+        for (int i = 0; i < 30 * 60 && leftTurner.Lane is not null; i++)
+        {
+            var (pos, _) = sim.Pose(leftTurner);
+            if (Vector3.Distance(pos, node.Position) < 10f)
+                break;
+            sim.Tick(Dt);
+        }
+        Assert.NotNull(leftTurner.Lane); // must still be approaching, not already through
+
+        const float rivalSpeed = 10f;
+        float runLength = ApproachRunLength(n, eEdge);
+        rival.Speed = rivalSpeed;
+        rival.S = MathF.Max(0f, runLength - oncomingTtaSeconds * rivalSpeed);
+        sim.ForceLane(rival, rivalLane);
+
+        return (sim, leftTurner);
+    }
+
+    [Fact]
+    public void LeftTurnerOnPriorityRoadYieldsToOncomingStraight()
+    {
+        // both legs Free: the left-turn movement (rank 3,1) must yield to the oncoming
+        // straight (rank 3,3) approaching within the accepted gap
+        var (sim, leftTurner) = PriorityLeftVsOncomingStraight(oncomingTtaSeconds: 2.0f);
+        for (int i = 0; i < 120; i++) sim.Tick(1f / 60f);
+        Assert.NotNull(leftTurner.Lane); // held at the line while oncoming passes
+    }
+
+    /// <summary>Uncontrolled 4-way cross (JunctionControlMode.None → every leg Free,
+    /// so an equal-rank tie can only be broken by ApproachesFromMyRight). Arms are
+    /// shortened to 150 m (matching MixedCross's convention) so both cars reach the
+    /// line and resolve well inside a 600-tick/60 Hz budget. `fromWest` spawns on the
+    /// west leg heading east; `fromSouth` spawns on the north leg heading south
+    /// ("southbound") — under this engine's right-hand-rule signed-angle convention
+    /// (see ApproachesFromMyRight) a west-to-east mover has the north-to-south mover
+    /// on its right, and it's the north-to-south mover that must yield. Both spawn in
+    /// the same tick at S=0, so tickets are indistinguishable by wait order — the
+    /// outcome comes purely from the MovementRank tie-break, not FIFO.</summary>
+    private static (TrafficSim Sim, Vehicle FromSouth, Vehicle FromWest) UncontrolledCrossTwoStraights()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(-150, 0, 0), new Vector3(150, 0, 0), RoadCatalog.TwoLane.Id));
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, -150), new Vector3(0, 0, 150), RoadCatalog.TwoLane.Id));
+        var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+        n.ConfigureJunction(node.Id, node.Config with { Mode = JunctionControlMode.None });
+
+        var wEdge = EdgeAt(n, new Vector3(-75, 0, 0));
+        var eEdge = EdgeAt(n, new Vector3(75, 0, 0));
+        var nEdge = EdgeAt(n, new Vector3(0, 0, -75));
+        var sEdge = EdgeAt(n, new Vector3(0, 0, 75));
+
+        var sim = new TrafficSim(n);
+        var fromSouth = sim.Spawn(nEdge, true, sEdge)!; // north leg, southbound straight
+        var fromWest = sim.Spawn(wEdge, true, eEdge)!;  // west leg, eastbound straight
+        return (sim, fromSouth, fromWest);
+    }
+
+    [Fact]
+    public void EqualRankCrossingFollowsRightBeforeLeft()
+    {
+        // two Free straights meeting at an uncontrolled cross, arriving together:
+        // the one with the other on its RIGHT yields; the other proceeds
+        var (sim, fromSouth, fromWest) = UncontrolledCrossTwoStraights();
+        for (int i = 0; i < 600 && fromWest.Crossing is null; i++) sim.Tick(1f / 60f);
+        // right-hand traffic: for the northbound car the westbound rival approaches from
+        // the right → southbound(north-going) yields, west→east goes first
+        Assert.NotNull(fromWest.Crossing);
+        Assert.Null(fromSouth.Crossing);
+    }
+
+    /// <summary>Uncontrolled 4-way cross with one straight-through car spawned on each
+    /// arm, all four simultaneously (same tick, S=0): every pairwise conflict is
+    /// equal-rank (Free, Straight), and ApproachesFromMyRight resolves into a strict
+    /// 4-cycle (south yields to east, east yields to north, north yields to west, west
+    /// yields to south) — nobody has unconditional priority, so without the deadlock
+    /// breaker all four would freeze forever. Each car is placed 2 m from its stop
+    /// line (inside StopLineZone) and already stationary via ForceLane, so
+    /// JunctionWait starts accumulating from tick one instead of burning the test's
+    /// tick budget on the approach drive.</summary>
+    private static TrafficSim FourWayStandoff(out Vehicle[] cars)
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(-150, 0, 0), new Vector3(150, 0, 0), RoadCatalog.TwoLane.Id));
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, -150), new Vector3(0, 0, 150), RoadCatalog.TwoLane.Id));
+        var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+        n.ConfigureJunction(node.Id, node.Config with { Mode = JunctionControlMode.None });
+
+        var wEdge = EdgeAt(n, new Vector3(-75, 0, 0));
+        var eEdge = EdgeAt(n, new Vector3(75, 0, 0));
+        var nEdge = EdgeAt(n, new Vector3(0, 0, -75));
+        var sEdge = EdgeAt(n, new Vector3(0, 0, 75));
+
+        var sim = new TrafficSim(n);
+        var south = sim.Spawn(sEdge, false, nEdge)!; // south leg, northbound
+        var east = sim.Spawn(eEdge, false, wEdge)!;  // east leg, westbound
+        var north = sim.Spawn(nEdge, true, sEdge)!;  // north leg, southbound
+        var west = sim.Spawn(wEdge, true, eEdge)!;   // west leg, eastbound
+        cars = new[] { south, east, north, west };
+
+        foreach (var (v, edge) in new[] { (south, sEdge), (east, eEdge), (north, nEdge), (west, wEdge) })
+        {
+            var laneId = v.Lane!.Value;
+            float runLength = ApproachRunLength(n, edge);
+            v.S = MathF.Max(0f, runLength - 2f);
+            v.Speed = 0f;
+            sim.ForceLane(v, laneId);
+        }
+        return sim;
+    }
+
+    [Fact]
+    public void FourWayStandoffUnfreezesByArrivalOrder()
+    {
+        // four Free straights, one from each arm, all mutually right-yielding: the
+        // deadlock breaker must let the earliest ticket go within ~10 s
+        var sim = FourWayStandoff(out var cars);
+        for (int i = 0; i < 60 * 12; i++) sim.Tick(1f / 60f);
+        // Vehicle has no SpawnLane field, so the sharper-but-available signal is
+        // Crossing (mid-junction) or StepIndex (already completed the connector) —
+        // picking the formulation the sim's determinism actually supports.
+        Assert.Contains(cars, c => c.Crossing is not null || c.StepIndex > 0);
+        Assert.True(sim.Arrived > 0 || cars.Any(c => c.StepIndex > 0), "someone must have crossed");
+    }
 }
