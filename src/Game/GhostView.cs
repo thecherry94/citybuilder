@@ -88,6 +88,19 @@ public partial class GhostView : Node3D
                 _strips.Add(inst);
             }
 
+            // direction arrows: drawing an asymmetric type, show which way it will flow
+            var ghostType = RoadCatalog.Get(placement.Proposal.Type);
+            if (ghostType.IsDirectionAsymmetric)
+            {
+                if (!anyLines)
+                {
+                    _linesMesh.SurfaceBegin(Mesh.PrimitiveType.Lines);
+                    anyLines = true;
+                }
+                foreach (var pc in placement.Proposal.Curves)
+                    AddGhostArrows(pc.Curve);
+            }
+
             // crossing markers
             if (placement.CrossingPoints.Count > 0)
             {
@@ -135,6 +148,30 @@ public partial class GhostView : Node3D
             };
             AddChild(inst);
             _handles.Add(inst);
+        }
+    }
+
+    private void AddGhostArrows(CityBuilder.Domain.Geometry.Bezier3 curve)
+    {
+        var col = new Color(0.4f, 0.9f, 1f, 0.9f);
+        float len = curve.Length();
+        for (float d = 10f; d < len - 6f; d += 20f)
+        {
+            float t = d / len; // chord-parameter approximation is fine for a hint arrow
+            var p = curve.Point(t).ToGodot() + Vector3.Up * 0.3f;
+            var f = curve.Tangent(t).ToGodot();
+            var right = new Vector3(f.Z, 0, -f.X);
+            foreach (var wing in new[] { -right, right })
+            {
+                _linesMesh.SurfaceSetColor(col);
+                _linesMesh.SurfaceAddVertex(p + f * 2.2f);
+                _linesMesh.SurfaceSetColor(col);
+                _linesMesh.SurfaceAddVertex(p + wing * 1.1f);
+            }
+            _linesMesh.SurfaceSetColor(col);
+            _linesMesh.SurfaceAddVertex(p);
+            _linesMesh.SurfaceSetColor(col);
+            _linesMesh.SurfaceAddVertex(p + f * 2.2f);
         }
     }
 }
