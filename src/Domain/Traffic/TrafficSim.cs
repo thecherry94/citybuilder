@@ -111,6 +111,10 @@ public sealed partial class TrafficSim
         SortQueue(_laneVehicles[lane]);
     }
 
+    /// <summary>Test hook: vehicles currently occupying a given node/connector pair.</summary>
+    internal IReadOnlyList<Vehicle> VehiclesOnConnector(NodeId node, int connector)
+        => _connectorVehicles.TryGetValue((node, connector), out var q) ? q : Array.Empty<Vehicle>();
+
     /// <summary>Test hook: place a vehicle on a junction connector at arc position s.</summary>
     internal void ForceConnector(Vehicle v, NodeId node, int connector, float s)
     {
