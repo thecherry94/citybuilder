@@ -32,7 +32,7 @@ at most once per frame. The Godot layer holds **no authoritative state**.
   raised sidewalk `CornerZone`s, `TightCuts` for clamped short edges, resize via
   `JunctionConfig.SizeOffset`/`LegOffsets`.
 - `ConnectorBuilder` — lane-level links across nodes with **turn-lane assignment**
-  (lefts/u-turns from the leftmost lane, rights from the rightmost, straights from all;
+  (lefts/u-turns from the leftmost lane, rights from the rightmost; straights are capacity-limited to the receiving arm and aligned 1:1, surplus inner lanes becoming dedicated lefts;
   degree-2 bends and dead ends unrestricted), `TurnKind` classification (±30°/±150°),
   `RightOfWay` tags from junction control, and `ConnectorConflicts` (curve-crossing or
   same-target-lane pairs — the traffic arbiter's input).

@@ -66,6 +66,71 @@ public static class ConnectorBuilder
                 laneRank[ordered[i].lane.Id] = (i, ordered.Length);
         }
 
+        // receiving order within each arm (same direction-aware ordering)
+        var outRank = new Dictionary<LaneId, (int index, int count)>();
+        foreach (var group in outgoing
+                     .Where(x => x.lane.Kind == LaneKind.Driving)
+                     .GroupBy(x => x.lane.Edge))
+        {
+            var ordered = (group.First().lane.Direction == LaneDirection.Forward
+                ? group.OrderBy(x => x.lane.Offset)
+                : group.OrderByDescending(x => x.lane.Offset)).ToArray();
+            for (int i = 0; i < ordered.Length; i++)
+                outRank[ordered[i].lane.Id] = (i, ordered.Length);
+        }
+
+        // movement class per approach→arm pair: all lanes of a group share a travel
+        // direction, so representative directions classify the whole pair
+        var repIn = incoming.Where(x => x.lane.Kind == LaneKind.Driving)
+            .GroupBy(x => x.lane.Edge).ToDictionary(g => g.Key, g => g.First().dir);
+        var repOut = outgoing.Where(x => x.lane.Kind == LaneKind.Driving)
+            .GroupBy(x => x.lane.Edge).ToDictionary(g => g.Key, g => (Dir: g.First().dir, Count: g.Count()));
+        var armTurn = new Dictionary<(EdgeId From, EdgeId To), TurnKind>();
+        foreach (var (a, inDirA) in repIn)
+        foreach (var (b, rep) in repOut)
+            if (a != b)
+                armTurn[(a, b)] = Classify(inDirA, rep.Dir);
+
+        // capacity-aware straight blocks: an approach never sends more straight
+        // lanes into an arm than the arm can receive. Surplus drops from the left
+        // first when a left arm exists (inner lanes become dedicated lefts), then
+        // from the right when a right arm exists; lanes with neither alternative
+        // keep a merge-straight rather than going dead.
+        var straightBlock = new Dictionary<(EdgeId From, EdgeId To), (int Start, int End)>();
+        foreach (var ((a, b), turnAb) in armTurn)
+        {
+            if (turnAb != TurnKind.Straight)
+                continue;
+            int n = incoming.Count(x => x.lane.Edge == a && x.lane.Kind == LaneKind.Driving);
+            int r = repOut[b].Count;
+            bool hasLeft = armTurn.Any(kv => kv.Key.From == a
+                && kv.Value == TurnKind.Left && repOut[kv.Key.To].Count > 0);
+            bool hasRight = armTurn.Any(kv => kv.Key.From == a
+                && kv.Value == TurnKind.Right && repOut[kv.Key.To].Count > 0);
+            int surplus = Math.Max(0, n - r);
+            int dropLeft = hasLeft && surplus > 0 ? 1 : 0;
+            surplus -= dropLeft;
+            int dropRight = hasRight && surplus > 0 ? 1 : 0;
+            straightBlock[(a, b)] = (dropLeft, n - dropRight);
+        }
+
+        // straight emission: the lane must sit inside its approach's straight block
+        // for this arm, and block↔receiving lanes pair off aligned — 1:1 when counts
+        // match (no crossing connectors), the edge lane fans out on widening, and
+        // surplus fallback lanes merge into the last receiving lane
+        bool StraightAllowed(Lane inLane, Lane outLane, (int index, int count) rank)
+        {
+            if (!straightBlock.TryGetValue((inLane.Edge, outLane.Edge), out var block)
+                || !outRank.TryGetValue(outLane.Id, out var o))
+                return true; // no driving metadata: keep permissive legacy behavior
+            if (rank.index < block.Start || rank.index >= block.End)
+                return false;
+            int k = rank.index - block.Start;
+            int blockCount = block.End - block.Start;
+            return o.index == Math.Min(k, o.count - 1)
+                || k == Math.Min(o.index, blockCount - 1);
+        }
+
         var connectors = new List<LaneConnector>(incoming.Count * Math.Max(0, outgoing.Count - 1));
         foreach (var (inLane, inPos, inDir) in incoming)
         foreach (var (outLane, outPos, outDir) in outgoing)
@@ -76,8 +141,9 @@ public static class ConnectorBuilder
                 continue; // no U-turns except at dead ends
             var turn = Classify(inDir, outDir);
             // turn-lane assignment at real junctions (driving lanes only):
-            // straight from every lane, lefts/u-turns from the leftmost lane,
-            // rights from the rightmost — traffic pre-sorts via lane changes
+            // lefts/u-turns from the leftmost lane, rights from the rightmost,
+            // straights capacity-limited and aligned — traffic pre-sorts via
+            // lane changes
             if (junction && inLane.Kind == LaneKind.Driving
                 && laneRank.TryGetValue(inLane.Id, out var rank))
             {
@@ -85,6 +151,7 @@ public static class ConnectorBuilder
                 {
                     TurnKind.Left or TurnKind.UTurn => rank.index == 0,
                     TurnKind.Right => rank.index == rank.count - 1,
+                    TurnKind.Straight => StraightAllowed(inLane, outLane, rank),
                     _ => true,
                 };
                 if (!allowed)

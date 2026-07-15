@@ -465,7 +465,12 @@ public partial class VisualShots : Node3D
             // toward the single backward lane's side — see MarkingRules.Layout)
             Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.OneWay.Id));
             Commit(n, Straight(new(0, 0, -80), new(0, 0, 80), RoadCatalog.Asymmetric.Id));
-        }, Standard(new(0, 0, 0), 55));
+            // neck-down T at the asymmetric road's forward end: two lanes arrive,
+            // the straight continuation is Two-Lane (one receiving lane) — the inner
+            // lane's arrow must render as a dedicated LEFT (the M5 arrow-bug fix)
+            Commit(n, Straight(new(-80, 0, 80), new(80, 0, 80)));
+            Commit(n, Straight(new(0, 0, 80), new(0, 0, 160)));
+        }, Standard(new(0, 0, 40), 80));
 
         yield return new Scenario("m5_congestion", n =>
         {
