@@ -207,6 +207,10 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             State = SessionState.Adjustable;
             return;
         }
+        if (result.DroppedSegments > 0)
+            Flashed?.Invoke(result.DroppedSegments == 1
+                ? "1 segment degenerated while merging and was skipped"
+                : $"{result.DroppedSegments} segments degenerated while merging and were skipped");
         var endSnap = d.Handles[^1].Snap;
         var lastCurve = validated.Proposal.Curves[^1].Curve;
         Draft = null;

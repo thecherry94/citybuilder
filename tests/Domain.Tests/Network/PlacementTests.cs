@@ -454,11 +454,13 @@ public class PlacementTests
             new ProposedCurve(Bezier3.Line(new(40, 0, -12), new(40, 0, 20)),
                 EndpointBinding.None, EndpointBinding.None),
         }, RoadCatalog.FourLane.Id);
-        Net.Commit(n, proposal);
+        var result = Net.Commit(n, proposal);
 
         // the relocated segment (40,-12)→(30,0) would be 15.6 m < FourLane's floor:
         // dropped, not committed corrupt — 5 edges survive (2 existing halves,
-        // 2 curve-1 halves, 1 curve-2 remainder) and its orphaned end node is pruned
+        // 2 curve-1 halves, 1 curve-2 remainder) and its orphaned end node is pruned.
+        // The drop is reported, not silent: DraftSession flashes it to the player.
+        Assert.Equal(1, result.DroppedSegments);
         Assert.Equal(5, n.Edges.Count);
         Assert.DoesNotContain(n.Nodes.Values, x => Vector3.Distance(x.Position, new(40, 0, -12)) < 1f);
 

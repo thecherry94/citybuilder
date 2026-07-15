@@ -331,10 +331,11 @@ public sealed partial class RoadNetwork
 
         var createdEdges = new List<EdgeId>();
         var createdNodes = new List<NodeId>();
+        int droppedSegments = 0;
 
         BeginBatch();
         foreach (var pc in placement.Proposal.Curves)
-            CommitCurve(pc, placement.Proposal.Type, createdEdges, createdNodes);
+            CommitCurve(pc, placement.Proposal.Type, createdEdges, createdNodes, ref droppedSegments);
         // nodes created for stops whose every adjacent segment was dropped by the
         // sliver guard would linger edgeless — prune them before the delta fires
         foreach (var id in _batch!.NodesAdded
@@ -348,11 +349,11 @@ public sealed partial class RoadNetwork
         // report only survivors (an edge created for one grid line may be split by the next)
         createdEdges.RemoveAll(e => !_edges.ContainsKey(e));
         createdNodes.RemoveAll(n => !_nodes.ContainsKey(n));
-        return new CommitResult(true, createdEdges, createdNodes, null);
+        return new CommitResult(true, createdEdges, createdNodes, null, droppedSegments);
     }
 
     private void CommitCurve(ProposedCurve pc, RoadTypeId type,
-        List<EdgeId> createdEdges, List<NodeId> createdNodes)
+        List<EdgeId> createdEdges, List<NodeId> createdNodes, ref int droppedSegments)
     {
         var curve = pc.Curve;
         var startNode = ResolveBinding(pc.Start, curve.Point(0), createdNodes);
@@ -422,7 +423,10 @@ public sealed partial class RoadNetwork
             // NetworkInvariants.CheckEdgeGeometry's 0.1 slack.
             if (seg.Length() < floors.MinSegmentLength - 0.1f
                 || BezierOps.MinRadius(seg) < floors.MinRadius - 0.1f)
+            {
+                droppedSegments++;
                 continue;
+            }
             createdEdges.Add(AddEdgeInternal(na, nb, seg, type).Id);
         }
     }

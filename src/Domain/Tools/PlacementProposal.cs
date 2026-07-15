@@ -39,11 +39,17 @@ public sealed record ValidatedPlacement(
     IReadOnlyList<Vector3> CrossingPoints,
     int NetworkVersion);
 
+/// <summary>Outcome of committing a validated placement. A successful commit may
+/// still carry a warning: <paramref name="DroppedSegments"/> counts segments the
+/// commit-side floor guard refused to build because node-reuse relocation
+/// degenerated them below the road type's length/radius floors (see
+/// RoadNetwork.CommitCurve) — the rest of the placement was built normally.</summary>
 public sealed record CommitResult(
     bool Success,
     IReadOnlyList<EdgeId> CreatedEdges,
     IReadOnlyList<NodeId> CreatedNodes,
-    string? FailureReason)
+    string? FailureReason,
+    int DroppedSegments = 0)
 {
     public static CommitResult Failed(string reason)
         => new(false, Array.Empty<EdgeId>(), Array.Empty<NodeId>(), reason);
