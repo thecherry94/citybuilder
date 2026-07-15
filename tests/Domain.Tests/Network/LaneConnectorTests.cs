@@ -195,34 +195,10 @@ public class LaneConnectorTests
         Net.Commit(n, Net.Straight(new(300, 0, -100), new(300, 0, 100), RoadCatalog.OneWay.Id));
         Net.Commit(n, Net.Straight(new(400, 0, -100), new(400, 0, 100), RoadCatalog.Asymmetric.Id));
 
-        var laneById = n.Edges.Values.SelectMany(e => e.Lanes).ToDictionary(l => l.Id, l => l);
-        foreach (var node in n.Nodes.Values.Where(x => x.Edges.Count >= 3))
-        {
-            // capacity: per (approach edge, target edge), straight connectors from
-            // driving lanes never exceed the target's receiving driving lanes
-            foreach (var group in node.Connectors
-                .Where(c => c.Turn == TurnKind.Straight && laneById[c.From].Kind == LaneKind.Driving)
-                .GroupBy(c => (From: laneById[c.From].Edge, To: laneById[c.To].Edge)))
-            {
-                int sources = group.Select(c => c.From).Distinct().Count();
-                var target = n.Edges[group.Key.To];
-                bool leavesAtNode = target.StartNode == node.Id;
-                int capacity = target.Lanes.Count(l => l.Kind == LaneKind.Driving
-                    && (l.Direction == LaneDirection.Forward) == leavesAtNode);
-                Assert.True(sources <= capacity,
-                    $"node {node.Id}: {sources} straight source lanes into {capacity} receiving");
-            }
-
-            // no dead lanes: every arriving driving lane keeps at least one movement
-            var withConnectors = node.Connectors.Select(c => c.From).ToHashSet();
-            foreach (var edgeId in node.Edges)
-            {
-                var edge = n.Edges[edgeId];
-                bool startsHere = edge.StartNode == node.Id;
-                foreach (var lane in edge.Lanes.Where(l => l.Kind == LaneKind.Driving
-                    && ((l.Direction == LaneDirection.Forward) ? !startsHere : startsHere)))
-                    Assert.Contains(lane.Id, withConnectors);
-            }
-        }
+        // capacity (per approach->arm, straight driving-lane sources never exceed the
+        // arm's receiving driving lanes) and lane coverage (no arriving driving lane
+        // left with zero movements) now live in NetworkInvariants — shared with
+        // NetworkInvariantsTests so there's one source of truth for this guard.
+        Assert.Empty(NetworkInvariants.Check(n));
     }
 }
