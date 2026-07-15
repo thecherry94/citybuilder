@@ -154,4 +154,63 @@ public class ArbitrationTests
         Assert.True(crossed, "stop vehicle never crossed");
         Assert.True(minSpeedNearLine < 0.1f, $"min speed near line was {minSpeedNearLine:F2}");
     }
+
+    /// <summary>4-way cross of TwoLane roads (200 m arms): spawns `entering` from the
+    /// south arm heading straight north and `rival` from the west arm heading straight
+    /// east, ticking until `entering` is within 10 m of its stop line so a caller can
+    /// then puppet `rival` onto its connector with ForceConnector.</summary>
+    private static (TrafficSim Sim, NodeId Node, Vehicle Entering, Vehicle Rival, int RivalConn)
+        CrossWithRivalOnConflictingConnector()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(-200, 0, 0), new Vector3(200, 0, 0), RoadCatalog.TwoLane.Id));
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, -200), new Vector3(0, 0, 200), RoadCatalog.TwoLane.Id));
+        var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+
+        var sim = new TrafficSim(n);
+        var wEdge = EdgeAt(n, new Vector3(-100, 0, 0));
+        var eEdge = EdgeAt(n, new Vector3(100, 0, 0));
+        var nEdge = EdgeAt(n, new Vector3(0, 0, -100));
+        var sEdge = EdgeAt(n, new Vector3(0, 0, 100));
+
+        var entering = sim.Spawn(sEdge, false, nEdge)!;
+        var rival = sim.Spawn(wEdge, true, eEdge)!;
+        // identify rivalConn before either vehicle moves: rival's first (and only)
+        // movement through the junction never changes once picked at spawn. Despawn
+        // rival immediately after so it can't race entering to (and past) the
+        // junction on its own — ForceConnector re-places it explicitly below.
+        int rivalConn = rival.PlannedConnector!.Value.Connector;
+        sim.Despawn(rival);
+
+        for (int i = 0; i < 30 * 60 && entering.Lane is not null; i++)
+        {
+            var (pos, _) = sim.Pose(entering);
+            if (Vector3.Distance(pos, node.Position) < 10f)
+                break;
+            sim.Tick(Dt);
+        }
+        Assert.NotNull(entering.Lane); // must still be approaching, not already through
+
+        return (sim, node.Id, entering, rival, rivalConn);
+    }
+
+    [Fact]
+    public void VehiclePastTheConflictPointNoLongerBlocksEntry()
+    {
+        // cross with a vehicle ON a conflicting connector: before the crossing point it
+        // blocks; teleported past it (rear bumper clear), entry opens the same tick
+        var (sim, node, entering, rival, rivalConn) = CrossWithRivalOnConflictingConnector();
+        var cp = sim.Network.Nodes[node].ConnectorConflicts[entering.PlannedConnector!.Value.Connector]
+            .Single(c => c.Other == rivalConn);
+
+        sim.ForceConnector(rival, node, rivalConn, MathF.Max(0, cp.STheirs - 2f));
+        sim.Tick(1f / 60f);
+        Assert.True(entering.Speed < 0.5f || entering.Lane is not null, "must still hold");
+        Assert.NotNull(entering.Lane); // still on its lane, held at the line
+
+        sim.ForceConnector(rival, node, rivalConn, cp.STheirs + Vehicle.Length + 0.6f);
+        for (int i = 0; i < 240 && entering.Crossing is null; i++)
+            sim.Tick(1f / 60f);
+        Assert.NotNull(entering.Crossing); // took the gap behind the crossed car
+    }
 }

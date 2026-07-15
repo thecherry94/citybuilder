@@ -108,6 +108,20 @@ public sealed partial class TrafficSim
         SortQueue(_laneVehicles[lane]);
     }
 
+    /// <summary>Test hook: place a vehicle on a junction connector at arc position s.</summary>
+    internal void ForceConnector(Vehicle v, NodeId node, int connector, float s)
+    {
+        RemoveFromQueues(v);
+        v.Lane = null;
+        v.ChangeFrom = null;
+        v.ChangeProgress = 0;
+        v.PlannedConnector = null;
+        v.Crossing = (node, connector);
+        v.S = s;
+        _connectorVehicles[(node, connector)].Add(v);
+        SortQueue(_connectorVehicles[(node, connector)]);
+    }
+
     public void Despawn(Vehicle v)
     {
         RemoveFromQueues(v);

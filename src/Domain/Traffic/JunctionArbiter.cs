@@ -12,6 +12,7 @@ public sealed partial class TrafficSim
     private const float GapAcceptanceSec = 4f;
     private const float StopLineZone = 3f;      // "at the line" distance
     private const float ApproachHorizon = 60f;  // how far to scan for priority traffic
+    private const float ClearMargin = 0.5f;     // rear-bumper clearance past a conflict point
 
     private bool MayEnter(Vehicle v, NodeId nodeId, int ci)
     {
@@ -23,10 +24,14 @@ public sealed partial class TrafficSim
         if (target.Count > 0 && target[^1].S < SpawnClearance)
             return false;
 
-        // never enter while a conflicting path is occupied
+        // a conflicting occupant blocks only until its rear bumper clears our crossing point
         foreach (var cp in node.ConnectorConflicts[ci])
-            if (_connectorVehicles[(nodeId, cp.Other)].Count > 0)
-                return false;
+        {
+            var occupants = _connectorVehicles[(nodeId, cp.Other)];
+            for (int k = 0; k < occupants.Count; k++)
+                if (occupants[k].S < cp.STheirs + Vehicle.Length + ClearMargin)
+                    return false;
+        }
 
         switch (conn.Row)
         {
