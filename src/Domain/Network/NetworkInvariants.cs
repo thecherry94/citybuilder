@@ -71,14 +71,24 @@ public static class NetworkInvariants
 
     /// <summary>No two legs meeting at a node may be closer than
     /// <see cref="RoadNetwork.MinJunctionAngleDeg"/> (with 0.5° slack) apart, measured
-    /// between their outward (away-from-node) directions.</summary>
+    /// between their outward (away-from-node) directions — EXCEPT a pair within
+    /// <see cref="RoadNetwork.TangentContinuationDeg"/> (+ slack) of each other, which
+    /// mirrors <c>RoadNetwork.Validate</c>'s G1 ramp-exit exemption for departures from
+    /// an <c>OnEdge</c> binding (see <c>HasSharpLeg</c>/<c>ExistingLegDirections</c>):
+    /// splitting an edge to grow a tangential ramp legitimately leaves the ramp 0° from
+    /// the split half it continues, and that is the ONLY way a validly committed
+    /// network ever gets two legs this close — anything wider than the tolerance but
+    /// still under the minimum was never legal and stays flagged.</summary>
     public static void CheckLegAngles(NodeId node, IReadOnlyList<Vector3> legDirs, List<string> o)
     {
         float min = RoadNetwork.MinJunctionAngleDeg - 0.5f;
+        float tangentContinuation = RoadNetwork.TangentContinuationDeg + 0.5f;
         for (int i = 0; i < legDirs.Count; i++)
         for (int j = i + 1; j < legDirs.Count; j++)
         {
             float deg = AngleDegXZ(legDirs[i], legDirs[j]);
+            if (deg <= tangentContinuation)
+                continue;
             if (deg < min)
                 o.Add($"node {node.Value}: legs {i}/{j} angle {deg:F1} < min {min:F1}");
         }
