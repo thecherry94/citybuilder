@@ -377,20 +377,24 @@ public class ArbitrationTests
         // straight (rank 3,3) approaching within the accepted gap
         var (sim, leftTurner) = PriorityLeftVsOncomingStraight(oncomingTtaSeconds: 2.0f);
         for (int i = 0; i < 120; i++) sim.Tick(1f / 60f);
-        Assert.NotNull(leftTurner.Lane); // held at the line while oncoming passes
+        // held at the line while oncoming passes: never entered the junction and never
+        // advanced a route step (Lane alone would be non-null again on the exit lane
+        // after an illegal crossing, so it cannot discriminate)
+        Assert.Null(leftTurner.Crossing);
+        Assert.Equal(0, leftTurner.StepIndex);
     }
 
     /// <summary>Uncontrolled 4-way cross (JunctionControlMode.None → every leg Free,
     /// so an equal-rank tie can only be broken by ApproachesFromMyRight). Arms are
     /// shortened to 150 m (matching MixedCross's convention) so both cars reach the
     /// line and resolve well inside a 600-tick/60 Hz budget. `fromWest` spawns on the
-    /// west leg heading east; `fromSouth` spawns on the north leg heading south
-    /// ("southbound") — under this engine's right-hand-rule signed-angle convention
-    /// (see ApproachesFromMyRight) a west-to-east mover has the north-to-south mover
-    /// on its right, and it's the north-to-south mover that must yield. Both spawn in
-    /// the same tick at S=0, so tickets are indistinguishable by wait order — the
-    /// outcome comes purely from the MovementRank tie-break, not FIFO.</summary>
-    private static (TrafficSim Sim, Vehicle FromSouth, Vehicle FromWest) UncontrolledCrossTwoStraights()
+    /// west leg heading east; `southbound` spawns on the NORTH leg heading south —
+    /// under this engine's right-hand-rule signed-angle convention (−Z is "north", see
+    /// ApproachesFromMyRight) a west-to-east mover has the north-to-south mover on its
+    /// right, so it's the southbound mover that must yield. Both spawn in the same
+    /// tick at S=0, so tickets are indistinguishable by wait order — the outcome comes
+    /// purely from the right-hand tie-break, not FIFO.</summary>
+    private static (TrafficSim Sim, Vehicle Southbound, Vehicle FromWest) UncontrolledCrossTwoStraights()
     {
         var n = Net.New();
         Net.Commit(n, Net.Straight(new Vector3(-150, 0, 0), new Vector3(150, 0, 0), RoadCatalog.TwoLane.Id));
@@ -404,9 +408,9 @@ public class ArbitrationTests
         var sEdge = EdgeAt(n, new Vector3(0, 0, 75));
 
         var sim = new TrafficSim(n);
-        var fromSouth = sim.Spawn(nEdge, true, sEdge)!; // north leg, southbound straight
-        var fromWest = sim.Spawn(wEdge, true, eEdge)!;  // west leg, eastbound straight
-        return (sim, fromSouth, fromWest);
+        var southbound = sim.Spawn(nEdge, true, sEdge)!; // north leg, southbound straight
+        var fromWest = sim.Spawn(wEdge, true, eEdge)!;   // west leg, eastbound straight
+        return (sim, southbound, fromWest);
     }
 
     [Fact]
@@ -414,12 +418,16 @@ public class ArbitrationTests
     {
         // two Free straights meeting at an uncontrolled cross, arriving together:
         // the one with the other on its RIGHT yields; the other proceeds
-        var (sim, fromSouth, fromWest) = UncontrolledCrossTwoStraights();
+        var (sim, southbound, fromWest) = UncontrolledCrossTwoStraights();
         for (int i = 0; i < 600 && fromWest.Crossing is null; i++) sim.Tick(1f / 60f);
-        // right-hand traffic: for the northbound car the westbound rival approaches from
-        // the right → southbound(north-going) yields, west→east goes first
+        // right-hand traffic: the eastbound car has the southbound car approaching
+        // from its LEFT, and the southbound car has the eastbound car on its RIGHT →
+        // southbound yields, west→east goes first
         Assert.NotNull(fromWest.Crossing);
-        Assert.Null(fromSouth.Crossing);
+        // the yielder must not merely be off a connector at this instant — it must
+        // never have entered the junction at all (StepIndex still 0)
+        Assert.Null(southbound.Crossing);
+        Assert.Equal(0, southbound.StepIndex);
     }
 
     /// <summary>Uncontrolled 4-way cross with one straight-through car spawned on each
