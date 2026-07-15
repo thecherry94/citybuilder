@@ -102,4 +102,22 @@ public class RoutePlannerTests
         Assert.NotNull(route);
         Assert.Single(route!.Steps);
     }
+
+    [Fact]
+    public void OneWayLoopRoutesOnlyWithTheFlow()
+    {
+        // square loop of one-way edges drawn head-to-tail: A→B→C→D→A
+        var n = Net.New();
+        var a = new Vector3(0, 0, 0); var b = new Vector3(150, 0, 0);
+        var c = new Vector3(150, 0, 150); var d = new Vector3(0, 0, 150);
+        var e1 = Net.Commit(n, Net.Straight(a, b, RoadCatalog.OneWay.Id)).CreatedEdges[0];
+        Net.Commit(n, Net.Straight(b, c, RoadCatalog.OneWay.Id));
+        var e3 = Net.Commit(n, Net.Straight(c, d, RoadCatalog.OneWay.Id)).CreatedEdges[0];
+        var e4 = Net.Commit(n, Net.Straight(d, a, RoadCatalog.OneWay.Id)).CreatedEdges[0];
+
+        // with the flow: reachable all the way round
+        Assert.NotNull(RoutePlanner.Plan(n, e1, forward: true, e4));
+        // against the flow: no backward lanes exist → no plan
+        Assert.Null(RoutePlanner.Plan(n, e1, forward: false, e3));
+    }
 }

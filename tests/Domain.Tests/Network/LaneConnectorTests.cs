@@ -16,6 +16,28 @@ public class LaneConnectorTests
         return (n, center);
     }
 
+    /// <summary>4-way cross where the south leg is a 2+1 Asymmetric road, drawn
+    /// south→north so its Forward lanes arrive at the center node (the geometry the
+    /// turn-lane assignment cares about). East-west and north legs stay Two-Lane.</summary>
+    private static (RoadNetwork n, RoadNode center, EdgeId southArm) BuildCrossWithAsymmetricSouthArm()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0)));
+        Net.Commit(n, Net.Straight(new(0, 0, -100), new(0, 0, 100), RoadCatalog.Asymmetric.Id));
+        var center = n.Nodes.Values.Single(node => Vector3.Distance(node.Position, Vector3.Zero) < 0.1f);
+        var southArm = n.Edges.Values
+            .Single(e => e.Type == RoadCatalog.Asymmetric.Id && e.EndNode == center.Id).Id;
+        return (n, center, southArm);
+    }
+
+    /// <summary>True when connector `c` originates from the driving lane of `edge`
+    /// at the given (signed) centerline offset.</summary>
+    private static bool IsFromLane(RoadNetwork n, LaneConnector c, EdgeId edge, float offset)
+    {
+        var lane = n.Edges.Values.SelectMany(e => e.Lanes).Single(l => l.Id == c.From);
+        return lane.Edge == edge && MathF.Abs(lane.Offset - offset) < 0.01f;
+    }
+
     [Fact]
     public void FourWayTwoLaneHasTwelveConnectors()
     {
@@ -92,5 +114,21 @@ public class LaneConnectorTests
             if (c.Turn == TurnKind.Right)
                 Assert.Equal(5.25f, MathF.Abs(from.Offset), 2);
         }
+    }
+
+    [Fact]
+    public void TurnLaneAssignmentOnAsymmetricApproach()
+    {
+        // 2+1 approaching a 4-way: lefts only from the LEFT forward lane (−0.75),
+        // rights only from the RIGHT forward lane (+2.75), straights from both
+        var (n, center, southArm) = BuildCrossWithAsymmetricSouthArm();
+        var leftLaneConn = center.Connectors.Where(c => IsFromLane(n, c, southArm, offset: -0.75f)).ToArray();
+        var rightLaneConn = center.Connectors.Where(c => IsFromLane(n, c, southArm, offset: +2.75f)).ToArray();
+        Assert.Contains(leftLaneConn, c => c.Turn == TurnKind.Left);
+        Assert.DoesNotContain(rightLaneConn, c => c.Turn == TurnKind.Left);
+        Assert.Contains(rightLaneConn, c => c.Turn == TurnKind.Right);
+        Assert.DoesNotContain(leftLaneConn, c => c.Turn == TurnKind.Right);
+        Assert.Contains(leftLaneConn, c => c.Turn == TurnKind.Straight);
+        Assert.Contains(rightLaneConn, c => c.Turn == TurnKind.Straight);
     }
 }

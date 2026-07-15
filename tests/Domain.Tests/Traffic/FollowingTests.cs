@@ -138,5 +138,20 @@ public class FollowingTests
         // backward: higher offset = further left in the travel frame
         Assert.Equal(bwd[1].Id, sim.AdjacentOf(bwd[0].Id).Right);
         Assert.Equal(bwd[0].Id, sim.AdjacentOf(bwd[1].Id).Left);
+
+        // 2+1: forward lanes at −0.75 and +2.75 — |offset| ordering would call +2.75
+        // "outer"… which here coincides; the REAL trap is a forward group that spans
+        // zero, so signed offset (not magnitude) must decide Left/Right. The lone
+        // backward lane has no partner: both neighbors are null.
+        var n2 = Net.New();
+        Net.Commit(n2, Net.Straight(new(0, 0, 0), new(200, 0, 0), RoadCatalog.Asymmetric.Id));
+        var sim2 = new TrafficSim(n2);
+        var edge2 = n2.Edges.Values.Single();
+        var f = edge2.Lanes.Where(l => l.Direction == LaneDirection.Forward).OrderBy(l => l.Offset).ToArray();
+        Assert.Equal(f[1].Id, sim2.AdjacentOf(f[0].Id).Right);   // −0.75 is the LEFT forward lane
+        Assert.Equal(f[0].Id, sim2.AdjacentOf(f[1].Id).Left);
+        var back = edge2.Lanes.Single(l => l.Direction == LaneDirection.Backward);
+        Assert.Null(sim2.AdjacentOf(back.Id).Left);
+        Assert.Null(sim2.AdjacentOf(back.Id).Right);
     }
 }

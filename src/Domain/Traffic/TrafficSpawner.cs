@@ -33,7 +33,9 @@ public sealed partial class TrafficSim
         var to = _allEdges[_rng.Next(_allEdges.Count)];
         if (to == from)
             return;
-        Spawn(from, _rng.Next(2) == 0, to);
+        bool fwd = _rng.Next(2) == 0;
+        if (Spawn(from, fwd, to) is null)
+            Spawn(from, !fwd, to); // one-way fringes: only one direction has lanes
     }
 
     /// <summary>Front-of-queue vehicles stalled too long get a fresh route; if no

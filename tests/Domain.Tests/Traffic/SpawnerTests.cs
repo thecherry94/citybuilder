@@ -79,6 +79,36 @@ public class SpawnerTests
     }
 
     [Fact]
+    public void AmbientSpawnerCopesWithOneWayFringes()
+    {
+        // a one-way stub feeding a two-way loop: ambient spawning must reach the target
+        // even when the RNG picks the impossible direction first (direction retry)
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(0, 0, 0), new(150, 0, 0), RoadCatalog.OneWay.Id));
+        Net.Commit(n, Net.Straight(new(150, 0, 0), new(300, 0, 0)));
+        Net.Commit(n, Net.Straight(new(300, 0, 0), new(300, 0, 150)));
+        Net.Commit(n, Net.Straight(new(300, 0, 150), new(150, 0, 150)));
+        Net.Commit(n, Net.Straight(new(150, 0, 150), new(150, 0, 0)));
+        // short window: with this seed the RNG happens to pick the impossible
+        // (backward) direction on the one-way stub often enough that only the
+        // in-tick retry reaches the target in time (verified red without it)
+        var sim = new TrafficSim(n, seed: 3) { TargetPopulation = 6 };
+        for (int i = 0; i < 120; i++) sim.Tick(1f / 60f);
+        Assert.True(sim.Vehicles.Count >= 4, $"only {sim.Vehicles.Count} spawned");
+
+        // nothing ever drives against a one-way lane
+        var lanesById = n.Edges.Values.SelectMany(e => e.Lanes).ToDictionary(l => l.Id, l => l);
+        foreach (var v in sim.Vehicles)
+        {
+            if (v.Lane is not { } laneId)
+                continue;
+            var lane = lanesById[laneId];
+            if (n.Edges[lane.Edge].Type == RoadCatalog.OneWay.Id)
+                Assert.Equal(LaneDirection.Forward, lane.Direction);
+        }
+    }
+
+    [Fact]
     public void ThreeHundredVehiclesStayCheap()
     {
         var sim = new TrafficSim(Grid(), seed: 11) { TargetPopulation = 300 };
