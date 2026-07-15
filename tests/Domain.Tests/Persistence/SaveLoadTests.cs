@@ -59,4 +59,43 @@ public class SaveLoadTests
         string json = SaveLoad.Save(n).Replace("\"FormatVersion\":1", "\"FormatVersion\":99");
         Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
     }
+
+    // --- malformed-but-parseable payloads must throw the TYPED exception, never NRE ---
+
+    [Fact]
+    public void MissingNodesAndEdgesThrowsSaveFormatException()
+    {
+        Assert.Throws<SaveFormatException>(() => SaveLoad.Load("{\"FormatVersion\":1}"));
+    }
+
+    [Fact]
+    public void NullNodeConfigThrowsSaveFormatException()
+    {
+        const string json = "{\"FormatVersion\":1,\"Nodes\":[{\"Id\":1,\"X\":0,\"Y\":0,\"Z\":0,\"Config\":null}],"
+            + "\"Edges\":[],\"NextNode\":2,\"NextEdge\":1,\"NextLane\":1}";
+        Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
+    }
+
+    [Fact]
+    public void NullLaneIdsThrowsAndLeavesTargetNetworkUntouched()
+    {
+        const string json = "{\"FormatVersion\":1,\"Nodes\":["
+            + "{\"Id\":1,\"X\":0,\"Y\":0,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}},"
+            + "{\"Id\":2,\"X\":100,\"Y\":0,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}],"
+            + "\"Edges\":[{\"Id\":1,\"Start\":1,\"End\":2,\"Type\":1,"
+            + "\"Curve\":[0,0,0,33,0,0,66,0,0,100,0,0],\"LaneIds\":null}],"
+            + "\"NextNode\":3,\"NextEdge\":2,\"NextLane\":3}";
+
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(0, 0, 50), new(100, 0, 50)));
+        string before = SaveLoad.Save(n);
+        int events = 0;
+        n.Changed += _ => events++;
+
+        Assert.Throws<SaveFormatException>(() => SaveLoad.LoadInto(json, n));
+
+        // failed load must not half-clear the target: no event, identical state
+        Assert.Equal(0, events);
+        Assert.Equal(before, SaveLoad.Save(n));
+    }
 }

@@ -82,23 +82,53 @@ public sealed partial class RoadNetwork
 
     private static void ValidateGame(SaveGame game)
     {
+        // System.Text.Json leaves absent/null JSON fields as null even on non-nullable
+        // record properties — every reference-typed field is guarded here so nothing
+        // null-related (and no NRE) can ever reach the mutation phase below.
+        if (game.Nodes is null)
+            throw new SaveFormatException("save data has no Nodes array");
+        if (game.Edges is null)
+            throw new SaveFormatException("save data has no Edges array");
+
         var nodeIds = new HashSet<int>();
         foreach (var nd in game.Nodes)
         {
+            if (nd is null)
+                throw new SaveFormatException("Nodes array contains a null entry");
             if (nd.Id <= 0 || nd.Id >= game.NextNode)
                 throw new SaveFormatException($"node id {nd.Id} is not below NextNode counter {game.NextNode}");
             if (!nodeIds.Add(nd.Id))
                 throw new SaveFormatException($"duplicate node id {nd.Id}");
+            if (nd.Config is null)
+                throw new SaveFormatException($"node {nd.Id} has no Config");
+            if (nd.Config.Roles is null)
+                throw new SaveFormatException($"node {nd.Id} config has no Roles array");
+            if (nd.Config.Roles.Any(r => r is null))
+                throw new SaveFormatException($"node {nd.Id} config Roles contains a null entry");
+            if (nd.Config.Roles.Select(r => r.Edge).Distinct().Count() != nd.Config.Roles.Length)
+                throw new SaveFormatException($"node {nd.Id} config Roles has a duplicate edge key");
+            if (nd.Config.LegOffsets is null)
+                throw new SaveFormatException($"node {nd.Id} config has no LegOffsets array");
+            if (nd.Config.LegOffsets.Any(l => l is null))
+                throw new SaveFormatException($"node {nd.Id} config LegOffsets contains a null entry");
+            if (nd.Config.LegOffsets.Select(l => l.Edge).Distinct().Count() != nd.Config.LegOffsets.Length)
+                throw new SaveFormatException($"node {nd.Id} config LegOffsets has a duplicate edge key");
         }
 
         var edgeIds = new HashSet<int>();
         var laneIds = new HashSet<int>();
         foreach (var ed in game.Edges)
         {
+            if (ed is null)
+                throw new SaveFormatException("Edges array contains a null entry");
             if (ed.Id <= 0 || ed.Id >= game.NextEdge)
                 throw new SaveFormatException($"edge id {ed.Id} is not below NextEdge counter {game.NextEdge}");
             if (!edgeIds.Add(ed.Id))
                 throw new SaveFormatException($"duplicate edge id {ed.Id}");
+            if (ed.Curve is null)
+                throw new SaveFormatException($"edge {ed.Id} has no Curve array");
+            if (ed.LaneIds is null)
+                throw new SaveFormatException($"edge {ed.Id} has no LaneIds array");
             if (ed.Curve.Length != 12)
                 throw new SaveFormatException($"edge {ed.Id} curve must have 12 floats, got {ed.Curve.Length}");
             if (!nodeIds.Contains(ed.Start))
