@@ -518,6 +518,7 @@ public class ArbitrationTests
         }
         // TwoLane limit 22.2 m/s: pre-change the 14 m/s cap forces braking; now the
         // vehicle should stay above 18 m/s throughout the empty junction
+        Assert.True(crossed, "vehicle never crossed the junction");
         Assert.True(minSpeed > 18f, $"slowed to {minSpeed:F1} m/s through an empty junction");
     }
 }
