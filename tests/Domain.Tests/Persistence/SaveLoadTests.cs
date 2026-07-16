@@ -98,4 +98,28 @@ public class SaveLoadTests
         Assert.Equal(0, events);
         Assert.Equal(before, SaveLoad.Save(n));
     }
+
+    [Fact]
+    public void ZeroCountersThrowSaveFormatException()
+    {
+        // Counters absent from a hand-edited save deserialize to 0. Accepting that would
+        // let a subsequent mint hand out NodeId(0)/EdgeId(0)/LaneId(0), which is rejected
+        // on load (ids must be > 0) — a self-poisoning save that can never load again.
+        const string json = "{\"FormatVersion\":1,\"Nodes\":[],\"Edges\":[]}";
+        Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
+    }
+
+    [Fact]
+    public void LoopEdgeThrowsSaveFormatException()
+    {
+        // Start == End can never occur organically (Validate/Commit forbid it), but a
+        // hand-edited save could contain one; it must be rejected here rather than
+        // crashing TryHealNode/AddEdgeInternal mid-batch with a KeyNotFoundException.
+        const string json = "{\"FormatVersion\":1,\"Nodes\":["
+            + "{\"Id\":1,\"X\":0,\"Y\":0,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}],"
+            + "\"Edges\":[{\"Id\":1,\"Start\":1,\"End\":1,\"Type\":1,"
+            + "\"Curve\":[0,0,0,33,0,0,66,0,0,100,0,0],\"LaneIds\":[1,2]}],"
+            + "\"NextNode\":2,\"NextEdge\":2,\"NextLane\":3}";
+        Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
+    }
 }

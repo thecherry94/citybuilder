@@ -89,6 +89,10 @@ public sealed partial class RoadNetwork
             throw new SaveFormatException("save data has no Nodes array");
         if (game.Edges is null)
             throw new SaveFormatException("save data has no Edges array");
+        if (game.NextNode < 1 || game.NextEdge < 1 || game.NextLane < 1)
+            throw new SaveFormatException(
+                $"counters must be >= 1 (NextNode={game.NextNode}, NextEdge={game.NextEdge}, NextLane={game.NextLane}); "
+                + "a save with a non-positive counter would mint ids <= 0, which are rejected on the next load");
 
         var nodeIds = new HashSet<int>();
         foreach (var nd in game.Nodes)
@@ -135,6 +139,8 @@ public sealed partial class RoadNetwork
                 throw new SaveFormatException($"edge {ed.Id} references unknown start node {ed.Start}");
             if (!nodeIds.Contains(ed.End))
                 throw new SaveFormatException($"edge {ed.Id} references unknown end node {ed.End}");
+            if (ed.Start == ed.End)
+                throw new SaveFormatException($"edge {ed.Id} is a loop edge (start == end == {ed.Start}), which can never occur organically");
 
             RoadType type;
             try { type = RoadCatalog.Get(new RoadTypeId(ed.Type)); }
