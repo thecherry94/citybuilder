@@ -201,6 +201,31 @@ public sealed partial class RoadNetwork
         return d < min || e.ArcLength.TotalLength - d < min;
     }
 
+    /// <summary>Node-level half of <see cref="HasSharpLeg"/>'s rule, reusable at
+    /// commit time once the actual attaching node is known. Carries the same
+    /// TangentContinuationDeg exemption <see cref="NetworkInvariants.CheckLegAngles"/>
+    /// applies unconditionally (not just <see cref="HasSharpLeg"/>'s fromEdge-only
+    /// version): a segment landing here can itself be the ramp continuing tangentially
+    /// off a just-split edge, and the near-0 deg pair that produces against the split's
+    /// own other half is the same legal G1 shape as any other tangential departure, not
+    /// a bump against an unrelated leg.</summary>
+    private bool HasSharpLegAtNode(NodeId nodeId, Vector3 newLeaving)
+    {
+        if (!_nodes.TryGetValue(nodeId, out var node))
+            return false;
+        foreach (var legEdge in node.EdgeSet)
+        {
+            var e = _edges[legEdge];
+            var leg = e.StartNode == nodeId ? e.Curve.Tangent(0) : -e.Curve.Tangent(1);
+            float deg = AngleDegXZ(newLeaving, leg);
+            if (deg <= TangentContinuationDeg)
+                continue;
+            if (deg < MinJunctionAngleDeg)
+                return true;
+        }
+        return false;
+    }
+
     private bool HasSharpLeg(EndpointBinding binding, Vector3 pos, Vector3 newLeaving)
     {
         foreach (var (leg, fromEdge) in ExistingLegDirections(binding, pos))
@@ -423,6 +448,24 @@ public sealed partial class RoadNetwork
             // NetworkInvariants.CheckEdgeGeometry's 0.1 slack.
             if (seg.Length() < floors.MinSegmentLength - 0.1f
                 || BezierOps.MinRadius(seg) < floors.MinRadius - 0.1f)
+            {
+                droppedSegments++;
+                continue;
+            }
+            // Same reuse-absorption hazard, for leg angles rather than length/radius:
+            // SplitEdgeWithReuse snaps a crossing/endpoint to an existing end node
+            // whenever it lands within that edge's OWN MinSegmentLength of the end —
+            // up to tens of metres, far past the tight NodeReuseRadius Validate's
+            // sharp-angle check assumed, and far enough for a merely MinRadius-curved
+            // edge to have swung its tangent by well over MinJunctionAngleDeg between
+            // the checked point and the actual end. Same hazard again for multi-curve
+            // proposals (grid stamps): a sibling curve earlier in this same Commit can
+            // create or populate a node that Validate's single pre-batch snapshot
+            // never saw at all. Either way, Validate can wave through a leg that is
+            // sharp against the node Commit is actually attaching to — checked here,
+            // against the live network, where the true attachment point is known;
+            // dropped rather than committed corrupt, same policy as the floors above.
+            if (HasSharpLegAtNode(na, seg.Tangent(0)) || HasSharpLegAtNode(nb, -seg.Tangent(1)))
             {
                 droppedSegments++;
                 continue;
