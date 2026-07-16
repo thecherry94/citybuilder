@@ -224,6 +224,21 @@ public partial class ToolController : Node
         ReadoutChanged?.Invoke("");
     }
 
+    /// <summary>Drop every reference to network entities — draft, hover highlight,
+    /// bulldoze/spawn targets, and the inspected node. Call after a load replaces the
+    /// graph wholesale: surviving ids may describe entirely different geometry, and
+    /// SetMode alone keeps the selection while in Inspect mode.</summary>
+    public void ClearTransientState()
+    {
+        _session.Cancel();
+        _ghost.Clear();
+        _view.HighlightEdge(null);
+        _bulldozeTarget = null;
+        _spawnOrigin = null;
+        SelectNode(null);
+        ReadoutChanged?.Invoke("");
+    }
+
     private void RenderGhost()
     {
         var handles = _session.Draft?.Handles.Select(h => h.Position).ToArray();

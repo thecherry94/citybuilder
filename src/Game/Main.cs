@@ -81,7 +81,6 @@ public partial class Main : Node3D
 
         _controller = new ToolController { Name = "ToolController" };
         _controller.Bind(_network, session, camera, ghost, _view);
-        _controller.BindTraffic(_traffic);
         AddChild(_controller);
 
         var gridOverlay = new GridOverlay { Name = "GridOverlay" };
@@ -89,6 +88,9 @@ public partial class Main : Node3D
         AddChild(gridOverlay);
 
         _traffic = new CityBuilder.Domain.Traffic.TrafficSim(_network, seed: 1);
+        // bind after construction — binding the field before assignment passed null
+        // and silently disabled the two-click vehicle-spawn tool
+        _controller.BindTraffic(_traffic);
         var trafficView = new TrafficView { Name = "TrafficView" };
         trafficView.Bind(_traffic);
         AddChild(trafficView);
@@ -150,7 +152,7 @@ public partial class Main : Node3D
             File.WriteAllText(path, SaveLoad.Save(_network));
             StatusFlashed?.Invoke("Saved");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             StatusFlashed?.Invoke($"save failed: {ex.Message}");
         }
@@ -171,10 +173,12 @@ public partial class Main : Node3D
         {
             SaveLoad.LoadInto(File.ReadAllText(path), _network);
             _traffic.EnsureSynced();
-            _controller.SetMode(_controller.Mode); // drop any stale draft/selection
+            // restored ids may describe different geometry — drop the draft, hover
+            // targets, and the inspected node rather than trusting id continuity
+            _controller.ClearTransientState();
             StatusFlashed?.Invoke("Loaded");
         }
-        catch (Exception ex) when (ex is SaveFormatException or IOException)
+        catch (Exception ex) when (ex is SaveFormatException or IOException or UnauthorizedAccessException)
         {
             StatusFlashed?.Invoke($"load failed: {ex.Message}");
         }
@@ -277,15 +281,34 @@ public partial class Main : Node3D
                 "dragged draft endpoint not committed at (40, 60)");
 
             // quick save/load round trip: save, add a road, confirm it registered,
-            // reload, confirm the network is back to the saved state
+            // reload, confirm the network is back to the saved state. One vehicle
+            // rides a surviving road, one rides the road that vanishes on load —
+            // the latter exercises TrafficSim.Sync's stranded-vehicle purge.
+            _controller.SetMode(ToolMode.SpawnVehicle);
+            _controller.HandleClickAt(V(-60, 1));
+            _controller.HandleClickAt(V(60, 1));
+            Expect(_traffic.Vehicles.Count == 1,
+                $"expected 1 vehicle before save, got {_traffic.Vehicles.Count}");
             int edgesAtSave = _network.Edges.Count;
             QuickSave();
             _controller.SetMode(ToolMode.Straight);
             _controller.HandleClickAt(V(150, -150));
             _controller.HandleClickAt(V(200, -150));
             Expect(_network.Edges.Count > edgesAtSave, "post-save test road not added");
+            _controller.SetMode(ToolMode.SpawnVehicle);
+            _controller.HandleClickAt(V(160, -150));
+            _controller.HandleClickAt(V(190, -150)); // same-edge trip on the doomed road
+            Expect(_traffic.Vehicles.Count == 2,
+                $"expected 2 vehicles after doomed-road spawn, got {_traffic.Vehicles.Count}");
             QuickLoad();
             Expect(_network.Edges.Count == edgesAtSave, "quick-load did not restore edge count");
+            Expect(_traffic.Vehicles.Count == 1,
+                $"expected the doomed-road vehicle purged (1 survivor), got {_traffic.Vehicles.Count}");
+            Expect(_traffic.Vehicles.All(v => v.Lane is null
+                    || _network.Edges.Values.Any(e => e.Lanes.Any(l => l.Id == v.Lane))),
+                "a vehicle survived the load on a lane that no longer exists");
+            for (int i = 0; i < 30; i++)
+                _traffic.Tick(1f / 60f); // sim must keep ticking after the purge
 
             // spawn a vehicle via the two-click tool and tick a bit of traffic
             _controller.SetMode(ToolMode.SpawnVehicle);
