@@ -54,13 +54,34 @@ verified build.
   regression test — no catalog type distinguishes signed from |offset| ordering; an
   early M6 task should add a test-only lane profile (e.g. forward lanes at −4/+1)
   that does.
+- **M6 — Quality & knowledge stack** (2026-07-16): scripted gesture fuzzer certifying the
+  road-editor surface at 10k actions with an invariant + findings-triage protocol,
+  versioned save/load (`SaveLoad`, byte-stable round-trip) wired to F5 quicksave / F9
+  quickload, a KPI harness (signal discharge, 4-way yield, grid commute, perf) feeding
+  `docs/health/M6.md` against a committed baseline, a living manual under `docs/manual/`
+  (chapter-per-subsystem, drift-checked), and a standing quality-stack
+  definition-of-done for every milestone from here on.
+  Known limits (M7 candidates): `TryHealNode` has no post-merge floor recheck against the
+  resulting type's `MinSegmentLength`/`MinRadius` (`RoadNetwork.cs`) — flagged
+  `[UNCERTAIN]` in the manual, no concrete failing case found by reading alone;
+  `TrafficSim.Sync` preserves vehicles on a same-`LaneId` lane whose run length shrinks on
+  the same edit (e.g. a junction cut moving) without reclamping `S` against the new
+  `LaneRun.Length` — removed-key lanes do drop their vehicles, this path doesn't;
+  `SaveLoad.ValidateGame` bounds entity ids against their counters but never bounds the
+  counters themselves, so a hand-crafted negative counter (e.g. `NextNode: -5`) passes
+  validation and is assigned verbatim — latent, not fuzzer-observed; and
+  `BezierOps.SelfIntersects` still false-positives at several near-straight angles
+  (20/27/28/31/33/35/40/45°), a pre-existing gap from M4.
 
 ## Next up (roughly in order — each is one milestone)
 
-1. **Editing comfort: undo/redo + upgrade tool.** Invertible `NetworkDelta`s (the
+1. **Editing comfort: undo/redo + upgrade tool (M7).** Invertible `NetworkDelta`s (the
    batching already exists), upgrade-in-place (change a road's type without redrawing,
    preserving junction configs). CS2's most-loved road UX. Small, self-contained, huge
    daily payoff.
+   *M7-adjacent fast-follow*: a KPI-driven tuning pass — signal discharge/saturation
+   headway, curvature-based turn speeds, and creep at yield lines — using the M6 KPI
+   harness to validate before/after instead of eyeballing.
 2. **Elevation & bridges.** The domain carries Y everywhere but is flat: gradient
    limits, ramps, pillars, over/underpasses (crossing rule changes: grade-separated
    crossings don't create junctions), retaining-wall/bridge meshes. Big win for network

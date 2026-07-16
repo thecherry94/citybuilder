@@ -1,8 +1,8 @@
 {
   "grid.delay_index": 2.73413,
   "grid.stops_per_trip": 1.3670886,
-  "perf.tick300_ms": 0.27619433,
-  "perf.validate500_ms": 58.4771,
+  "perf.tick300_ms": 0.28101218,
+  "perf.validate500_ms": 60.5825,
   "signal.sat_headway_s": 3.5218353,
   "signal.startup_lost_s": 1.333313,
   "yield4.completed": 18,

@@ -31,7 +31,7 @@ the foundation everything else grows on.
 ## Quick commands
 
 ```bash
-dotnet test                                   # 223 xUnit domain tests, headless
+dotnet test                                   # 254 xUnit domain tests, headless
 dotnet build citybuilder.sln                  # domain + game + tests
 CITYBUILDER_SMOKE=1 godot --headless .        # scripted end-to-end, prints SMOKE OK
 CITYBUILDER_SHOTS=tests/visual/shots godot .  # screenshot harness (needs a window)
