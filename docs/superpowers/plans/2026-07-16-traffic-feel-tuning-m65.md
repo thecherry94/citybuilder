@@ -14,7 +14,7 @@
 - Safety inviolate: `AssertivenessGuardTests` (conflict co-occupancy, penetration) and the full fuzz suite (3×300 default) must pass EVERY task. Fixture-repair rule: adjust geometry/timing, never weaken invariant assertions.
 - KPI flow per task: run KPI suite vs incoming baseline → record deltas verbatim in the task report (band failure on an improved metric = expected evidence) → delete `docs/health/kpi-baseline.json` → rebootstrap → rerun green → commit code + refreshed health artifacts together.
 - Guard bands that must hold at every task: `signal.startup_lost_s` ∈ [1, 4]; `yield4.completed` ≥ 13; `grid.delay_index` never above its incoming value +5%; `grid.stops_per_trip` ≤ 1.71 absolute (M6 origin 1.367 + 25% — origin-anchored because per-task baseline rebootstraps would let it compound; T2 review adoption); perf ceilings unchanged (validate500 < 150 ms, tick300 < 8 ms).
-- Constants land verbatim: IDM+ min-form; LaunchA = 3.5 f, LaunchFadeSpeed = 5 f; AnticipationSec = 0.8 f, AnticipationCap = 4 f; Profile v0 ×lerp(0.85, 1.20), gap +lerp(+0.4, −0.4) s; a_lat = 2.2 f, turn-speed clamp [4, straight].
+- Constants land verbatim: IDM+ min-form; LaunchA = 3.5 f, LaunchFadeSpeed = 5 f; ~~AnticipationSec = 0.8 f, AnticipationCap = 4 f~~ (AMENDED: Task 4's anticipation mechanism was dropped as a measured no-op; shipped instead `SpillbackAnticipationSec = 0.7 f` in JunctionArbiter — see the spec's amendment note and QueueDischargeTests); Profile v0 ×lerp(0.85, 1.20), gap +lerp(+0.4, −0.4) s; a_lat = 2.2 f, turn-speed clamp [4, straight].
 - Commit per green task with the trailer `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 
 ---

@@ -1,7 +1,13 @@
 # Traffic Feel Tuning Pass (M6.5) — Design
 
 **Date:** 2026-07-16
-**Status:** Awaiting user review (research-driven; see
+**Status:** Shipped 2026-07-17 as M6.5 (referee met: sat_headway 2.036 ≤ 2.4). AMENDED
+in-flight: scope §4's leader-start anticipation (0.8 s / 4 m cap) was A/B-tested in two
+variants and dropped as a measured no-op — the actual discharge bottleneck was the
+unprojected spillback check at junction exits, fixed as `SpillbackAnticipationSec`
+(0.5 s, raised to 0.7 s as the pre-recorded T7 referee lever, soaked at 3×10k fuzz).
+Evidence: `tests/Domain.Tests/Traffic/QueueDischargeTests.cs` docstrings + M6.5 ledger.
+(research-driven; see
 [docs/research/00-synthesis-traffic-feel.md](../../research/00-synthesis-traffic-feel.md)
 for sources and rationale — this spec only fixes scope and acceptance).
 

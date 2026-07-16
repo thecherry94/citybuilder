@@ -102,10 +102,14 @@ verified build.
   | diag.penetration_clamps | 0 | 0 |
 
   Certified: 3 × 10k-action fuzz clean, 267/267 tests, all visual/smoke/UI harnesses.
-  Known limits: rejected mechanisms documented in `.superpowers/sdd/task-4-report.md`
-  (leader-start anticipation is a measured no-op under IDM+ launch dynamics — do not
-  reintroduce without new evidence); stops_per_trip sits 0.07 under its absolute
-  guard, the next tuning pass should watch it first.
+  Known limits: leader-start anticipation (both gap-credit variants) is a measured
+  no-op under IDM+ launch dynamics — do not reintroduce without new evidence; the
+  A/B reasoning survives in `tests/Domain.Tests/Traffic/QueueDischargeTests.cs`
+  docstrings. stops_per_trip sits 0.07 under its absolute guard — the next tuning
+  pass should watch it first. `EnforceNoPenetration`/`SimInvariants.AllQueues` never
+  check the connector→exit-lane seam that spillback anticipation newly populates
+  (IDM-guarded only, clamp lands one tick late there) — add a cross-seam invariant
+  check next milestone.
 
 ## Next up (roughly in order — each is one milestone)
 
