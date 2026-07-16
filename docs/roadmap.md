@@ -72,6 +72,15 @@ verified build.
   validation and is assigned verbatim — latent, not fuzzer-observed; and
   `BezierOps.SelfIntersects` still false-positives at several near-straight angles
   (20/27/28/31/33/35/40/45°), a pre-existing gap from M4.
+  Final-review finds (M7 backlog, none introduced in M6): **`TryHealNode` can silently
+  reverse a one-way road** — it checks type equality but not direction continuity, and
+  merged-edge orientation follows `HashSet` enumeration order (`RoadNetwork.cs:589-611`);
+  bulldozing the third arm off a one-way chain can heal it backwards. Invariant-legal, so
+  the fuzzer can't see it; `HealingTests` has zero OneWay coverage — top M7 bug. Also:
+  fully-dropped commit segments leave permanent splits of pre-existing edges (EdgeId churn
+  discards authored `JunctionConfig` overrides via `Prune`); node-collapse skips at
+  `RoadNetwork.cs:436` bypass the `DroppedSegments` counter (silent lossy commit); fuzz
+  round-trips never *edit* a restored network (post-load-edit seams untested).
 
 ## Next up (roughly in order — each is one milestone)
 
