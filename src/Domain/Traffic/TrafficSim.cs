@@ -115,6 +115,12 @@ public sealed partial class TrafficSim
     /// <summary>Test hook: left/right neighbor lanes cached for `id`'s direction.</summary>
     internal (LaneId? Left, LaneId? Right) AdjacentOf(LaneId id) => _adjacent[id];
 
+    /// <summary>Test hook: the desired-speed target ComputeAccel would use this tick.</summary>
+    internal float DesiredSpeedFor(Vehicle v) => DesiredSpeed(v);
+
+    /// <summary>Test hook: drawable length of the vehicle's current run.</summary>
+    internal float RunLengthOf(Vehicle v) => RunLength(v);
+
     /// <summary>Test hook: teleport a vehicle onto a specific lane at its current S.</summary>
     internal void ForceLane(Vehicle v, LaneId lane)
     {
@@ -250,14 +256,15 @@ public sealed partial class TrafficSim
 
     private float DesiredSpeed(Vehicle v)
     {
-        // per-driver personality: 0 (timid) -> 0.85x, 0.5 (neutral) -> 1.0x, 1 (assertive) -> 1.2x
-        float personality = 0.85f + 0.35f * v.Profile;
         if (v.Lane is { } laneId)
         {
             var run = _runs[laneId];
-            float v0 = run.SpeedLimit;
+            // per-driver personality scales the driver's TARGET relative to the
+            // limit: 0 (timid) -> 0.85x, 0.5 (neutral) -> 1.0x, 1 (assertive) -> 1.2x
+            float v0 = run.SpeedLimit * (0.85f + 0.35f * v.Profile);
             // approach upcoming turns along a comfortable braking envelope instead
-            // of hitting the connector at full speed
+            // of hitting the connector at full speed — a physical comfort cap that
+            // personality never lifts (it applies to the limit above, not the cap)
             if (v.PlannedConnector is { } pc)
             {
                 float dist = MathF.Max(0, run.Length - v.S);
@@ -268,9 +275,11 @@ public sealed partial class TrafficSim
                     v0 = MathF.Min(v0, envelope);
                 }
             }
-            return v0 * personality;
+            return v0;
         }
-        return (v.Crossing is { } cr ? ConnectorSpeed(cr) : 8f) * personality;
+        // on a connector the target is geometry-bound (curvature/turn kind), not a
+        // preference — personality deliberately does not scale it
+        return v.Crossing is { } cr ? ConnectorSpeed(cr) : 8f;
     }
 
     /// <summary>Comfortable speed through a junction, by movement geometry. Straights

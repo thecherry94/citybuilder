@@ -81,13 +81,17 @@ public sealed partial class TrafficSim
     }
 
     /// <summary>Gap a vehicle will accept before entering: 2.8 s fresh, shrinking as it
-    /// waits longer at the line (impatience), offset by per-driver personality (+0.4 s
-    /// timid .. -0.4 s aggressive at Profile 0/1). 1.8 s is the new hard floor — but
-    /// only an aggressive-profile driver (Profile near 1, offset near -0.4) can ever
-    /// reach it; the neutral/mean driver (Profile 0.5, offset 0) still floors at the
-    /// old 2.2 s.</summary>
+    /// waits longer at the line (impatience). Per-driver personality (+0.4 s timid ..
+    /// -0.4 s aggressive at Profile 0/1) shifts the WHOLE curve — fresh value and
+    /// floor alike — so profiles never converge with enough waiting: timid floors at
+    /// 2.6 s, the mean driver (Profile 0.5, offset 0) keeps the pre-personality 2.2 s
+    /// floor bit-for-bit, and only a fully aggressive driver reaches the 1.8 s hard
+    /// minimum.</summary>
     private static float AcceptedGap(Vehicle v)
-        => MathF.Max(1.8f, 2.8f - 0.03f * v.JunctionWait + (0.4f - 0.8f * v.Profile));
+    {
+        float offset = 0.4f - 0.8f * v.Profile;
+        return MathF.Max(2.2f + offset, 2.8f - 0.03f * v.JunctionWait + offset);
+    }
 
     /// <summary>Movement priority for right-of-way comparisons: (leg role, turn kind),
     /// higher wins on both axes. A Free/Signal(green) leg outranks Yield, which

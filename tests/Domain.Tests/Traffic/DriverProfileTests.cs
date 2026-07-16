@@ -69,4 +69,42 @@ public class DriverProfileTests
             $"aggressive driver ({aggressive.Speed:F2} m/s) should cruise >= 10% faster " +
             $"than timid driver ({timid.Speed:F2} m/s)");
     }
+
+    [Fact]
+    public void AggressiveDriverStillRespectsTurnBrakingEnvelope()
+    {
+        // The turn-approach braking envelope is a physical comfort cap
+        // (sqrt(turnV^2 + 2*B*dist)); personality scales the driver's TARGET speed,
+        // never the cap itself — an aggressive driver 10 m short of a turn must not
+        // want envelope * 1.2.
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(-200, 0, 0), new Vector3(200, 0, 0)));
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, -200), new Vector3(0, 0, 200)));
+        var node = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+        var west = n.Edges.Values.Single(e =>
+            Vector3.Distance(e.Curve.Point(0.5f), new Vector3(-100, 0, 0)) < 5f).Id;
+        var north = n.Edges.Values.Single(e =>
+            Vector3.Distance(e.Curve.Point(0.5f), new Vector3(0, 0, -100)) < 5f).Id;
+
+        var sim = new TrafficSim(n, seed: 5);
+        bool fwd = n.Edges[west].EndNode == node.Id; // travel toward the junction
+        var v = sim.Spawn(west, fwd, north);
+        Assert.NotNull(v);
+        v!.Profile = 1.0f;
+
+        const float dist = 10f;
+        v.S = sim.RunLengthOf(v) - dist;
+
+        var pc = v.PlannedConnector!.Value;
+        var turn = n.Nodes[pc.Node].Connectors[pc.Connector].Turn;
+        Assert.True(turn is TurnKind.Right or TurnKind.Left,
+            $"west->north across a cross must be a turning movement, got {turn}");
+        float turnV = turn == TurnKind.Right ? 9f : 10f; // ConnectorSpeed's turn table
+        float envelope = MathF.Sqrt(turnV * turnV + 2f * Idm.B * dist);
+
+        float desired = sim.DesiredSpeedFor(v);
+        Assert.True(desired <= envelope + 0.01f,
+            $"aggressive desired speed {desired:F2} m/s exceeds the braking envelope " +
+            $"{envelope:F2} m/s at {dist} m from a {turn} turn");
+    }
 }
