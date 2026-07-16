@@ -74,6 +74,11 @@ public sealed partial class TrafficSim
             v.Lane = lane.Id;
             v.S = 0;
             v.SpawnTime = Time;
+            // per-driver personality: drawn from the sim's own seeded RNG, in spawn
+            // order, so replays stay bit-identical for a fixed seed (both the ambient
+            // spawner and manual Spawn() callers funnel through this one construction
+            // site — there is only one place a Vehicle is ever created)
+            v.Profile = (float)_rng.NextDouble();
             // FreeFlowTime starts at 0 and accumulates in HandleTransitions as the
             // vehicle actually completes lane runs and connectors — exact for the
             // route driven, robust to any number of replans (no route-based estimate
@@ -245,6 +250,8 @@ public sealed partial class TrafficSim
 
     private float DesiredSpeed(Vehicle v)
     {
+        // per-driver personality: 0 (timid) -> 0.85x, 0.5 (neutral) -> 1.0x, 1 (assertive) -> 1.2x
+        float personality = 0.85f + 0.35f * v.Profile;
         if (v.Lane is { } laneId)
         {
             var run = _runs[laneId];
@@ -261,9 +268,9 @@ public sealed partial class TrafficSim
                     v0 = MathF.Min(v0, envelope);
                 }
             }
-            return v0;
+            return v0 * personality;
         }
-        return v.Crossing is { } cr ? ConnectorSpeed(cr) : 8f;
+        return (v.Crossing is { } cr ? ConnectorSpeed(cr) : 8f) * personality;
     }
 
     /// <summary>Comfortable speed through a junction, by movement geometry. Straights

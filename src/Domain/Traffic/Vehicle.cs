@@ -19,6 +19,13 @@ public sealed class Vehicle
     public float Speed { get; set; }
     public float Accel { get; set; }
 
+    /// <summary>Per-driver personality scalar in [0,1], drawn once from the sim's
+    /// seeded RNG at spawn time (TM:PE-style): higher means a more assertive driver —
+    /// faster desired cruise speed and a smaller accepted gap at junctions. Defaults
+    /// to 0.5 (neutral) so hand-constructed vehicles in tests behave exactly as
+    /// before this feature existed.</summary>
+    public float Profile { get; set; } = 0.5f;
+
     // --------------------------------------------------------- trip stats
     public float SpawnTime { get; set; }
     /// <summary>Free-flow time of the distance actually driven so far: accumulated as
