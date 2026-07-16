@@ -99,7 +99,7 @@ public class DriverProfileTests
         var turn = n.Nodes[pc.Node].Connectors[pc.Connector].Turn;
         Assert.True(turn is TurnKind.Right or TurnKind.Left,
             $"west->north across a cross must be a turning movement, got {turn}");
-        float turnV = turn == TurnKind.Right ? 9f : 10f; // ConnectorSpeed's turn table
+        float turnV = sim.ConnectorSpeedFor(pc.Node, pc.Connector);
         float envelope = MathF.Sqrt(turnV * turnV + 2f * Idm.B * dist);
 
         float desired = sim.DesiredSpeedFor(v);

@@ -16,6 +16,11 @@ public sealed partial class TrafficSim
     private const float LookAheadHorizon = 120f;
     private const float SpawnClearance = Vehicle.Length + Idm.S0;
 
+    /// <summary>Comfortable lateral acceleration for turning, m/s² — the constant in
+    /// v = sqrt(LateralComfort * R) that <see cref="ConnectorSpeed"/> uses to derive a
+    /// turn's target speed from its connector curve's minimum radius of curvature.</summary>
+    internal const float LateralComfort = 2.2f;
+
     private readonly RoadNetwork _network;
     private readonly Random _rng;
     private readonly List<Vehicle> _vehicles = new();
@@ -26,6 +31,7 @@ public sealed partial class TrafficSim
     private readonly Dictionary<LaneId, Lane> _lanes = new();
     private readonly Dictionary<LaneId, LaneRun> _runs = new();
     private readonly Dictionary<(NodeId, int), ArcLengthTable> _connectorLength = new();
+    private readonly Dictionary<(NodeId, int), float> _connectorSpeed = new();
     private readonly Dictionary<LaneId, List<Vehicle>> _laneVehicles = new();
     private readonly Dictionary<(NodeId, int), List<Vehicle>> _connectorVehicles = new();
     private readonly Dictionary<NodeId, EffectiveControl> _controls = new();
@@ -137,6 +143,10 @@ public sealed partial class TrafficSim
     /// <summary>Test hook: vehicles currently occupying a given node/connector pair.</summary>
     internal IReadOnlyList<Vehicle> VehiclesOnConnector(NodeId node, int connector)
         => _connectorVehicles.TryGetValue((node, connector), out var q) ? q : Array.Empty<Vehicle>();
+
+    /// <summary>Test hook: the comfortable speed <see cref="ConnectorSpeed"/> computes
+    /// for a given node/connector pair.</summary>
+    internal float ConnectorSpeedFor(NodeId node, int connector) => ConnectorSpeed((node, connector));
 
     /// <summary>Invariant-checking hook: every lane and connector queue in the sim,
     /// each already sorted front-to-back (see <see cref="SortQueue"/>) — lets a burst
@@ -283,17 +293,37 @@ public sealed partial class TrafficSim
     }
 
     /// <summary>Comfortable speed through a junction, by movement geometry. Straights
-    /// flow at the road's limit — priority traffic doesn't brake for junctions.</summary>
+    /// flow at the road's limit — priority traffic doesn't brake for junctions. Turns
+    /// and U-turns are geometry-bound: v = sqrt(LateralComfort * Rmin), Rmin the
+    /// connector curve's minimum radius of curvature (<see cref="BezierOps.MinRadius"/>),
+    /// clamped to [4, straightSpeed] so tight corners never crawl below a floor nor
+    /// exceed what the road itself allows; U-turns get a lower 6 m/s cap on top (even a
+    /// wide U-turn curve is not a movement to take briskly). Rmin sampling is not
+    /// per-tick cheap, so results are cached per (node, connector index) and cleared
+    /// in <see cref="Sync"/> alongside the other network-version-gated caches.</summary>
     private float ConnectorSpeed((NodeId Node, int Connector) key)
     {
+        if (_connectorSpeed.TryGetValue(key, out var cached))
+            return cached;
+
         var conn = _network.Nodes[key.Node].Connectors[key.Connector];
-        return conn.Turn switch
+        float straightSpeed = MathF.Min(_runs[conn.From].SpeedLimit, _runs[conn.To].SpeedLimit);
+        float speed;
+        if (conn.Turn == TurnKind.Straight)
         {
-            TurnKind.Straight => MathF.Min(_runs[conn.From].SpeedLimit, _runs[conn.To].SpeedLimit),
-            TurnKind.Right => 9f,
-            TurnKind.Left => 10f,
-            _ => 5f, // u-turns
-        };
+            speed = straightSpeed;
+        }
+        else
+        {
+            float rMin = BezierOps.MinRadius(conn.Curve);
+            // floor-then-cap (not Math.Clamp: a road type slower than the 4 m/s floor
+            // must yield straightSpeed, not throw on an inverted clamp range)
+            speed = MathF.Min(MathF.Max(MathF.Sqrt(LateralComfort * rMin), 4f), straightSpeed);
+            if (conn.Turn == TurnKind.UTurn)
+                speed = MathF.Min(speed, 6f);
+        }
+        _connectorSpeed[key] = speed;
+        return speed;
     }
 
     /// <summary>Bumper gap and closing speed to the nearest leader within the
@@ -496,6 +526,7 @@ public sealed partial class TrafficSim
         _lanes.Clear();
         _runs.Clear();
         _connectorLength.Clear();
+        _connectorSpeed.Clear();
         var oldLaneQueues = new HashSet<LaneId>(_laneVehicles.Keys);
         var oldConnQueues = new HashSet<(NodeId, int)>(_connectorVehicles.Keys);
 
