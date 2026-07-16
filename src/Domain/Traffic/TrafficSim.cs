@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Numerics;
 using CityBuilder.Domain.Catalog;
 using CityBuilder.Domain.Geometry;
@@ -45,6 +46,13 @@ public sealed partial class TrafficSim
     public RoadNetwork Network => _network;
     internal Random Rng => _rng;
 
+    /// <summary>One completed trip's KPI-relevant stats, logged on genuine arrival at
+    /// the destination (not on stranding/bulldoze despawns). Null (default) means no
+    /// recording and no per-tick allocation — enable only for KPI-harness scenarios.</summary>
+    public sealed record TripRecord(int VehicleId, float SpawnTime, float ArrivalTime, float FreeFlowTime, int Stops);
+
+    public List<TripRecord>? TripLog { get; set; }
+
     /// <summary>Travel frame of a lane: entry cut, drawable length, direction.</summary>
     internal readonly record struct LaneRun(
         EdgeId Edge, bool Forward, float DStart, float Length, float SpeedLimit);
@@ -66,6 +74,8 @@ public sealed partial class TrafficSim
             var v = new Vehicle { Id = _nextId++, Route = route };
             v.Lane = lane.Id;
             v.S = 0;
+            v.SpawnTime = Time;
+            v.FreeFlowTime = ComputeFreeFlowTime(route, lane.Id);
             v.Speed = MathF.Min(_runs[lane.Id].SpeedLimit * 0.7f, 12f);
             if (queue.Count > 0)
             {
@@ -162,7 +172,12 @@ public sealed partial class TrafficSim
 
         foreach (var v in _vehicles)
         {
+            float prevSpeed = v.Speed; // captured before the update — Accel*dt back-solve is wrong post-clamp
             v.Speed = MathF.Max(0, v.Speed + v.Accel * dt);
+            if (v.Speed > 2f)
+                v.HasMoved = true;
+            if (v.HasMoved && prevSpeed >= 0.5f && v.Speed < 0.5f)
+                v.Stops++;
             v.S += v.Speed * dt;
             v.StuckTime = v.Speed < 0.1f ? v.StuckTime + dt : 0f;
             if (v.BlockedAtLine)
@@ -260,6 +275,66 @@ public sealed partial class TrafficSim
         };
     }
 
+    /// <summary>Free-flow trip time for a route: Σ over steps of lane-run length /
+    /// speed limit, plus a connector crossing at each junction between steps. Lane
+    /// length and speed limit are per-edge (identical for every lane on that edge),
+    /// so any lane matching the step's direction gives the right run — except the
+    /// first step, where we already know the vehicle's actual entry lane. Connector
+    /// dwell time is approximated as a fixed 8 m (typical corner-to-corner arc)
+    /// divided by the same turn speed the runtime uses (<see cref="ConnectorSpeed"/>);
+    /// this is a KPI estimate, not a physically measured connector length.</summary>
+    private float ComputeFreeFlowTime(Route route, LaneId entryLane)
+    {
+        float total = 0f;
+        for (int i = 0; i < route.Steps.Count; i++)
+        {
+            var step = route.Steps[i];
+            LaneRun run;
+            if (i == 0)
+            {
+                run = _runs[entryLane];
+            }
+            else
+            {
+                var edge = _network.Edges[step.Edge];
+                var lane = edge.Lanes.First(l => (l.Direction == LaneDirection.Forward) == step.Forward);
+                run = _runs[lane.Id];
+            }
+            total += run.Length / run.SpeedLimit;
+
+            if (i < route.Steps.Count - 1)
+            {
+                var next = route.Steps[i + 1];
+                float turnSpeed = FindConnectorForSteps(step, next) is { } key
+                    ? ConnectorSpeed(key)
+                    : 5f; // no matching connector found (shouldn't happen for a planned route): treat as a slow turn
+                total += 8f / turnSpeed;
+            }
+        }
+        return total;
+    }
+
+    /// <summary>Locates the junction connector serving the movement from one route
+    /// step to the next, by edge/direction (not by a specific chosen lane — the
+    /// vehicle hasn't picked lanes for steps it hasn't reached yet).</summary>
+    private (NodeId Node, int Connector)? FindConnectorForSteps(RouteStep from, RouteStep to)
+    {
+        var edge = _network.Edges[from.Edge];
+        var nodeId = from.Forward ? edge.EndNode : edge.StartNode;
+        if (!_network.Nodes.TryGetValue(nodeId, out var node))
+            return null;
+        for (int i = 0; i < node.Connectors.Count; i++)
+        {
+            var c = node.Connectors[i];
+            var fromLane = _lanes[c.From];
+            var toLane = _lanes[c.To];
+            if (fromLane.Edge == from.Edge && (fromLane.Direction == LaneDirection.Forward) == from.Forward
+                && toLane.Edge == to.Edge && (toLane.Direction == LaneDirection.Forward) == to.Forward)
+                return (nodeId, i);
+        }
+        return null;
+    }
+
     /// <summary>Bumper gap and closing speed to the nearest leader within the
     /// look-ahead horizon, walking lane → connector → next lane.</summary>
     private (float gap, float dv) LeaderGap(Vehicle v)
@@ -339,6 +414,7 @@ public sealed partial class TrafficSim
                     RemoveFromQueues(v);
                     _vehicles.RemoveAt(i);
                     Arrived++;
+                    TripLog?.Add(new TripRecord(v.Id, v.SpawnTime, Time, v.FreeFlowTime, v.Stops));
                     continue;
                 }
                 if (v.ChangeFrom is not null)

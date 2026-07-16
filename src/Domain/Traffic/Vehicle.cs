@@ -19,6 +19,12 @@ public sealed class Vehicle
     public float Speed { get; set; }
     public float Accel { get; set; }
 
+    // --------------------------------------------------------- trip stats
+    public float SpawnTime { get; set; }
+    public float FreeFlowTime { get; set; }   // route length over limits, computed at spawn/replan
+    public int Stops { get; set; }            // 0.5 m/s downward crossings after having first moved
+    public bool HasMoved { get; set; }
+
     /// <summary>Connector picked for the next junction (valid while on a lane).</summary>
     public (NodeId Node, int Connector)? PlannedConnector { get; set; }
 

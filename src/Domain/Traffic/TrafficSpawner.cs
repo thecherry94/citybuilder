@@ -70,6 +70,10 @@ public sealed partial class TrafficSim
         v.Route = route;
         v.StepIndex = 0;
         v.PlannedConnector = PickConnector(v, laneId);
+        // approximation: recomputed from the full new route, not net of progress
+        // already made on the current lane — replans are rare (stuck vehicles only)
+        // and the KPI harness tolerates this slack.
+        v.FreeFlowTime = ComputeFreeFlowTime(route, laneId);
         return true;
     }
 
