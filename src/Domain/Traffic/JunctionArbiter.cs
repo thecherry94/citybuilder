@@ -13,15 +13,22 @@ public sealed partial class TrafficSim
     private const float ApproachHorizon = 60f;  // how far to scan for priority traffic
     private const float ClearMargin = 0.5f;     // rear-bumper clearance past a conflict point
     private const float DeadlockBreakSec = 6f;  // waited this long → ignore a stale equal-rank rival
+    private const float SpillbackAnticipationSec = 0.5f; // exit-lane occupant projected this far ahead
 
     private bool MayEnter(Vehicle v, NodeId nodeId, int ci)
     {
         var node = _network.Nodes[nodeId];
         var conn = node.Connectors[ci];
 
-        // spillback: target lane entry must have space
+        // spillback: target lane entry must have space. The occupant nearest the
+        // entry is projected SpillbackAnticipationSec ahead at its current speed —
+        // a discharging leader still inside the clearance window but moving out of
+        // it is not treated as a static obstruction (queue discharge would otherwise
+        // force every follower to a dead stop at the line, ~3.4 s/vehicle headways).
+        // A stopped occupant projects to itself (S + 0·τ = S), so standstill
+        // spillback blocking is bit-identical to the unprojected check.
         var target = _laneVehicles[conn.To];
-        if (target.Count > 0 && target[^1].S < SpawnClearance)
+        if (target.Count > 0 && target[^1].S + target[^1].Speed * SpillbackAnticipationSec < SpawnClearance)
             return false;
 
         // a conflicting occupant blocks only until its rear bumper clears our crossing point
