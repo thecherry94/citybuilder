@@ -56,7 +56,8 @@ Beyond the per-change gates above, closing a milestone additionally requires the
 fuzzer green and a regenerated KPI health report (golden rule 2).
 
 **Gesture fuzzer** (`tests/Domain.Tests/Fuzzing/`) drives `GestureFuzzer` over the real
-editor surface (draw/bulldoze/upgrade/ConfigureJunction gestures), checking
+editor surface (draw/bulldoze/ConfigureJunction gestures, snap toggles, mid-gesture
+step-back/cancel), checking
 `NetworkInvariants.Check` after every action, `SimInvariants.CheckBurst` every 25 actions,
 and a `SaveLoad` round-trip (save → load → save, byte-equal) every 10 actions.
 - Default sweep, part of plain `dotnet test`: 3 seeds (101, 202, 303) × 300 actions each

@@ -81,8 +81,9 @@ verified build.
 
 - Hundreds of vehicles today, **thousands someday**: keep the sim allocation-free and
   data-oriented; batching/jobs are an optimization later, not a rewrite.
-- Save/load doesn't exist yet — before the feature set grows much more (latest: before
-  zoning), add serialization of `RoadNetwork` + `JunctionConfig` + catalog refs.
+- Save/load shipped in M6 (`SaveLoad`, versioned JSON, byte-stable round-trip, F5/F9
+  in-game) — extend `SaveGame` with a version bump whenever new persistent state appears
+  (vehicles/trips are not yet saved; ambient traffic respawns after load).
 - Protected left-turn phases, junction merging, and lane-connector/signal-timing editing
   UI are deferred, not forgotten (movement-level priorities landed in M5).
 - **Quality-stack definition-of-done, standing from M6 on**: every milestone from M6
