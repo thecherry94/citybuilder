@@ -13,7 +13,7 @@ public sealed partial class TrafficSim
     private const float ApproachHorizon = 60f;  // how far to scan for priority traffic
     private const float ClearMargin = 0.5f;     // rear-bumper clearance past a conflict point
     private const float DeadlockBreakSec = 6f;  // waited this long → ignore a stale equal-rank rival
-    private const float SpillbackAnticipationSec = 0.5f; // exit-lane occupant projected this far ahead
+    private const float SpillbackAnticipationSec = 0.7f; // exit-lane occupant projected this far ahead
 
     private bool MayEnter(Vehicle v, NodeId nodeId, int ci)
     {
