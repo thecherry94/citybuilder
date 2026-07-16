@@ -47,26 +47,21 @@ public class KpiSuiteTests
         for (int i = 1; i <= 5; i++)
             Assert.True(metrics.ContainsKey($"diag.signal.h{i}"), $"missing diag.signal.h{i}");
 
-        // The task-1 brief's draft assertion here was "h1 > h5 (Bonneson pattern)" —
-        // i.e. the classic HCM discharge curve where the first queued vehicle's
-        // headway is the largest and later positions decay toward saturation flow.
-        // Measured against the actual scenario this does not hold, for a real and
-        // reproducible reason, not a scenario bug: this signal's 12 s green clears
-        // only ~4 of the 10 queued vehicles (h1..h4 already sum to ~11.9 s), so h5 is
-        // unavoidably the first entry of the *next* cycle — its value is dominated by
-        // the red wait, not a discharge headway, and dwarfs every intra-cycle gap.
-        // That is itself a genuine "before" finding for the M6.5 tuning pass (see
-        // docs/health/M6.5.md), so the invariant worth asserting is the opposite
-        // direction: a next-cycle position is markedly more expensive than continuing
-        // to discharge a queue already moving.
-        Assert.True(metrics["diag.signal.h5"] > metrics["diag.signal.h4"],
-            "diag.signal.h5 (first entry of the next cycle) should exceed h4 (an intra-cycle headway) — it is dominated by the red wait");
-
-        // The genuine intra-cycle headways (h2..h4 — followers discharging within the
-        // same green) must sit in a sane car-following band. The range is intentionally
-        // wide enough to survive the later M6.5 tuning tasks: headways should drop
-        // toward ~2 s as IDM+/launch/anticipation land, but never below 1 s.
-        for (int i = 2; i <= 4; i++)
+        // HISTORY: before the M6.5 anticipatory-spillback fix (task 4), this signal's
+        // 12 s green cleared only ~4 of the 10 queued vehicles (h1..h4 summed to
+        // ~11.9 s) — h5 was unavoidably the first entry of the *next* cycle, its
+        // value dominated by the ~20 s red wait, and this test asserted h5 > h4 to
+        // pin that "before" finding. The spillback fix removed the dead-stop-at-the-
+        // line discharge pattern: at least 5 vehicles now clear a single 12 s green,
+        // so h5 is a genuine intra-cycle car-following headway like h2..h4 and the
+        // old cycle-boundary assertion no longer describes anything real (it passed
+        // only by a 0.017 s coincidence — a latent flake, dropped).
+        //
+        // The genuine intra-cycle headways (h2..h5 — followers discharging within
+        // the same green) must sit in a sane car-following band. The range is
+        // intentionally wide enough to survive further tuning: headways should sit
+        // near ~2-2.5 s post-spillback-fix, but never below 1 s.
+        for (int i = 2; i <= 5; i++)
             Assert.InRange(metrics[$"diag.signal.h{i}"], 1f, 6f);
     }
 
