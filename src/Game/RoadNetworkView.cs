@@ -14,6 +14,7 @@ public partial class RoadNetworkView : Node3D
     private readonly Dictionary<NodeId, MeshInstance3D> _nodeInstances = new();
     private readonly HashSet<EdgeId> _dirtyEdges = new();
     private readonly HashSet<NodeId> _dirtyNodes = new();
+    private readonly Dictionary<EdgeId, StandardMaterial3D> _tints = new();
 
     public void Bind(RoadNetwork network)
     {
@@ -124,4 +125,37 @@ public partial class RoadNetworkView : Node3D
 
     /// <summary>Diagnostic: tint junction surfaces so overlaps are attributable.</summary>
     public bool DebugTint { get; set; }
+
+    /// <summary>Debug/analysis overlay (e.g. a speed heatmap): solid-color a whole edge,
+    /// or pass null to clear it. A fresh material is created per call rather than reusing
+    /// a shared one, since `MaterialOverride` here replaces every surface (asphalt, paint,
+    /// props) and a shared instance would repaint every tinted edge at once.</summary>
+    public void SetEdgeTint(EdgeId id, Color? color)
+    {
+        if (!_edgeInstances.TryGetValue(id, out var inst))
+            return;
+        if (color is not { } c)
+        {
+            _tints.Remove(id);
+            inst.MaterialOverride = null;
+            return;
+        }
+        var mat = new StandardMaterial3D
+        {
+            AlbedoColor = c,
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        };
+        _tints[id] = mat;
+        inst.MaterialOverride = mat;
+    }
+
+    /// <summary>Clear every tint applied via <see cref="SetEdgeTint"/>.</summary>
+    public void ClearTints()
+    {
+        foreach (var id in _tints.Keys)
+            if (_edgeInstances.TryGetValue(id, out var inst))
+                inst.MaterialOverride = null;
+        _tints.Clear();
+    }
 }

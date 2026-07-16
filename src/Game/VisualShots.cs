@@ -65,6 +65,8 @@ public partial class VisualShots : Node3D
                     AddChild(lampView);
                 }
 
+                scenario.PostBuild?.Invoke(network, sim, view);
+
                 if (scenario.Name == OS.GetEnvironment("CITYBUILDER_SHOTS_DUMP"))
                     DumpMarkingQuads(view);
 
@@ -157,7 +159,12 @@ public partial class VisualShots : Node3D
     private sealed record Shot(string Suffix, NVec Target, float Distance, float PitchDeg, float YawDeg);
 
     private sealed record Scenario(string Name, Action<RoadNetwork> Build, Shot[] Shots, bool ShowLanes = false,
-        Action<RoadNetwork, CityBuilder.Domain.Traffic.TrafficSim>? Traffic = null, int WarmupTicks = 0);
+        Action<RoadNetwork, CityBuilder.Domain.Traffic.TrafficSim>? Traffic = null, int WarmupTicks = 0,
+        // Runs once after Build/Traffic/warmup, before the shots are taken — for
+        // scenarios that need to react to the built network/sim (e.g. the speed
+        // heatmap tints edges from sampled vehicle speeds). Sim is null when the
+        // scenario has no Traffic.
+        Action<RoadNetwork, CityBuilder.Domain.Traffic.TrafficSim?, RoadNetworkView>? PostBuild = null);
 
     private static Shot Top(NVec target, float dist) => new("top", target, dist, -89f, 0f);
     private static Shot Oblique(NVec target, float dist) => new("oblique", target, dist, -35f, 30f);
@@ -502,6 +509,91 @@ public partial class VisualShots : Node3D
             Top(new(0, 0, 0), 70),
             Oblique(new(0, 0, 0), 55),
         }, Traffic: (n, sim) => sim.TargetPopulation = 40, WarmupTicks: 1800);
+
+        yield return new Scenario("m6_speed_heatmap", n =>
+        {
+            // 3x3 grid of 100 m TwoLane blocks, built as individual 100 m segments
+            // (not full-span lines) so exactly one segment can be committed with a
+            // different RoadTypeId — edges can't be retyped after commit, only
+            // chosen at commit time (see RoadNetwork.CommitCurve).
+            for (int row = 0; row <= 3; row++)
+            for (int col = 0; col < 3; col++)
+            {
+                // bottleneck: the middle segment of the middle row is a slower
+                // Street (same lane count as TwoLane, half the design speed) on
+                // the shortest through-route across the grid — traffic queues
+                // behind it rather than merely posting a lower limit.
+                var type = (row == 1 && col == 1) ? RoadCatalog.Street.Id : RoadCatalog.TwoLane.Id;
+                Commit(n, Straight(new(col * 100, 0, row * 100), new((col + 1) * 100, 0, row * 100), type));
+                Commit(n, Straight(new(row * 100, 0, col * 100), new(row * 100, 0, (col + 1) * 100), RoadCatalog.TwoLane.Id));
+            }
+        }, new[] { Top(new(150, 0, 150), 260) },
+        Traffic: (n, sim) =>
+        {
+            EdgeId At(NVec mid) => n.Edges.Values.Single(e => NVec.Distance(e.Curve.Point(0.5f), mid) < 5f).Id;
+            var west = At(new(50, 0, 100));
+            var east = At(new(250, 0, 100));
+            sim.TargetPopulation = 60;
+            // seed heavy directional flow straight across the bottleneck (the
+            // shortest path end to end) so it visibly queues, plus ambient
+            // background traffic on the rest of the grid
+            for (int i = 0; i < 15; i++)
+            {
+                sim.Spawn(west, true, east);
+                sim.Spawn(east, false, west);
+                for (int t = 0; t < 40; t++)
+                    sim.Tick(1f / 60f);
+            }
+        },
+        WarmupTicks: 0,
+        PostBuild: (n, sim, view) =>
+        {
+            if (sim is null)
+                return;
+            EdgeId At(NVec mid) => n.Edges.Values.Single(e => NVec.Distance(e.Curve.Point(0.5f), mid) < 5f).Id;
+            var west = At(new(50, 0, 100));
+            var east = At(new(250, 0, 100));
+            var laneEdge = n.Edges.Values
+                .SelectMany(e => e.Lanes.Select(l => (Lane: l.Id, Edge: e.Id)))
+                .ToDictionary(p => p.Lane, p => p.Edge);
+
+            var speedSum = new Dictionary<EdgeId, float>();
+            var sampleCount = new Dictionary<EdgeId, int>();
+            const int totalTicks = 30 * 60; // 30 sim-seconds at a fixed 1/60 dt
+            for (int t = 0; t < totalTicks; t++)
+            {
+                sim.Tick(1f / 60f);
+                if (t % 60 == 0)
+                {
+                    // keep the bottleneck route under load for the whole window
+                    sim.Spawn(west, true, east);
+                    sim.Spawn(east, false, west);
+                }
+                if (t % 10 != 0)
+                    continue;
+                foreach (var v in sim.Vehicles)
+                {
+                    if (v.Lane is not { } laneId || !laneEdge.TryGetValue(laneId, out var edgeId))
+                        continue;
+                    speedSum[edgeId] = speedSum.GetValueOrDefault(edgeId) + v.Speed;
+                    sampleCount[edgeId] = sampleCount.GetValueOrDefault(edgeId) + 1;
+                }
+            }
+
+            foreach (var edge in n.Edges.Values)
+            {
+                float limit = RoadCatalog.Get(edge.Type).SpeedLimit;
+                float mean = sampleCount.TryGetValue(edge.Id, out var c) && c > 0
+                    ? speedSum[edge.Id] / c
+                    : limit; // never sampled: render as free-flowing rather than falsely red
+                float ratio = Mathf.Clamp(mean / limit, 0f, 1f);
+                // squared: a bottleneck averaging ~half its own limit (stopped at
+                // the yield line half the time, free the rest) should still read
+                // unambiguously congested rather than a wishy-washy yellow-green
+                float shade = ratio * ratio;
+                view.SetEdgeTint(edge.Id, new Color(1f - shade, shade, 0f));
+            }
+        });
     }
 
     // ---------------------------------------------------------------- helpers
