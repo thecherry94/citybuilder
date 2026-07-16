@@ -81,6 +81,31 @@ verified build.
   discards authored `JunctionConfig` overrides via `Prune`); node-collapse skips at
   `RoadNetwork.cs:436` bypass the `DroppedSegments` counter (silent lossy commit); fuzz
   round-trips never *edit* a restored network (post-load-edit seams untested).
+- **M6.5 — Traffic feel tuning** (2026-07-17): the KPI-driven tuning pass that was
+  M7's fast-follow, promoted to its own mini-milestone. IDM+ min-form car following
+  (Schakel et al.), speed-dependent launch acceleration (VISSIM CC8-style, 3.5 m/s²
+  fading to 2.6 by 5 m/s, sign-guarded to never amplify braking), anticipatory
+  spillback at junction exits (`SpillbackAnticipationSec = 0.7 s` — the root-cause fix
+  for the M6 discharge stall: followers no longer dead-stop behind a leader already
+  accelerating out of the clearance window), per-driver personalities
+  (`Vehicle.Profile`: desired speed 0.85-1.2×, gap-acceptance floors 2.6/2.2/1.8 s),
+  and curvature-based turn speeds (`√(2.2·Rmin)` clamped [4, straight], U-turn ≤ 6).
+  Headline numbers (M6 origin → M6.5, `docs/health/M6.5.md`):
+
+  | metric | M6 | M6.5 |
+  |---|---|---|
+  | signal.sat_headway_s | 3.522 | **2.036** (target ≤ 2.4) |
+  | signal.startup_lost_s | 1.333 | 1.183 (in [1,4]) |
+  | grid.delay_index | 2.734 | 2.482 |
+  | grid.stops_per_trip | 1.367 | 1.644 (≤ 1.71 guard — realism cost of slow tight corners) |
+  | yield4.completed | 18 | 21 (guard floor raised 13 → 18) |
+  | diag.penetration_clamps | 0 | 0 |
+
+  Certified: 3 × 10k-action fuzz clean, 267/267 tests, all visual/smoke/UI harnesses.
+  Known limits: rejected mechanisms documented in `.superpowers/sdd/task-4-report.md`
+  (leader-start anticipation is a measured no-op under IDM+ launch dynamics — do not
+  reintroduce without new evidence); stops_per_trip sits 0.07 under its absolute
+  guard, the next tuning pass should watch it first.
 
 ## Next up (roughly in order — each is one milestone)
 
@@ -88,9 +113,9 @@ verified build.
    batching already exists), upgrade-in-place (change a road's type without redrawing,
    preserving junction configs). CS2's most-loved road UX. Small, self-contained, huge
    daily payoff.
-   *M7-adjacent fast-follow*: a KPI-driven tuning pass — signal discharge/saturation
-   headway, curvature-based turn speeds, and creep at yield lines — using the M6 KPI
-   harness to validate before/after instead of eyeballing.
+   *(The formerly-listed KPI tuning fast-follow shipped as M6.5 — signal discharge,
+   curvature turn speeds, and driver personalities are done; creep at yield lines was
+   not needed once the spillback root cause was fixed.)*
 2. **Elevation & bridges.** The domain carries Y everywhere but is flat: gradient
    limits, ramps, pillars, over/underpasses (crossing rule changes: grade-separated
    crossings don't create junctions), retaining-wall/bridge meshes. Big win for network

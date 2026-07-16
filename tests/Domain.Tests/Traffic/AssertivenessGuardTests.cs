@@ -161,16 +161,15 @@ public class AssertivenessGuardTests
             $"({minorStuckDropped} stuck-dropped)");
     }
 
-    /// <summary>CALIBRATION (measured 2026-07-15; full methodology and raw numbers in
-    /// .superpowers/sdd/task-10-report.md): with current M5 arbitration (this commit),
-    /// MinorRoadDischargesThroughPriorityStream discharges 18/40 minor vehicles in the
-    /// 2 sim-minute window. Rerunning the byte-identical scenario (same BusyCross,
-    /// same spawn cadence) at the pre-M5 commit a67a1e3 via a git worktree —
-    /// `TrafficSim`/`JunctionArbiter` before any of task 2-9's conflict-point,
-    /// movement-rank, impatience, or deadlock-breaker work; priority-signs yield with a
-    /// flat 4 s gap-acceptance window already existed, just none of the assertiveness
-    /// layered on top — discharges only 7/40: well under half the M5 rate. Floor = 75%
-    /// of the M5 number, (int)(0.75 * 18) = 13, comfortably above the passive baseline
-    /// of 7 (margin of 6 vehicles / 46% of the floor).</summary>
-    private const int MinorDischargeFloor = 13; // (int)(0.75 * 18)
+    /// <summary>CALIBRATION (M5 original measured 2026-07-15, full methodology and raw
+    /// numbers in .superpowers/sdd/task-10-report.md; re-measured 2026-07-16 after the
+    /// M6.5 traffic-feel pass): with M5 arbitration this scenario discharged 18/40
+    /// minor vehicles in the 2 sim-minute window (pre-M5 commit a67a1e3, before any
+    /// conflict-point/movement-rank/impatience/deadlock-breaker work, managed only
+    /// 7/40 — the passive baseline). After M6.5 (IDM+ min form, launch acceleration,
+    /// anticipatory spillback at 0.7 s, driver personalities, curvature turn speeds)
+    /// the measured discharge is 21/40 with 0 stuck-dropped. Floor = measured − 3
+    /// (M5 margin convention, locking in the M6.5 gain): 21 − 3 = 18 — which is the
+    /// full pre-M6.5 measurement itself, and still 2.6× the passive baseline.</summary>
+    private const int MinorDischargeFloor = 18; // measured 21 − margin 3
 }

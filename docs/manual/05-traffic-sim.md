@@ -19,7 +19,7 @@ traffic" rule. `## Junction arbitration` below is the fix, without compromising 
 - **Entry points:** `TrafficSim.Tick(dt)` (the whole pipeline), `TrafficSim.Spawn(fromEdge, forward, toEdge)`, `RoutePlanner.Plan(...)`
 - **Used by:** `src/Game` render/view layer (poses via `TrafficSim.Pose(Vehicle)`, phases via `PhaseFor`), KPI/fuzz harnesses (`SimInvariants.CheckBurst`), test fixtures across `tests/Domain.Tests/Traffic/`
 - **Depends on:** `src/Domain/Network` (edges, lanes, `RoadNode.Connectors`/`ConnectorConflicts`, `JunctionControl.Resolve`), `src/Domain/Geometry` (`Bezier3`, `ArcLengthTable`)
-- **Last verified against commit:** `f0542d7` on 2026-07-16
+- **Last verified against commit:** `a31ebfb` on 2026-07-17 (M6.5 traffic-feel pass)
 
 `TrafficSim` is a `partial class` split across four files by concern: `TrafficSim.cs` owns
 spawn/tick/transitions/pose, `JunctionArbiter.cs` owns `MayEnter` and its supporting
@@ -80,16 +80,31 @@ The order matters in specific ways:
 
 ## Car following (IDM)
 
-`Idm.Accel` (`Idm.cs:18-26`) is the *only* place acceleration is computed — a single static
-function, no per-vehicle state beyond what's passed in. It implements the textbook
-Intelligent Driver Model:
+`Idm.Accel` (`Idm.cs`) is the *only* place acceleration is computed — a single static
+function, no per-vehicle state beyond what's passed in. Since M6.5 it implements the
+**IDM+ min form** (Schakel et al.) rather than textbook IDM, plus a speed-dependent
+**launch boost** (VISSIM CC8/CC9 pattern):
 
 ```
-free   = 1 − (v / v0)^4
-sStar  = s0 + max(0, v·T + v·dv / (2·√(a·b)))
-accel  = a · (free − (sStar / gap)²)          [if gap is finite]
-accel  = a · free                             [if gap ≈ FreeGap: no leader]
+free    = 1 − (v / v0)^4
+sStar   = s0 + max(0, v·T + v·dv / (2·√(a·b)))
+m       = min(free, 1 − (sStar / gap)²)        [if gap is finite]
+accel   = aEff(v) · m   if m ≥ 0  (accelerating)
+accel   = a · m         if m < 0  (braking — base gain, never boosted)
+accel   = aEff(v)·free  [no leader, free ≥ 0]   /   a·free  [no leader, free < 0]
+
+aEff(v) = LaunchA + (A − LaunchA) · v / LaunchFadeSpeed   for v < LaunchFadeSpeed, else A
 ```
+
+The min form decouples the free-road and interaction terms: at equilibrium the plain
+IDM sum under-delivers acceleration (both terms fight), whereas IDM+ takes whichever
+constraint binds — measurably tighter queue discharge. The launch boost models a
+standing-start (`LaunchA = 3.5 m/s²` at v = 0, fading linearly to `A = 2.6` by
+`LaunchFadeSpeed = 5 m/s`); two **sign guards** ensure it only ever amplifies
+acceleration, never braking — a negative model output (or `free < 0`, i.e. v above a
+turn-capped `v0`) always uses the base `A` gain, otherwise crawling vehicles would
+brake up to 35% harder near obstacles. The interaction term (`sStar` via `√(a·b)`)
+intentionally keeps base `A` — only the leading multiplier is boosted.
 
 Every constant is tuned, not textbook-default, and each has a specific rationale
 (`Idm.cs:8-12`, cross-checked against `docs/conventions.md`):
@@ -101,6 +116,8 @@ Every constant is tuned, not textbook-default, and each has a specific rationale
 | `A` (max acceleration) | 2.6 m/s² | Chosen for "snappy, game feel" per the doc comment (`Idm.cs:10`) rather than a literal physical car — this is a simulation-game tuning knob, not a physics constant. |
 | `B` (comfortable braking) | 2.8 m/s² | Used both inside IDM's `sStar` term and independently wherever the codebase needs a "how fast can this thing plausibly stop" estimate (spawn safety speed, approach envelopes, `AcceptedGap`'s decel assumption implicitly). |
 | `FreeGap` | 1e9 | Sentinel for "no leader within horizon" — `Idm.Accel` special-cases `gap >= FreeGap/2` to skip the interaction term entirely rather than computing a division by a near-infinite number (defensive against float overflow in `sStar/gap`, and cheaper). |
+| `LaunchA` (standstill launch) | 3.5 m/s² | M6.5: VISSIM CC8-style standing-start acceleration — the biggest single lever behind the queue-discharge fix, applied only while genuinely accelerating (sign guards above). |
+| `LaunchFadeSpeed` | 5 m/s | Speed at which the launch boost has fully faded back to `A` (linear fade). |
 
 Two disciplines matter beyond the formula. First, **all acceleration flows through one
 function** — turning, stopping at a wall, lane-change safety checks, and the failsafe never
@@ -114,12 +131,28 @@ stopping instantaneously: IDM's braking profile does the deceleration curve for 
 the "leader" is synthesized correctly.
 
 Second, **desired speed itself bends around upcoming turns** (`DesiredSpeed`,
-`TrafficSim.cs:246-267`): within 40 m of a connector, `v0` is clamped to a comfortable
-braking envelope `√(turnV² + 2·B·dist)` toward the connector's `ConnectorSpeed` (Straight =
-min of the two edges' limits — priority traffic doesn't brake for junctions at all; Right 9
-m/s; Left 10 m/s; U-turn 5 m/s, `TrafficSim.cs:271-281`). This produces the visible
-"cars slow down before turning" behavior without any separate turn-specific state machine —
-it's the same IDM `v0` parameter, just computed contextually.
+`TrafficSim.cs`): within 40 m of a connector, `v0` is clamped to a comfortable
+braking envelope `√(turnV² + 2·B·dist)` toward the connector's `ConnectorSpeed`. Since
+M6.5 turn speeds are **curvature-based** rather than a fixed per-kind table
+(`ConnectorSpeed`, `TrafficSim.cs`): Straight = min of the two edges' limits (priority
+traffic doesn't brake for junctions at all); turns and U-turns get
+`v = √(LateralComfort · Rmin)` with `LateralComfort = 2.2 m/s²` and `Rmin` the
+connector curve's minimum radius of curvature (`BezierOps.MinRadius`), floored at 4 m/s
+then capped at `straightSpeed` (floor-then-cap, so a road slower than the floor yields
+`straightSpeed` instead of an inverted clamp); U-turns get a further 6 m/s cap. `Rmin`
+sampling isn't per-tick cheap, so results are cached per `(node, connector index)` and
+cleared in `Sync()` with the other network-version-gated caches. This produces the
+visible "cars slow down before turning" behavior — a tight Street corner reads ~4-6 m/s,
+a sweeping Y-junction noticeably faster — without any separate turn-specific state
+machine; it's the same IDM `v0` parameter, just computed contextually.
+
+Third, **per-driver personality** (M6.5): every vehicle carries a seeded, deterministic
+`Vehicle.Profile ∈ [0, 1]` (default 0.5 = neutral; ambient spawns draw from the sim's
+seeded RNG). On lanes the desired speed scales the limit by `0.85 + 0.35 · Profile` —
+0.85× timid, 1.0× neutral, 1.2× assertive — but the turn-approach envelope above is a
+physical comfort cap that personality never lifts, and connector speeds themselves are
+deliberately unscaled (geometry-bound, not a preference). Profile also shifts junction
+gap acceptance (see `## Junction arbitration`).
 
 ## Routing
 
@@ -186,9 +219,16 @@ synchronized structurally rather than by convention.
 
 `MayEnter` runs three checks in order, and any one failing is a hard `false`:
 
-1. **Spillback.** If the target lane's tail vehicle is closer than `SpawnClearance` to the
-   entry, refuse — mirrors real gridlock-prevention ("don't block the box" logic) by simply
-   refusing to add a vehicle to an already-packed destination (`JunctionArbiter.cs:22-25`).
+1. **Spillback, with anticipation (M6.5).** If the target lane's tail vehicle — *projected
+   `SpillbackAnticipationSec = 0.7 s` ahead at its current speed* — is closer than
+   `SpawnClearance` to the entry, refuse. The projection is the M6.5 queue-discharge fix:
+   the unprojected check treated a fast-departing leader still inside the clearance window
+   as a static obstruction, forcing every follower to a dead stop at the line (~3.4 s
+   headways); projecting the occupant forward waves through vehicles whose blocker is
+   genuinely moving out of the window. A stopped occupant projects to itself
+   (`S + 0·τ = S`), so standstill gridlock-prevention ("don't block the box") is
+   bit-identical to the old check (`JunctionArbiter.cs`, guarded by
+   `QueueDischargeTests`).
 2. **Conflict-point passed-point rule.** For every `ConflictPoint` on this connector (computed
    once in `ConnectorBuilder`, see ch. 04), scan every vehicle currently on the *other*
    connector in that conflict pair; block if any occupant's `S < STheirs + Vehicle.Length +
@@ -228,10 +268,15 @@ situation — those already differ in Turn rank if either is turning, or are sim
 actual conflict if both are straight on a divided path) and excludes near-parallel merges
 (near `0°`), leaving only genuine "coming from my right" geometry.
 
-**Gap acceptance and impatience** (`AcceptedGap`, `JunctionArbiter.cs:76-78`):
-`max(2.2, 2.8 − 0.03·JunctionWait)` seconds. A fresh arrival needs a comfortable 2.8 s gap
-in oncoming/crossing traffic before committing; every second spent waiting at the line
-shaves 0.03 s off that requirement, down to a 2.2 s floor. This is the second lever (after
+**Gap acceptance and impatience** (`AcceptedGap`, `JunctionArbiter.cs`):
+`max(2.2 + offset, 2.8 − 0.03·JunctionWait + offset)` seconds, where
+`offset = 0.4 − 0.8·Profile` is the M6.5 personality shift (+0.4 s timid, 0 neutral,
+−0.4 s aggressive) applied to the whole curve — fresh value and floor alike, so profiles
+never converge with enough waiting: a timid driver floors at 2.6 s, the neutral driver
+(Profile 0.5) keeps the pre-personality 2.2 s floor bit-for-bit, and only a fully
+aggressive driver reaches the 1.8 s hard minimum. A fresh neutral arrival needs a
+comfortable 2.8 s gap in oncoming/crossing traffic before committing; every second spent
+waiting at the line shaves 0.03 s off that requirement. This is the second lever (after
 `Idm.T`) that fixes the M5 "passive cars clog junctions forever" complaint — without
 impatience, a minor-road car facing a dense-but-never-quite-zero priority stream would
 literally never find a gap it considers safe and would wait indefinitely, and — worse — so
@@ -409,6 +454,10 @@ individually above are cross-referenced, not repeated in full):
 | `Idm.A` | `Idm.cs:10` | 2.6 m/s² | Game-feel snappiness, not literal physics. |
 | `Idm.B` | `Idm.cs:11` | 2.8 m/s² | Comfortable braking; reused in approach envelopes. |
 | `Idm.FreeGap` | `Idm.cs:12` | 1e9 | No-leader sentinel. |
+| `Idm.LaunchA` | `Idm.cs` | 3.5 m/s² | M6.5 standing-start launch boost (acceleration only — sign-guarded). |
+| `Idm.LaunchFadeSpeed` | `Idm.cs` | 5 m/s | Launch boost fully faded back to `A` at this speed. |
+| `Vehicle.Profile` | `Vehicle.cs` | [0, 1], default 0.5 | M6.5 personality: desired speed ×(0.85 + 0.35·Profile), `AcceptedGap` offset 0.4 − 0.8·Profile. Seeded/deterministic for ambient spawns. |
+| `TrafficSim.LateralComfort` | `TrafficSim.cs` | 2.2 m/s² | M6.5 curvature turn speeds: `v = √(LateralComfort·Rmin)`, floored 4 m/s, capped at straight speed; U-turn cap 6 m/s. Cached per connector, cleared on `Sync()`. |
 | `TrafficSim.LookAheadHorizon` | `TrafficSim.cs:16` | 120 m | Declared but not read within the files in scope — `[UNCERTAIN]` whether it is consumed elsewhere in `src/Game` or is dead/reserved. |
 | `TrafficSim.SpawnClearance` | `TrafficSim.cs:17` | `Vehicle.Length + Idm.S0` = 6.5 m | Minimum space a fresh spawn (or an entering junction movement) needs at the entry. |
 | `Vehicle.Length` | `Vehicle.cs:10` | 4.5 m | Also the conflict-margin unit throughout the arbiter. |
@@ -416,10 +465,11 @@ individually above are cross-referenced, not repeated in full):
 | `ApproachHorizon` | `JunctionArbiter.cs:13` | 60 m | How far `ConflictApproachClear` scans a conflicting leg's queue for inbound rivals. |
 | `ClearMargin` | `JunctionArbiter.cs:14` | 0.5 m | Rear-bumper clearance required past a conflict point. |
 | `DeadlockBreakSec` | `JunctionArbiter.cs:15` | 6 s | Wait time before ignoring a stale equal-rank rival. |
-| `AcceptedGap` formula | `JunctionArbiter.cs:78` | `max(2.2, 2.8 − 0.03·wait)` s | Impatience curve; the M5 throughput fix's second lever. |
-| Movement rank axes | `JunctionArbiter.cs:83-96` | Row 3/2/1, Turn 3/2/1/0 | Lexicographic; Row dominates Turn. |
-| Right-hand-rule window | `JunctionArbiter.cs:107` | `(−150°, −30°)` | Excludes head-on and near-parallel angles. |
-| `ConnectorSpeed` (Right/Left/U-turn) | `TrafficSim.cs:277-279` | 9 / 10 / 5 m/s | Straight uses the road's own limits instead — priority traffic doesn't brake for junctions. |
+| `SpillbackAnticipationSec` | `JunctionArbiter.cs:16` | 0.7 s | M6.5 queue-discharge fix: exit-lane occupant projected this far ahead before the clearance comparison; stopped occupants block identically to the unprojected check. |
+| `AcceptedGap` formula | `JunctionArbiter.cs` | `max(2.2, 2.8 − 0.03·wait) + (0.4 − 0.8·Profile)` s | Impatience curve (M5) with M6.5 personality offset; floors 2.6 (timid) / 2.2 (neutral) / 1.8 (aggressive). |
+| Movement rank axes | `JunctionArbiter.cs` | Row 3/2/1, Turn 3/2/1/0 | Lexicographic; Row dominates Turn. |
+| Right-hand-rule window | `JunctionArbiter.cs` | `(−150°, −30°)` | Excludes head-on and near-parallel angles. |
+| `ConnectorSpeed` (turns) | `TrafficSim.cs` | `√(2.2·Rmin)` in [4, straight]; U-turn ≤ 6 m/s | M6.5 curvature-based (was fixed 9/10/5). Straight uses the road's own limits — priority traffic doesn't brake for junctions. |
 | `SpawnCooldownSec` | `TrafficSpawner.cs:12` | 0.25 s | Ambient spawn attempt cadence once under target population. |
 | `StuckReplanSec` | `TrafficSpawner.cs:13` | 20 s | Stall duration before a front-of-queue vehicle gets a fresh route. |
 | `ChangeDuration` | `LaneChange.cs:14` | 2 s | Dual-lane occupancy window during a lane change. |
@@ -451,13 +501,15 @@ individually above are cross-referenced, not repeated in full):
   passed-point rule and this scan together don't fully close. `[UNCERTAIN]` — I did not find
   a test exercising this specific tail case; flagged as a plausible edge case from reading
   the code, not a confirmed bug.
-- **Saturation headway ≈ 3.5 s discharge limitation.** `docs/health/M6.md` (per ch. 03's
-  notes) records a measured `sat_headway_s ≈ 3.522` baseline — i.e. even a maximally
-  assertive stream at a controlled junction discharges roughly one vehicle every 3.5 s under
-  the current `AcceptedGap`/`Idm.T` tuning. This is a real capacity ceiling of the model, not
-  a bug: `MinorRoadDischargesThroughPriorityStream`'s calibration (18/40 in 2 sim-minutes,
-  `AssertivenessGuardTests.cs:164-176`) is a direct consequence of this discharge rate, not
-  an arbitrarily-chosen number.
+- **Saturation headway — RESOLVED in M6.5.** `docs/health/M6.md` recorded a measured
+  `sat_headway_s ≈ 3.522` baseline; the M6.5 traffic-feel pass diagnosed the true cause as
+  the *unprojected spillback check* (every discharging follower braked to a dead stop at
+  the stop line behind a leader that was already accelerating away on the exit lane), not
+  car-following. The anticipatory spillback projection (`SpillbackAnticipationSec = 0.7`)
+  plus IDM+/launch acceleration brought the measured value to **2.04 s** (`docs/health/M6.5.md`),
+  inside the 1-3 s HCM saturation-headway plausibility band. The minor-road discharge
+  calibration moved with it: `MinorRoadDischargesThroughPriorityStream` now measures 21/40
+  in 2 sim-minutes (floor raised to 18 = measured − 3, `AssertivenessGuardTests.cs`).
 - **Failsafe-stop under-count.** As detailed in `## Trip stats`, a stop induced purely by
   `EnforceNoPenetration`'s post-integration clamp is invisible to the `Stops` counter for
   that tick, because the counter's before/after `Speed` snapshot happens earlier in the tick
@@ -472,7 +524,8 @@ individually above are cross-referenced, not repeated in full):
 - **`AssertivenessGuardTests`** are the standing M5 regression guards: run these first after
   touching `JunctionArbiter.cs` or `Idm.cs` — `NoTwoVehiclesEverCoOccupyAConflictPoint`
   (safety, 3-minute/60-vehicle burst) and `MinorRoadDischargesThroughPriorityStream`
-  (throughput floor: the guard requires ≥13/40 minor arrivals in 2 sim-minutes — M5 measures 18/40, vs the 7/40 pre-M5 baseline).
+  (throughput floor: the guard requires ≥18/40 minor arrivals in 2 sim-minutes — M6.5
+  measures 21/40, vs 18/40 at M5 and the 7/40 pre-M5 baseline).
 - **`SimInvariants.CheckBurst(network, seed, ticks, population)`** — the general-purpose
   fuzz/burst harness: spawn an ambient population on any network, tick it, and get back an
   empty violation list or a diagnosed exception/penetration/co-occupancy failure. Use it

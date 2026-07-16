@@ -34,7 +34,7 @@ the `RightOfWay` that `JunctionControl` resolved, and in the traffic sim's arbit
   wedge solve), `Bezier3`/`ArcLengthTable` for curve offsets and parameterization.
 - **Tests:** `JunctionResizeTests.cs`, `JunctionControlTests.cs`, `SignalTests.cs`,
   `Kpi/KpiScenarios.cs` (`SignalDischarge`), all under `tests/Domain.Tests/`.
-- **Last verified against commit:** `f0542d7` on 2026-07-16.
+- **Last verified against commit:** `a31ebfb` on 2026-07-17 (M6.5 traffic-feel pass).
 
 ## Junction geometry
 
@@ -292,21 +292,19 @@ during which every vehicle waits regardless of leg.
 | `MaxExtra` | 12 m | `JunctionBuilder.cs:22` | Resize ceiling per leg — an authored upper bound on how far a player can grow one approach. |
 | `GreenSec` / `AmberSec` / `AllRedSec` | 12 / 3 / 1 s | `SignalController.cs:13` | Fixed timing for the two-phase cycle; also `docs/conventions.md`'s "Signals green/amber/all-red" row. |
 
-The `GreenSec = 12 s` figure deserves a caveat, recorded as a documented post-M6
-tuning item rather than a bug: with this driver model's standing-start
-acceleration, a 12 s green only discharges the first 3–4 vehicles of a stopped
-queue before the phase ends (`KpiScenarios.cs:33-51`) — each follower's headway is
-governed by how far its leader has physically advanced into the short junction
-connector, not by lane spacing, so early queue positions read close to real-world
-HCM startup headways (h1 ≈ 3.8 s … h4 ≈ 2.4 s) rather than the ~2 s steady-state
-saturation headway further back in a longer queue. That's why the M6 KPI health
-report (`docs/health/M6.md:11`) records `signal.sat_headway_s = 3.522` — near the
-top of (or slightly above) the 1–3 s saturation-headway plausibility anchor
-(`KpiScenarios.cs:12-16`) rather than inside it. The KPI harness treats this as
-correct-but-unpolished simulator behavior, not a scenario bug — the doc comment is
-explicit that an implausible number is first a scenario defect, "never a reason to
-retune a domain constant" outside an explicit tuning pass. The eventual fix is a
-driver-model change to standing-start acceleration, not a `GreenSec` edit.
+The `GreenSec = 12 s` caveat that stood here through M6 is **resolved as of the M6.5
+traffic-feel pass**: the M6 KPI health report (`docs/health/M6.md`) recorded
+`signal.sat_headway_s = 3.522` — above the 1–3 s saturation-headway plausibility
+anchor (`KpiScenarios.cs`) — because a 12 s green discharged only ~4 vehicles of a
+stopped queue. The predicted fix ("a driver-model change to standing-start
+acceleration") turned out to be only part of the answer: M6.5's diagnosis showed the
+dominant cause was the junction arbiter's *unprojected spillback check* forcing every
+discharging follower to a dead stop at the line (see chapter 05's junction-arbitration
+section). With the anticipatory spillback projection (`SpillbackAnticipationSec = 0.7 s`),
+IDM+ car following, and launch acceleration, `docs/health/M6.5.md` records
+`signal.sat_headway_s = 2.04` — comfortably inside the plausibility band, with at
+least 5-6 vehicles now clearing a single 12 s green. `GreenSec` itself was never
+touched, exactly as this note predicted.
 
 ## Known limits
 
