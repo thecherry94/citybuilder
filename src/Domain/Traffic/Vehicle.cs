@@ -21,7 +21,9 @@ public sealed class Vehicle
 
     // --------------------------------------------------------- trip stats
     public float SpawnTime { get; set; }
-    public float FreeFlowTime { get; set; }   // route length over limits, computed at spawn/replan
+    /// <summary>Free-flow time of the distance actually driven so far: accumulated as
+    /// lane runs / connectors complete (length over limit), exact across replans.</summary>
+    public float FreeFlowTime { get; set; }
     public int Stops { get; set; }            // 0.5 m/s downward crossings after having first moved
     public bool HasMoved { get; set; }
 
