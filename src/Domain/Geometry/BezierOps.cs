@@ -119,13 +119,24 @@ public static class BezierOps
     }
 
     /// <summary>Smallest radius of curvature in the XZ plane, sampled. Straight
-    /// (zero-curvature) curves return +infinity.</summary>
-    public static float MinRadius(in Bezier3 c, int samples = 32)
+    /// (zero-curvature) curves return +infinity. Sampling is parameter-uniform
+    /// (evenly spaced in t, not arc length) at a FIXED count when
+    /// <paramref name="samples"/> is given explicitly; left null, the count scales
+    /// with the curve's own length so long curves keep the same per-metre resolution
+    /// as short ones — a fixed 32-sample grid over a several-hundred-metre curve (a
+    /// long, mostly-straight edge that has since been repeatedly split, e.g. by
+    /// SplitEdgeWithReuse) spaces samples many metres apart and can straddle a
+    /// short, sharp bend entirely, passing a curve whose TRUE minimum radius is
+    /// already below the type's floor; re-sampling the same geometry at a shorter
+    /// length (post-split) then reports a worse radius for a curve that never
+    /// changed shape. See FuzzRegressionTests for the fuzzer find this fixes.</summary>
+    public static float MinRadius(in Bezier3 c, int? samples = null)
     {
+        int n = samples ?? AdaptiveSampleCount(c);
         float maxK = 0f;
-        for (int i = 0; i <= samples; i++)
+        for (int i = 0; i <= n; i++)
         {
-            float t = i / (float)samples;
+            float t = i / (float)n;
             var d = c.Derivative(t);
             var dd = c.SecondDerivative(t);
             float speedSq = d.X * d.X + d.Z * d.Z;
@@ -135,6 +146,19 @@ public static class BezierOps
             maxK = MathF.Max(maxK, k);
         }
         return maxK < 1e-9f ? float.PositiveInfinity : 1f / maxK;
+    }
+
+    /// <summary>Sample count for <see cref="MinRadius"/>'s default (no explicit
+    /// count given): roughly one sample every <c>StepMeters</c> of arc length, with
+    /// a floor matching the old fixed constant (so short curves are unaffected) and
+    /// a ceiling against pathological lengths.</summary>
+    private static int AdaptiveSampleCount(in Bezier3 c)
+    {
+        const float stepMeters = 8f;
+        const int minSamples = 32;
+        const int maxSamples = 4096;
+        int n = (int)MathF.Ceiling(c.Length() / stepMeters);
+        return Math.Clamp(n, minSamples, maxSamples);
     }
 
     private static Vector2 ToXZ(Vector3 v) => new(v.X, v.Z);
