@@ -29,4 +29,22 @@ public class IdmTests
         Assert.True(atRest > 3.2f, $"standstill launch should use ~3.5 m/s², got {atRest:F2}");
         Assert.True(atSpeed < 2.6f * 1.01f, "above fade speed the cruise cap must hold");
     }
+
+    [Fact]
+    public void LaunchBoostNeverAmplifiesBraking()
+    {
+        // A crawling vehicle hard against an obstacle (ratio > 1 → negative model output)
+        // must brake with the BASE A gain, not the launch-boosted one: the boost models
+        // stronger standing-start acceleration (VISSIM CC8), not stronger braking.
+        float v = 2f, v0 = 14f, gap = 2f;
+        float free = 1f - MathF.Pow(v / MathF.Max(v0, 0.1f), 4);
+        float sStar = Idm.S0 + MathF.Max(0, v * Idm.T);
+        float ratio = sStar / MathF.Max(gap, 0.1f);
+        float plain = Idm.A * MathF.Min(free, 1f - ratio * ratio); // hand-computed base-A value
+        float actual = Idm.Accel(v, v0, gap, dv: 0f);
+        Assert.True(plain < 0f, "fixture must exercise the braking branch");
+        Assert.Equal(plain, actual, 5);
+        // ...while the standstill free-road launch keeps the boost.
+        Assert.True(Idm.Accel(0f, 14f, Idm.FreeGap, 0f) > 3.2f, "launch boost must survive the fix");
+    }
 }

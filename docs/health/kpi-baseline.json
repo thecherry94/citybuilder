@@ -1,11 +1,11 @@
 {
-  "grid.delay_index": 2.6665306,
-  "grid.stops_per_trip": 1.6397516,
-  "perf.tick300_ms": 0.2837105,
-  "perf.validate500_ms": 61.3748,
-  "signal.sat_headway_s": 3.3837242,
-  "signal.startup_lost_s": 1.1999817,
+  "grid.delay_index": 2.772016,
+  "grid.stops_per_trip": 1.5576923,
+  "perf.tick300_ms": 0.28531915,
+  "perf.validate500_ms": 61.535,
+  "signal.sat_headway_s": 3.3670557,
+  "signal.startup_lost_s": 1.1833153,
   "yield4.completed": 20,
-  "yield4.minor_delay_mean_s": 34.762093,
+  "yield4.minor_delay_mean_s": 34.75959,
   "yield4.minor_delay_p95_s": 61.083054
 }

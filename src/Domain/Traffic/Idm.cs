@@ -19,19 +19,23 @@ public static class Idm
     /// <param name="dv">closing speed = v − vLead</param>
     public static float Accel(float v, float v0, float gap, float dv)
     {
-        float a = EffectiveA(v);
         float free = 1f - MathF.Pow(v / MathF.Max(v0, 0.1f), 4);
         if (gap >= FreeGap / 2)
-            return a * free;
+            return EffectiveA(v) * free; // free < 0 only above v0, where EffectiveA == A anyway
         float sStar = S0 + MathF.Max(0, v * T + v * dv / (2f * MathF.Sqrt(A * B)));
         float ratio = sStar / MathF.Max(gap, 0.1f);
-        return a * MathF.Min(free, 1f - ratio * ratio);   // IDM+ (Schakel et al.)
+        float m = MathF.Min(free, 1f - ratio * ratio);    // IDM+ (Schakel et al.)
+        // Launch boost applies to acceleration only: a negative model output means
+        // braking, and boosting that gain would make crawling vehicles brake up to
+        // 35% harder near obstacles — the boost models standing-start acceleration
+        // (VISSIM CC8), not braking.
+        return (m >= 0f ? EffectiveA(v) : A) * m;
     }
 
     // Speed-dependent launch acceleration (VISSIM CC8/CC9 pattern): a standstill
     // launch is stronger than the cruise cap, fading linearly to A by LaunchFadeSpeed.
     // The interaction term (sStar via sqrt(A*B)) intentionally keeps the base A —
-    // only the leading multipliers use the boosted value.
+    // only the leading multiplier uses the boosted value, and only when accelerating.
     private static float EffectiveA(float v)
         => v >= LaunchFadeSpeed ? A : LaunchA + (A - LaunchA) * (v / LaunchFadeSpeed);
 }
