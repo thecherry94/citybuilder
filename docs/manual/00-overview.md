@@ -212,6 +212,9 @@ Geometry (ch. 01):
   pins it; per-type `MinSegmentLength` is the real floor.
 
 Network & validation (ch. 02):
+- `TryHealNode` can silently reverse a one-way road when a bulldoze heals a degree-2
+  node — no direction-continuity check, HashSet-order-dependent orientation (M6
+  final-review find, top M7 bug; [ch. 02 Known limits](02-network-validation.md#known-limits)).
 - `[UNCERTAIN]` `TryHealNode` has no post-merge `MinSegmentLength`/`MinRadius` recheck after
   `CurveFit.FitComposite` — a possible latent gap, no repro found by reading.
   ([02 · Known limits](02-network-validation.md#known-limits))

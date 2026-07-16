@@ -328,6 +328,14 @@ touched node. Final graph: **3 edges** (`e2`, `e3`, `e4` — `e1` didn't survive
   above the radius floor for an unusual shape. `[UNCERTAIN]` — no concrete failing case
   found from reading alone; a fuzz/property test feeding near-degenerate tangent pairs
   into `TryHealNode` would settle whether this is reachable.
+- **`TryHealNode` can silently reverse a one-way road** (M6 final-review find, top M7
+  bug). It checks type equality but not direction continuity, and the merged edge's
+  orientation follows `edges[0]` = first element of `node.EdgeSet` — a `HashSet`, so
+  enumeration-order-dependent (and restore repopulates it in sorted order vs organic
+  hash order, so heal direction can differ pre/post load). Bulldozing the third arm off
+  a one-way chain A→n→B can heal it to B→A. Invariant-legal, so the fuzzer structurally
+  cannot see it; `HealingTests.cs` has zero OneWay coverage. Tracked in
+  `docs/roadmap.md` M6 known limits.
 - **`RoadCatalog.Get` is a linear scan** (`RoadType.cs:134-136`) — fine at 6 entries,
   worth revisiting if the catalog grows substantially. `[UNCERTAIN]` whether that's
   planned; no evidence in `docs/roadmap.md`.
