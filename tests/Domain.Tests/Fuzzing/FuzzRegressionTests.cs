@@ -159,6 +159,86 @@ public class FuzzRegressionTests
         Assert.DoesNotContain(mid.Connectors, c => c.From == strandedLane.Id);
     }
 
+    // ------------------------------------------------------------------------
+    // 10k-action certification sweep (2026-07-16, task 6): three new false
+    // negatives in RoadNetwork.Validate's sharp-angle gate, all sharing one root
+    // cause, plus a fixed-resolution sampling bug in BezierOps.MinRadius. Neither
+    // was reachable at the 300-action default; all four needed the 10k sweep.
+    // ------------------------------------------------------------------------
+
+    /// <summary>Root cause: RoadNetwork.SplitEdgeWithReuse snaps a crossing/endpoint
+    /// straight to an existing edge's end node whenever the split point lands within
+    /// that edge's OWN MinSegmentLength of the end (up to 16 m here, a FourLane) —
+    /// correct, and far more generous than the tight 0.5 m NodeReuseRadius. But
+    /// Validate's sharp-angle gate (HasSharpLeg/ExistingLegDirections, for both an
+    /// explicit OnEdge binding and the Free-endpoint edge fallback) checked the
+    /// crossed edge's tangent at the ORIGINAL requested parameter, not at the node
+    /// Commit was actually about to reuse. A FourLane's 35 m MinRadius floor lets its
+    /// tangent swing over 26 deg across a 16 m MinSegmentLength stretch, so the two
+    /// tangents can legitimately differ by more than MinJunctionAngleDeg: Validate
+    /// approved a leg that, once snapped to the real node, was sharp against a leg
+    /// already there (edge887, 13.97 deg from the new edge here) — a real
+    /// Validate/Commit divergence, not NetworkInvariants over-strictness. Fixed by
+    /// re-checking sharp-angle in CommitCurve itself, against the live network, at
+    /// the exact node/tangent each segment actually attaches to (RoadNetwork's new
+    /// HasSharpLegAtNode helper) — dropping the segment rather than committing
+    /// corrupt geometry, same policy CommitCurve already applies to the
+    /// length/radius floors just above it.</summary>
+    [Fact]
+    public void Seed101NodeReuseAbsorptionCantSkipTheSharpAngleGate()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(101, 3091));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
+    /// <summary>Same root cause as <see cref="Seed101NodeReuseAbsorptionCantSkipTheSharpAngleGate"/>,
+    /// reached via the OTHER half of the gap it fixes: a multi-curve GridStamp
+    /// proposal commits its curves in a sequential per-curve loop, each one seeing
+    /// edges/nodes the EARLIER curves of the SAME proposal already created — state
+    /// Validate's single pre-batch snapshot never saw at all, so a later grid line
+    /// attaching to a node an earlier sibling just created was never checked against
+    /// that sibling's leg (here: two arms 20.2 deg apart at a brand-new 5-leg node).
+    /// Covered by the same live-network recheck in CommitCurve.</summary>
+    [Fact]
+    public void Seed202GridStampSiblingCurvesShareTheSharpAngleGate()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(202, 3298));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
+    /// <summary>Third instance of the same root cause (see
+    /// <see cref="Seed101NodeReuseAbsorptionCantSkipTheSharpAngleGate"/>): an 8.2 deg
+    /// pair at a 5-leg node produced by the identical reuse-absorption gap.</summary>
+    [Fact]
+    public void Seed303NodeReuseAbsorptionCantSkipTheSharpAngleGate()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(303, 3751));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
+    /// <summary>Root cause: BezierOps.MinRadius sampled a fixed 32 points across the
+    /// WHOLE curve regardless of its length — fine for the short segments most
+    /// drawing gestures produce, but a long edge repeatedly cut down by
+    /// SplitEdgeWithReuse (here: an OneWay edge whittled from roughly 500 m to under
+    /// 400 m over three successive splits, each one a legal reuse-absorption, never
+    /// changing the underlying curve's shape) spaces those 32 samples many metres
+    /// apart. A short, sharp bend can sit entirely between two samples: the ORIGINAL
+    /// long edge measured a safe-looking radius (10.29 m, above the 10 m OneWay
+    /// floor) at commit time, and each subsequent split re-sampled the SAME
+    /// unchanged geometry more densely over a shorter range, eventually landing a
+    /// sample on the bend and reporting its true (sub-floor) radius — 9.86 m — for
+    /// geometry that was never re-shaped, only re-measured more precisely. Fixed by
+    /// making MinRadius's sample count scale with the curve's own arc length (one
+    /// sample per ~8 m, floor at the old fixed 32) when no explicit count is given,
+    /// so long and short curves get the same resolution instead of the same sample
+    /// budget.</summary>
+    [Fact]
+    public void Seed303LongEdgeSplitRevealsTrueMinRadiusRegardlessOfSampleSpacing()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(303, 6874));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
     private static void Commit(RoadNetwork n, PlacementProposal p)
     {
         var v = n.Validate(p);
