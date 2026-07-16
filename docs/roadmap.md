@@ -85,3 +85,7 @@ verified build.
   zoning), add serialization of `RoadNetwork` + `JunctionConfig` + catalog refs.
 - Protected left-turn phases, junction merging, and lane-connector/signal-timing editing
   UI are deferred, not forgotten (movement-level priorities landed in M5).
+- **Quality-stack definition-of-done, standing from M6 on**: every milestone from M6
+  onward ships fuzz suite green (extended when editor surface or invariants grew),
+  regenerated KPI baseline + `docs/health/M<N>.md`, drift-updated manual chapters, and a
+  current roadmap — see golden rule 2 and `docs/verification.md`.

@@ -20,6 +20,9 @@ the foundation everything else grows on.
    `dotnet build citybuilder.sln`, then the harness matching the change
    (see [docs/verification.md](docs/verification.md)). Visual changes are verified by
    reading the produced screenshots, motion changes by continuity tests + trail composites.
+   A milestone additionally ships: fuzz suite green (extended when editor surface or
+   invariants grew), regenerated KPI baseline + `docs/health/M<N>.md`, drift-updated
+   manual chapters, and a current roadmap.
 3. **Commit at every milestone / green step.** Specs and plans live in
    `docs/superpowers/specs|plans` and are written before implementing.
 4. Prefer regression tests that assert *invariants* (no collision, no teleport, symmetric
