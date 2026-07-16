@@ -47,4 +47,21 @@ public class IdmTests
         // ...while the standstill free-road launch keeps the boost.
         Assert.True(Idm.Accel(0f, 14f, Idm.FreeGap, 0f) > 3.2f, "launch boost must survive the fix");
     }
+
+    [Fact]
+    public void FreeRoadBrakingAboveDesiredSpeedUsesBaseAGain()
+    {
+        // v0 < v < LaunchFadeSpeed can now happen for real: curvature-based turn
+        // speeds floor a tight turn's v0 at 4 m/s, below LaunchFadeSpeed (5). A
+        // vehicle still coasting at 4.9 m/s when it enters that turn (v0 = 4) is
+        // decelerating on the free-road branch (no leader) — that must use the base
+        // A gain, not EffectiveA(v), which would still be launch-boosted here and so
+        // over-brake (the same failure mode the min-form's sign guard already avoids).
+        const float v = 4.9f, v0 = 4f;
+        float free = 1f - MathF.Pow(v / v0, 4);
+        Assert.True(free < 0f, "fixture must exercise the free-road braking branch");
+        float expected = Idm.A * free; // base-A computation, no launch boost
+        float actual = Idm.Accel(v, v0, gap: Idm.FreeGap, dv: 0f);
+        Assert.Equal(expected, actual, 5);
+    }
 }

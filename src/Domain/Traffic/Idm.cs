@@ -21,7 +21,11 @@ public static class Idm
     {
         float free = 1f - MathF.Pow(v / MathF.Max(v0, 0.1f), 4);
         if (gap >= FreeGap / 2)
-            return EffectiveA(v) * free; // free < 0 only above v0, where EffectiveA == A anyway
+            // free < 0 means braking (v > v0); mirrors the min-form's sign guard below —
+            // without it, a v0 floored under LaunchFadeSpeed (e.g. by a tight turn's
+            // curvature-based cap) lets EffectiveA(v) still be launch-boosted for
+            // v0 < v < LaunchFadeSpeed, boosting DECELERATION instead of acceleration.
+            return (free >= 0f ? EffectiveA(v) : A) * free;
         float sStar = S0 + MathF.Max(0, v * T + v * dv / (2f * MathF.Sqrt(A * B)));
         float ratio = sStar / MathF.Max(gap, 0.1f);
         float m = MathF.Min(free, 1f - ratio * ratio);    // IDM+ (Schakel et al.)
