@@ -138,11 +138,29 @@ public static class KpiScenarios
         if (intraCycleGaps.Length == 0)
             throw new InvalidOperationException("signal_discharge: every consecutive entry gap crossed a cycle boundary");
 
-        return new Dictionary<string, float>
+        // diag.signal.h1..h5: per-queue-position discharge headway, h_i = entry_i -
+        // entry_(i-1) for the first five queue positions in discharge order, h1
+        // anchored to green onset rather than a predecessor (same quantity as
+        // startupLost above). Deliberately raw/unfiltered — unlike intraCycleGaps
+        // above, this is diagnostic instrumentation meant to show the discharge
+        // pattern exactly as the driver model currently produces it, cycle boundary
+        // included: with this queue depth and a 12 s green clearing only ~4 vehicles
+        // (h1..h4 alone sum to ~11.9 s, confirmed by this scenario's own docstring),
+        // h5 necessarily lands in the next cycle and its value is dominated by the
+        // red wait rather than a discharge headway. That is itself a real "before"
+        // finding for the M6.5 tuning pass, not a scenario bug to be smoothed away.
+        var result = new Dictionary<string, float>
         {
             ["signal.startup_lost_s"] = startupLost,
             ["signal.sat_headway_s"] = intraCycleGaps.Average(),
         };
+        float prevEntry = greenOnset;
+        for (int i = 0; i < 5; i++)
+        {
+            result[$"diag.signal.h{i + 1}"] = sorted[i] - prevEntry;
+            prevEntry = sorted[i];
+        }
+        return result;
     }
 
     // ------------------------------------------------------------------- yield_4way
@@ -259,6 +277,7 @@ public static class KpiScenarios
         {
             ["grid.delay_index"] = ratios.Length > 0 ? ratios.Average() : 0f,
             ["grid.stops_per_trip"] = stops.Length > 0 ? stops.Average() : 0f,
+            ["diag.penetration_clamps"] = sim.PenetrationClampCount,
         };
     }
 

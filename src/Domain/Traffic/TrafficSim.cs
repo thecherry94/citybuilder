@@ -317,6 +317,12 @@ public sealed partial class TrafficSim
     private static Vehicle? FirstOn(List<Vehicle> queue)
         => queue.Count > 0 ? queue[^1] : null; // sorted desc by S → last = closest to entry
 
+    /// <summary>Diagnostic-only counter: how many times <see cref="EnforceNoPenetration"/>
+    /// actually moved a vehicle's S or clamped its Speed this run (never reset —
+    /// callers read it once at the end of a scenario). Not part of any behavior,
+    /// purely for KPI-harness visibility into how often the failsafe clamp fires.</summary>
+    internal int PenetrationClampCount { get; private set; }
+
     /// <summary>Hard failsafe: whatever the models did this tick, a follower never
     /// ends up inside its leader. Queues are still in last tick's order (no in-lane
     /// overtaking), so a single front-to-back pass suffices.</summary>
@@ -326,17 +332,21 @@ public sealed partial class TrafficSim
             ClampQueue(queue);
         foreach (var queue in _connectorVehicles.Values)
             ClampQueue(queue);
+    }
 
-        static void ClampQueue(List<Vehicle> queue)
+    private void ClampQueue(List<Vehicle> queue)
+    {
+        for (int i = 1; i < queue.Count; i++)
         {
-            for (int i = 1; i < queue.Count; i++)
+            float limit = queue[i - 1].S - Vehicle.Length - 0.1f;
+            if (queue[i].S > limit)
             {
-                float limit = queue[i - 1].S - Vehicle.Length - 0.1f;
-                if (queue[i].S > limit)
-                {
-                    queue[i].S = limit;
-                    queue[i].Speed = MathF.Min(queue[i].Speed, queue[i - 1].Speed);
-                }
+                float newSpeed = MathF.Min(queue[i].Speed, queue[i - 1].Speed);
+                bool changed = queue[i].S != limit || queue[i].Speed != newSpeed;
+                queue[i].S = limit;
+                queue[i].Speed = newSpeed;
+                if (changed)
+                    PenetrationClampCount++;
             }
         }
     }
