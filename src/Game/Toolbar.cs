@@ -22,6 +22,7 @@ public partial class Toolbar : Control
         _lanes = lanes;
         _main = main;
         controller.StatusFlashed += FlashStatus;
+        main.StatusFlashed += FlashStatus;
         controller.ReadoutChanged += t => _readout.Text = t;
     }
 
@@ -131,6 +132,15 @@ public partial class Toolbar : Control
         _trafficCount = new Label { Text = "0" };
         trafficRow.AddChild(_trafficCount);
         _main.Traffic.TargetPopulation = (int)density.Value;
+
+        var saveRow = new HBoxContainer();
+        box.AddChild(saveRow);
+        var saveBtn = new Button { Text = "Save (F5)" };
+        saveBtn.Pressed += () => _main.QuickSave();
+        saveRow.AddChild(saveBtn);
+        var loadBtn = new Button { Text = "Load (F9)" };
+        loadBtn.Pressed += () => _main.QuickLoad();
+        saveRow.AddChild(loadBtn);
 
         var hint = new Label
         {

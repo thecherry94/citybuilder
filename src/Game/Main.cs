@@ -1,5 +1,6 @@
 using CityBuilder.Domain.Catalog;
 using CityBuilder.Domain.Network;
+using CityBuilder.Domain.Persistence;
 using CityBuilder.Domain.Tools;
 using Godot;
 
@@ -10,6 +11,8 @@ namespace CityBuilder.Game;
 /// exits (used by CI/verification).</summary>
 public partial class Main : Node3D
 {
+    private const string QuickSavePath = "user://saves/quick.json";
+
     private RoadNetwork _network = null!;
     private ToolController _controller = null!;
     private RoadNetworkView _view = null!;
@@ -19,6 +22,9 @@ public partial class Main : Node3D
 
     public CityBuilder.Domain.Traffic.TrafficSim Traffic => _traffic;
     public bool TrafficEnabled { get; set; }
+
+    /// <summary>Status text for the toolbar's flash line (mirrors ToolController.StatusFlashed).</summary>
+    public event Action<string>? StatusFlashed;
 
     public override void _Process(double delta)
     {
@@ -119,6 +125,61 @@ public partial class Main : Node3D
             CallDeferred(MethodName.RunUiTest);
     }
 
+    public override void _UnhandledInput(InputEvent e)
+    {
+        switch (e)
+        {
+            case InputEventKey { Keycode: Key.F5, Pressed: true }:
+                QuickSave();
+                break;
+            case InputEventKey { Keycode: Key.F9, Pressed: true }:
+                QuickLoad();
+                break;
+        }
+    }
+
+    // ------------------------------------------------------------- save/load
+
+    /// <summary>Write the network to the quick-save slot (user://saves/quick.json).</summary>
+    public void QuickSave()
+    {
+        try
+        {
+            string path = ProjectSettings.GlobalizePath(QuickSavePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, SaveLoad.Save(_network));
+            StatusFlashed?.Invoke("Saved");
+        }
+        catch (Exception ex)
+        {
+            StatusFlashed?.Invoke($"save failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Load the quick-save slot into the live network in place. A single
+    /// RoadNetwork.Changed event resyncs the view/overlays; traffic and the active
+    /// tool gesture are resynced explicitly since they cache derived state.</summary>
+    public void QuickLoad()
+    {
+        string path = ProjectSettings.GlobalizePath(QuickSavePath);
+        if (!File.Exists(path))
+        {
+            StatusFlashed?.Invoke("No quick save");
+            return;
+        }
+        try
+        {
+            SaveLoad.LoadInto(File.ReadAllText(path), _network);
+            _traffic.EnsureSynced();
+            _controller.SetMode(_controller.Mode); // drop any stale draft/selection
+            StatusFlashed?.Invoke("Loaded");
+        }
+        catch (Exception ex) when (ex is SaveFormatException or IOException)
+        {
+            StatusFlashed?.Invoke($"load failed: {ex.Message}");
+        }
+    }
+
     private static bool RawCmdlineHasEditorPid()
     {
         try
@@ -214,6 +275,17 @@ public partial class Main : Node3D
                     System.Numerics.Vector3.Distance(e.Curve.P3, V(40, 60)) < 1f
                     || System.Numerics.Vector3.Distance(e.Curve.P0, V(40, 60)) < 1f),
                 "dragged draft endpoint not committed at (40, 60)");
+
+            // quick save/load round trip: save, add a road, confirm it registered,
+            // reload, confirm the network is back to the saved state
+            int edgesAtSave = _network.Edges.Count;
+            QuickSave();
+            _controller.SetMode(ToolMode.Straight);
+            _controller.HandleClickAt(V(150, -150));
+            _controller.HandleClickAt(V(200, -150));
+            Expect(_network.Edges.Count > edgesAtSave, "post-save test road not added");
+            QuickLoad();
+            Expect(_network.Edges.Count == edgesAtSave, "quick-load did not restore edge count");
 
             // spawn a vehicle via the two-click tool and tick a bit of traffic
             _controller.SetMode(ToolMode.SpawnVehicle);
