@@ -44,7 +44,10 @@ at most once per frame. The Godot layer holds **no authoritative state**.
 ### Catalog (`src/Domain/Catalog`)
 Road types are pure data: `LaneSpec(Offset, Direction, Width, Kind)` lists per type;
 `CarriagewayHalf`, `OuterHalf`, `HasSidewalks`, `SpeedLimit` are derived. Types:
-TwoLane (8 m), FourLane (16 m), Street (12 m, sidewalks), Avenue (21 m, bikes+sidewalks).
+TwoLane (8 m), FourLane (16 m), Street (12 m, sidewalks), Avenue (21 m, bikes+sidewalks),
+OneWay (one-directional, M5), Asymmetric 2+1 (M5). Direction-asymmetric types
+(`IsDirectionAsymmetric`) can legally strand arriving lanes at nodes with no departing
+capacity — see docs/manual/04-lane-graph-connectors.md.
 
 ### Tools (`src/Domain/Tools`)
 - `DraftSession` — the tool state machine (`Idle → Placing → Adjustable`): owns the
