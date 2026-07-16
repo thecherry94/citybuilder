@@ -22,6 +22,6 @@ public static class Idm
             return A * free;
         float sStar = S0 + MathF.Max(0, v * T + v * dv / (2f * MathF.Sqrt(A * B)));
         float ratio = sStar / MathF.Max(gap, 0.1f);
-        return A * (free - ratio * ratio);
+        return A * MathF.Min(free, 1f - ratio * ratio);   // IDM+ (Schakel et al.)
     }
 }
