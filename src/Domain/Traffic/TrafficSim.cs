@@ -341,12 +341,11 @@ public sealed partial class TrafficSim
             float limit = queue[i - 1].S - Vehicle.Length - 0.1f;
             if (queue[i].S > limit)
             {
-                float newSpeed = MathF.Min(queue[i].Speed, queue[i - 1].Speed);
-                bool changed = queue[i].S != limit || queue[i].Speed != newSpeed;
+                // S > limit guarantees setting S = limit is a real change, so the
+                // counter increments unconditionally here (never on no-op passes)
                 queue[i].S = limit;
-                queue[i].Speed = newSpeed;
-                if (changed)
-                    PenetrationClampCount++;
+                queue[i].Speed = MathF.Min(queue[i].Speed, queue[i - 1].Speed);
+                PenetrationClampCount++;
             }
         }
     }

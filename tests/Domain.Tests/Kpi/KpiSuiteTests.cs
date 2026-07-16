@@ -61,6 +61,13 @@ public class KpiSuiteTests
         // to discharge a queue already moving.
         Assert.True(metrics["diag.signal.h5"] > metrics["diag.signal.h4"],
             "diag.signal.h5 (first entry of the next cycle) should exceed h4 (an intra-cycle headway) — it is dominated by the red wait");
+
+        // The genuine intra-cycle headways (h2..h4 — followers discharging within the
+        // same green) must sit in a sane car-following band. The range is intentionally
+        // wide enough to survive the later M6.5 tuning tasks: headways should drop
+        // toward ~2 s as IDM+/launch/anticipation land, but never below 1 s.
+        for (int i = 2; i <= 4; i++)
+            Assert.InRange(metrics[$"diag.signal.h{i}"], 1f, 6f);
     }
 
     [Fact]
