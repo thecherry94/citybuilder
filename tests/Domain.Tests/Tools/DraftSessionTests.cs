@@ -34,6 +34,36 @@ public class DraftSessionTests
     }
 
     [Fact]
+    public void EventsFireOnPlaceAndCommit()
+    {
+        var (n, s) = Setup();
+        int placed = 0, committed = 0, rejected = 0;
+        s.HandlePlaced += () => placed++;
+        s.Committed += () => committed++;
+        s.Rejected += () => rejected++;
+        s.SetMode(DraftMode.Straight);
+        ClickAt(s, 0, 0);
+        ClickAt(s, 100, 0);
+        Assert.Equal(2, placed);
+        Assert.Equal(1, committed);
+        Assert.Equal(0, rejected);
+        Assert.Single(n.Edges);
+    }
+
+    [Fact]
+    public void RejectedFiresOnInvalidCompletion()
+    {
+        var (n, s) = Setup();
+        int rejected = 0;
+        s.Rejected += () => rejected++;
+        s.SetMode(DraftMode.Straight);
+        ClickAt(s, 0, 0);
+        ClickAt(s, 5, 0); // TooShort → Adjustable
+        Assert.Equal(1, rejected);
+        Assert.Empty(n.Edges);
+    }
+
+    [Fact]
     public void StraightRoadCommitsInstantlyOnSecondClick()
     {
         var (n, s) = Setup();

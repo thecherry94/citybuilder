@@ -37,6 +37,12 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
     public (float LengthM, float AngleDeg, float? RadiusM)? Readout { get; private set; }
 
     public event Action<string>? Flashed;
+    /// <summary>A click appended a handle to the draft (game layer: placement click).</summary>
+    public event Action? HandlePlaced;
+    /// <summary>A proposal committed to the network (game layer: commit plop).</summary>
+    public event Action? Committed;
+    /// <summary>Completion or commit was refused (game layer: error blip).</summary>
+    public event Action? Rejected;
 
     public void SetMode(DraftMode mode)
     {
@@ -121,6 +127,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             return;
         }
         d.AddHandle(s, d.Handles.Count == 0 ? BoundTangent(s) : null);
+        HandlePlaced?.Invoke();
         if (!d.IsComplete)
         {
             Revalidate();
@@ -184,6 +191,8 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
                 Flashed?.Invoke("shape is not buildable here");
             else if (!validated.IsValid)
                 Flashed?.Invoke("invalid placement: " + string.Join(", ", validated.Errors));
+            if (validated is null || !validated.IsValid)
+                Rejected?.Invoke();
             State = SessionState.Adjustable;
             return;
         }
@@ -200,6 +209,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             Flashed?.Invoke(validated is null
                 ? "shape is not buildable here"
                 : "invalid placement: " + string.Join(", ", validated.Errors));
+            Rejected?.Invoke();
             State = SessionState.Adjustable;
             return;
         }
@@ -207,9 +217,11 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         if (!result.Success)
         {
             Flashed?.Invoke(result.FailureReason ?? "could not build");
+            Rejected?.Invoke();
             State = SessionState.Adjustable;
             return;
         }
+        Committed?.Invoke();
         if (result.DroppedSegments > 0)
             Flashed?.Invoke(result.DroppedSegments == 1
                 ? "1 segment degenerated while merging and was skipped"
