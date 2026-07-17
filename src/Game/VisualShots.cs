@@ -67,6 +67,13 @@ public partial class VisualShots : Node3D
 
                 scenario.PostBuild?.Invoke(network, sim, view);
 
+                Node? extra = null;
+                if (scenario.Extra is not null)
+                {
+                    extra = scenario.Extra(network);
+                    AddChild(extra);
+                }
+
                 if (scenario.Name == OS.GetEnvironment("CITYBUILDER_SHOTS_DUMP"))
                     DumpMarkingQuads(view);
 
@@ -106,6 +113,7 @@ public partial class VisualShots : Node3D
                 overlay?.QueueFree();
                 trafficView?.QueueFree();
                 lampView?.QueueFree();
+                extra?.QueueFree();
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             }
 
@@ -164,7 +172,10 @@ public partial class VisualShots : Node3D
         // scenarios that need to react to the built network/sim (e.g. the speed
         // heatmap tints edges from sampled vehicle speeds). Sim is null when the
         // scenario has no Traffic.
-        Action<RoadNetwork, CityBuilder.Domain.Traffic.TrafficSim?, RoadNetworkView>? PostBuild = null);
+        Action<RoadNetwork, CityBuilder.Domain.Traffic.TrafficSim?, RoadNetworkView>? PostBuild = null,
+        // Extra scene content (e.g. GhostViews showing live snap states) added after
+        // Build and freed with the scenario.
+        Func<RoadNetwork, Node>? Extra = null);
 
     private static Shot Top(NVec target, float dist) => new("top", target, dist, -89f, 0f);
     private static Shot Oblique(NVec target, float dist) => new("oblique", target, dist, -35f, 30f);
@@ -593,6 +604,81 @@ public partial class VisualShots : Node3D
                 float shade = ratio * ratio;
                 view.SetEdgeTint(edge.Id, new Color(1f - shade, shade, 0f));
             }
+        });
+
+        yield return SnapGallery();
+    }
+
+    private static Scenario SnapGallery()
+    {
+        return new Scenario("m675_snap_gallery", n =>
+        {
+            // stations 1+2 (x≈0): node-capture ring + edge tick on a T junction
+            Commit(n, Straight(new(-60, 0, 0), new(60, 0, 0)));
+            Commit(n, Straight(new(0, 0, 0), new(0, 0, 60)));
+            // station 3 (x≈200): two distant roads for the perpendicular guide crossing
+            Commit(n, Straight(new(140, 0, 0), new(200, 0, 0)));
+            Commit(n, Straight(new(250, 0, 60), new(330, 0, 60)));
+            // stations 4+5 (x≈400/580): edge for the perpendicular-arrival glyph;
+            // 580 sits on the continuation guide of the x=460 end, harmlessly
+            Commit(n, Straight(new(360, 0, 0), new(460, 0, 0)));
+        }, new[]
+        {
+            new Shot("node_ring", new NVec(57, 0, 1), 26, -55f, 20f),
+            new Shot("edge_tick", new NVec(-30, 0, 1), 26, -55f, 20f),
+            new Shot("guide_cross", new NVec(205, 0, 50), 60, -60f, 15f),
+            new Shot("perp_glyph", new NVec(402, 0, 20), 55, -60f, 15f),
+            new Shot("angle_ticks", new NVec(592, 0, 10), 50, -60f, 15f),
+        }, Extra: n =>
+        {
+            var root = new Node3D { Name = "snap_gallery" };
+
+            // each station drives a real DraftSession into the target snap state and
+            // renders its ghost with its own GhostView once the node enters the tree
+            void Station(Action<DraftSession> drive,
+                Func<DraftSession, RoadNetwork, (NVec? tan, NVec? refDir, NVec? anchor)>? extras = null)
+            {
+                var session = new DraftSession(n, new SnapEngine(n));
+                session.SetMode(DraftMode.Straight);
+                var ghost = new GhostView();
+                root.AddChild(ghost);
+                ghost.Ready += () =>
+                {
+                    drive(session);
+                    var (tan, refDir, anchor) = extras?.Invoke(session, n) ?? (null, null, null);
+                    ghost.Show(session.Ghost, session.LastSnap,
+                        session.Draft?.Handles.Select(h => h.Position).ToArray(),
+                        -1, tan, refDir, anchor);
+                };
+            }
+
+            // 1: hard node capture — cursor on the leg 3 m from the T-junction end node
+            Station(s => s.PointerMoved(new NVec(57, 0, 0.5f), 6f));
+            // 2: edge tick mid-span (tangent passed like ToolController does)
+            Station(s => s.PointerMoved(new NVec(-30, 0, 2f), 6f),
+                (s, net) => (s.LastSnap.Edge is { } e ? net.Edges[e.Edge].Curve.Tangent(e.T) : null, null, null));
+            // 3: guide intersection — perp guide off (200,0) × continuation of (250,60)
+            Station(s => s.PointerMoved(new NVec(201, 0, 59), 6f));
+            // 4: perpendicular arrival — draft anchored above the road, Edges snap off
+            // so the foot candidate wins over the edge underneath the cursor
+            Station(s =>
+            {
+                s.EnabledSnaps &= ~SnapTypes.Edges;
+                s.Click(new NVec(400, 0, 60), 6f);
+                s.PointerMoved(new NVec(403, 0, 0.5f), 6f);
+            });
+            // 5: angle badge + 8 m cell ticks — free-space draft, 46° drag; radius 3
+            // keeps the CellLength candidate out of range so the angle fallback
+            // (which then quantizes length) is what fires
+            Station(s =>
+            {
+                s.EnabledSnaps |= SnapTypes.CellLength;
+                s.Click(new NVec(580, 0, 0), 6f);
+                float rad = 46f * MathF.PI / 180f;
+                s.PointerMoved(new NVec(580, 0, 0) + 27.3f * new NVec(MathF.Cos(rad), 0, MathF.Sin(rad)), 3f);
+            }, (s, _) => (null, new NVec(1, 0, 0), new NVec(580, 0, 0)));
+
+            return root;
         });
     }
 
