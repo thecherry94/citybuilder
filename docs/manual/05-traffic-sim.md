@@ -169,9 +169,10 @@ The cost model (`Movements`, `RoutePlanner.cs:82-105`, `TurnCost`/`RowCost`,
 stop-controlled shortcuts, not just the fastest edges by travel time:
 
 - **Turn cost**: Straight 0, Right 1.5 s, Left 4 s, U-turn 8 s — a left is penalized nearly
-  3× a right because it's slower and riskier to execute in the sim; `ConnectorSpeed`'s own
-  10 vs 9 m/s gap doesn't capture that fully, so the *routing* layer separately bakes in
-  "avoid unnecessary lefts."
+  3× a right because it's slower and riskier to execute in the sim; `ConnectorSpeed`'s
+  curvature-based values (M6.5: `√(2.2·Rmin)`, so a given junction's left is usually only
+  marginally faster than its right) don't capture that risk at all, so the *routing* layer
+  separately bakes in "avoid unnecessary lefts."
 - **Control delay cost**: Yield 2 s, Stop 4 s, Signal 5 s, Free 0 s — a proxy for expected
   wait, added atop the geometric edge-time term so the planner detours around a stop sign
   onto a slightly longer Free-flowing road if the total is cheaper. `docs/conventions.md`
@@ -299,9 +300,10 @@ stamped once, at the stop-line wall in `ComputeAccel` (`TrafficSim.cs:222-223`) 
 `FifoTurn` (`JunctionArbiter.cs:160-176`).
 
 **Connector speeds** (already an IDM input above) double as the routing-cost justification
-for why lefts are expensive: 10 m/s for a Left is a plausible geometric arc speed, not a
-penalty — the penalty lives in `RoutePlanner.LeftPenalty` instead; the two constants are
-independent but push the same direction.
+for why lefts are expensive: since M6.5 a turn's speed is its genuine geometric arc speed
+(`√(LateralComfort·Rmin)`, clamped [4, straight], U-turn ≤ 6 m/s — see the constants
+table), not a penalty — the penalty lives in `RoutePlanner.LeftPenalty` instead; the two
+mechanisms are independent but push the same direction.
 
 ## Lane changes
 
@@ -387,7 +389,8 @@ either way since `ConflictApproachClear` doesn't care *which* Row got it to the 
 1. **Approach** (`DesiredSpeed`, `remaining > 40m`): cruising at the leg's speed limit, no
    constraint yet.
 2. **Inside 40 m of the cut**: `DesiredSpeed` starts bending `v0` down toward the Left
-   connector's comfortable-braking envelope (`ConnectorSpeed` = 10 m/s for Left), so the car
+   connector's comfortable-braking envelope (`ConnectorSpeed` from the connector's actual
+   curvature — for a typical cross-junction left, roughly 5–7 m/s since M6.5), so the car
    is already decelerating smoothly before it reaches the line — no separate "turn signal"
    state, just the IDM `v0` term shifting.
 3. **Inside the stop-line zone / at the line**: every tick, `ComputeAccel` calls `MayEnter`.
@@ -400,8 +403,9 @@ either way since `ConflictApproachClear` doesn't care *which* Row got it to the 
    an abrupt one. `v.BlockedAtLine = true` fires, and if this is the first tick I'm within
    the stop-line zone, `WaitArrivalOrder` is stamped.
 4. **Waiting**: each tick blocked adds to `JunctionWait`, which shrinks `AcceptedGap`
-   (`2.8 − 0.03·wait`) toward its 2.2 s floor — the longer I sit, the smaller a gap I'll
-   accept. Note `DeadlockBreak` does *not* apply here: it only fires for `cmp == 0`
+   (`2.8 − 0.03·wait + profileOffset`) toward its per-driver floor (2.6 timid / 2.2 mean /
+   1.8 aggressive since M6.5; this example's mean driver floors at the classic 2.2 s) —
+   the longer I sit, the smaller a gap I'll accept. Note `DeadlockBreak` does *not* apply here: it only fires for `cmp == 0`
    (equal-rank) standoffs, and this movement's `cmp` is `> 0` against the oncoming straight,
    so the only way out of this wait is a genuine gap opening in the oncoming stream — the
    deadlock breaker's domain is a different scenario, e.g. two equal-rank straights at an

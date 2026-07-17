@@ -30,16 +30,18 @@
 | JunctionBuilder CornerMargin / MaxCutFraction / MaxExtra | 0.5 m / 30 % / 12 m |
 | Snap radius | camDist × 0.02, clamped [1, 20] |
 | Vehicle length | 4.5 m |
-| IDM T / s0 / a / b | 0.95 s / 2 m / 2.6 / 2.8 m/s² (`T` tightened for M5 assertiveness; was 1.1 s) |
+| IDM T / s0 / a / b | 0.95 s / 2 m / 2.6 / 2.8 m/s² (`T` tightened for M5 assertiveness; was 1.1 s). M6.5: IDM+ min-form (`a·min(free, 1−ratio²)`, Schakel et al.); launch boost `LaunchA` 3.5 m/s² fading to `a` by 5 m/s, sign-guarded to never amplify braking on either branch |
+| Driver personality (`Vehicle.Profile`, seeded at spawn) | desired speed ×(0.85 + 0.35·Profile), capped by the turn-approach envelope AFTER scaling; connector speeds not scaled |
 | MOBIL gain / safe / urgent follower decel | 0.3 / 2.5 / 4.0 m/s² |
 | Lane change duration / mandatory window / lock-in | 2 s / 80 m / 25 m |
-| Gap acceptance (impatience, `JunctionArbiter.AcceptedGap`) | `max(2.2, 2.8 − 0.03·waitSeconds)` s — 2.8 s fresh, shrinking to a 2.2 s floor the longer a vehicle waits at the line |
+| Gap acceptance (impatience + personality, `JunctionArbiter.AcceptedGap`) | `max(2.2 + offset, 2.8 − 0.03·waitSeconds + offset)` s with `offset = 0.4 − 0.8·Profile` — the whole curve incl. its floor shifts per driver: floors 2.6 (timid) / 2.2 (mean, bit-identical to pre-M6.5) / 1.8 (aggressive) |
+| Spillback anticipation (`JunctionArbiter.MayEnter`) | exit-lane occupant projected `SpillbackAnticipationSec = 0.7` s ahead in the entry-space check (stopped occupant projects to itself — standstill blocking unchanged); THE M6.5 discharge fix, soaked at 3×10k fuzz |
 | ClearMargin (past-point clearance, `JunctionArbiter`) | 0.5 m — an occupant on a conflicting connector still blocks entry until its `S` has advanced past `conflictPointS + Vehicle.Length + 0.5` (rear bumper clear of the conflict point by 0.5 m) |
 | DeadlockBreakSec (`JunctionArbiter`) | 6 s — once a vehicle has waited this long it ignores a stationary equal-rank rival with a later (or no) arrival ticket |
 | Movement rank (`JunctionArbiter.MovementRank`, lexicographic `(Row, Turn)`, higher wins both axes) | Row: Free/Signal-green 3, Yield 2, Stop 1. Turn: Straight 3, Right 2, Left 1, U-turn 0 |
 | Right-hand-rule window (`JunctionArbiter.ApproachesFromMyRight`) | signed angle `atan2(cross, dot)` between the two connectors' entry tangents, open interval (−150°, −30°) |
 | Signals green/amber/all-red | 12 / 3 / 1 s |
-| Connector speeds (`TrafficSim.ConnectorSpeed`) | Straight = `min(fromEdge.SpeedLimit, toEdge.SpeedLimit)` (priority traffic doesn't brake for junctions); Right 9 m/s; Left 10 m/s; U-turn 5 m/s |
+| Connector speeds (`TrafficSim.ConnectorSpeed`) | Straight = `min(fromEdge.SpeedLimit, toEdge.SpeedLimit)` (priority traffic doesn't brake for junctions); turns/U-turns curvature-based since M6.5: `√(LateralComfort·Rmin)` with `LateralComfort = 2.2 m/s²`, clamped [4 m/s, straight speed], U-turns further capped 6 m/s; cached per connector, cleared on resync |
 | Speed limits (from `DesignSpeedKmh`) | TwoLane 80, FourLane 100, Street 50, Avenue 60, OneWay 50, Asymmetric 60 km/h |
 
 ## Road type profiles (M5 additions)

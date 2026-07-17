@@ -17,9 +17,11 @@ road width (up to 16–21 m), and is *not* the small fixed `NodeReuseRadius` (0.
 two are easy to conflate. See [02 · How commits work](02-network-validation.md#how-commits-work).
 
 **AcceptedGap / impatience** — The gap-acceptance threshold a waiting vehicle demands
-before entering a junction: `max(2.2, 2.8 − 0.03·JunctionWait)` seconds. It shrinks the
-longer a car waits at the line — one of the two M5 assertiveness levers (with `Idm.T`)
-that fixed "minor-road cars clog junctions forever." See [05 · Junction arbitration](05-traffic-sim.md#junction-arbitration).
+before entering a junction: `max(2.2 + offset, 2.8 − 0.03·JunctionWait + offset)` seconds,
+where `offset = 0.4 − 0.8·Profile` (M6.5) shifts the whole curve per driver — floors 2.6
+(timid) / 2.2 (mean, the original M5 behavior) / 1.8 (aggressive). It shrinks the longer a
+car waits at the line — one of the two M5 assertiveness levers (with `Idm.T`) that fixed
+"minor-road cars clog junctions forever." See [05 · Junction arbitration](05-traffic-sim.md#junction-arbitration).
 
 **AdjustMode** — A session-level toggle (not a `DraftSession.State`) forcing every
 completed, valid gesture to stop at `Adjustable` for manual confirmation instead of
