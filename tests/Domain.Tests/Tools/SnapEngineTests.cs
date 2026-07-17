@@ -27,6 +27,29 @@ public class SnapEngineTests
     }
 
     [Fact]
+    public void NodeCaptureBeatsEdgeOnLeg()
+    {
+        // THE T-junction complaint: cursor ON the edge (dist 0.5) but 3.04 m from the
+        // node — inside the hard-capture ring (0.6 × 6 = 3.6). Node must win outright;
+        // the old weight scoring gave the edge score 0.25 vs node 0.76 and slid forever.
+        var (n, snap) = Setup();
+        var result = snap.Resolve(new Vector3(97f, 0, 0.5f), 6f, SnapTypes.All, SnapContext.Empty);
+        Assert.Equal(SnapKind.Node, result.Kind);
+        Assert.Equal(new Vector3(100, 0, 0), result.Position);
+    }
+
+    [Fact]
+    public void SoftZonePreservesEdgeForMidSpanIntent()
+    {
+        // node 4.90 m away — outside the capture ring (3.6), inside the resolve radius:
+        // weight scoring still lets the dead-on edge win, so mid-span splits near (but
+        // not at) a junction remain reachable.
+        var (_, snap) = Setup();
+        var result = snap.Resolve(new Vector3(95.2f, 0, 1.0f), 6f, SnapTypes.All, SnapContext.Empty);
+        Assert.Equal(SnapKind.Edge, result.Kind);
+    }
+
+    [Fact]
     public void EdgeSnapProjectsOntoCenterline()
     {
         var (_, snap) = Setup();

@@ -26,6 +26,12 @@ public sealed class SnapEngine(RoadNetwork network)
     public const float GuidelineSearch = 200f;
     public const float AngleStepDeg = 15f;
 
+    // Hard node capture (M6.75 spec §1): within this fraction of the resolve radius a
+    // node wins outright over every soft candidate — the T-junction "slides along the
+    // leg" fix. CS2 uses the same tier-then-distance architecture (net candidates
+    // score at a hard higher tier than guides/grid; see the M6.75 research notes).
+    public const float NodeCaptureFraction = 0.6f;
+
     // node is 4.0 (not the spec's sketched 3.0): with 3.0, a node 1.9 m away
     // loses to the edge underneath it 1.2 m away — the ported NodeBeatsEdge test fails
     public const float WeightNode = 4.0f;
@@ -44,7 +50,12 @@ public sealed class SnapEngine(RoadNetwork network)
 
         var candidates = new List<SnapCandidate>();
         if ((enabled & SnapTypes.Nodes) != 0)
+        {
+            if (HardNodeCapture(raw, radius, ctx) is { } captured)
+                return new SnapResult(captured.Position, SnapKind.Node, captured.Id, null, null,
+                    NearbyGuides(guidelines, captured.Position, radius));
             AddNodeCandidates(raw, radius, candidates);
+        }
         if ((enabled & SnapTypes.Edges) != 0)
             AddEdgeCandidates(raw, radius, candidates);
         if ((enabled & SnapTypes.Guidelines) != 0)
@@ -84,6 +95,25 @@ public sealed class SnapEngine(RoadNetwork network)
     }
 
     // ------------------------------------------------------------- producers
+
+    /// <summary>Nearest node inside the hard-capture ring, or null. Hysteresis (M6.75
+    /// spec §1) extends this via <see cref="SnapContext.HeldNode"/>.</summary>
+    private (NodeId Id, Vector3 Position)? HardNodeCapture(Vector3 raw, float radius, SnapContext ctx)
+    {
+        float captureR = NodeCaptureFraction * radius;
+        (NodeId Id, Vector3 Position)? best = null;
+        float bestDist = float.MaxValue;
+        foreach (var n in network.Nodes.Values)
+        {
+            float d = Vector3.Distance(n.Position, raw);
+            if (d <= captureR && d < bestDist)
+            {
+                bestDist = d;
+                best = (n.Id, n.Position);
+            }
+        }
+        return best;
+    }
 
     private void AddNodeCandidates(Vector3 raw, float radius, List<SnapCandidate> outList)
     {
