@@ -32,6 +32,12 @@ public sealed class SnapEngine(RoadNetwork network)
     // score at a hard higher tier than guides/grid; see the M6.75 research notes).
     public const float NodeCaptureFraction = 0.6f;
 
+    // Hysteresis (M6.75 spec §1): a captured node only releases when the cursor leaves
+    // ReleaseFactor × the capture ring — kills candidate flicker, CS2's top complaint.
+    // Node captures only; the engine stays stateless (the session remembers the held
+    // node between resolves via SnapContext.HeldNode).
+    public const float ReleaseFactor = 1.4f;
+
     // node is 4.0 (not the spec's sketched 3.0): with 3.0, a node 1.9 m away
     // loses to the edge underneath it 1.2 m away — the ported NodeBeatsEdge test fails
     public const float WeightNode = 4.0f;
@@ -111,6 +117,14 @@ public sealed class SnapEngine(RoadNetwork network)
                 bestDist = d;
                 best = (n.Id, n.Position);
             }
+        }
+        // the held node survives out to the release ring and wins ties; a different
+        // node captured strictly closer transfers the hold
+        if (ctx.HeldNode is { } heldId && network.Nodes.TryGetValue(heldId, out var held))
+        {
+            float dHeld = Vector3.Distance(held.Position, raw);
+            if (dHeld <= ReleaseFactor * captureR && dHeld <= bestDist)
+                best = (heldId, held.Position);
         }
         return best;
     }

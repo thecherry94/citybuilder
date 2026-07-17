@@ -18,6 +18,22 @@ public class DraftSessionTests
     private static void ClickAt(DraftSession s, float x, float z) => s.Click(new Vector3(x, 0, z), 5f);
 
     [Fact]
+    public void SessionHoldsNodeSnapWhileCursorDriftsAlongLeg()
+    {
+        // capture the node, then drift 4.9 m away along the edge: the session-threaded
+        // hold keeps the node; drifting past the release ring lets go.
+        var (n, s) = Setup();
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, 0), new Vector3(100, 0, 0)));
+        s.SetMode(DraftMode.Straight);
+        s.PointerMoved(new Vector3(98f, 0, 0.5f), 6f);
+        Assert.Equal(SnapKind.Node, s.LastSnap.Kind);
+        s.PointerMoved(new Vector3(95.2f, 0, 1.0f), 6f);
+        Assert.Equal(SnapKind.Node, s.LastSnap.Kind);
+        s.PointerMoved(new Vector3(90f, 0, 1.0f), 6f);
+        Assert.Equal(SnapKind.Edge, s.LastSnap.Kind);
+    }
+
+    [Fact]
     public void StraightRoadCommitsInstantlyOnSecondClick()
     {
         var (n, s) = Setup();

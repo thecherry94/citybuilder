@@ -38,7 +38,8 @@ public sealed record SnapContext(
     Vector3? Anchor,
     Vector3? ReferenceTangent,
     GridConfig? Grid = null,
-    RoadTypeId? DrawingType = null)
+    RoadTypeId? DrawingType = null,
+    NodeId? HeldNode = null)
 {
     public static readonly SnapContext Empty = new(null, null);
 }

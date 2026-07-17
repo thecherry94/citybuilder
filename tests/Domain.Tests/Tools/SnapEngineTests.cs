@@ -50,6 +50,57 @@ public class SnapEngineTests
     }
 
     [Fact]
+    public void HysteresisHoldsInsideReleaseRing()
+    {
+        // held node 4.90 m away: outside capture (3.6) but inside release (1.4 × 3.6 =
+        // 5.04) — the hold keeps it winning over the dead-on edge (contrast with
+        // SoftZonePreservesEdgeForMidSpanIntent, same cursor without a hold).
+        var (n, snap) = Setup();
+        var held = n.Nodes.Values.Single(x => x.Position == new Vector3(100, 0, 0)).Id;
+        var ctx = SnapContext.Empty with { HeldNode = held };
+        var result = snap.Resolve(new Vector3(95.2f, 0, 1.0f), 6f, SnapTypes.All, ctx);
+        Assert.Equal(SnapKind.Node, result.Kind);
+        Assert.Equal(held, result.Node);
+    }
+
+    [Fact]
+    public void HysteresisReleasesBeyondRing()
+    {
+        // 6.08 m from the held node > release ring 5.04 — hold drops, edge wins again.
+        var (n, snap) = Setup();
+        var held = n.Nodes.Values.Single(x => x.Position == new Vector3(100, 0, 0)).Id;
+        var ctx = SnapContext.Empty with { HeldNode = held };
+        var result = snap.Resolve(new Vector3(94f, 0, 1.0f), 6f, SnapTypes.All, ctx);
+        Assert.Equal(SnapKind.Edge, result.Kind);
+    }
+
+    [Fact]
+    public void HysteresisTransfersToNearerCapturedNode()
+    {
+        // a different node inside the capture ring and strictly closer than the held
+        // one takes over — no dead zone between adjacent junctions.
+        var (n, snap) = Setup();
+        Net.Commit(n, Net.Straight(new(100, 0, 6), new(200, 0, 6)));
+        var held = n.Nodes.Values.Single(x => x.Position == new Vector3(100, 0, 0)).Id;
+        var other = n.Nodes.Values.Single(x => x.Position == new Vector3(100, 0, 6)).Id;
+        var ctx = SnapContext.Empty with { HeldNode = held };
+        var result = snap.Resolve(new Vector3(100f, 0, 4f), 6f, SnapTypes.All, ctx);
+        Assert.Equal(SnapKind.Node, result.Kind);
+        Assert.Equal(other, result.Node);
+    }
+
+    [Fact]
+    public void StaleHeldNodeIsIgnored()
+    {
+        // held node bulldozed mid-gesture: the id no longer resolves — no crash,
+        // normal resolution.
+        var (_, snap) = Setup();
+        var ctx = SnapContext.Empty with { HeldNode = new NodeId(9999) };
+        var result = snap.Resolve(new Vector3(50f, 0, 3f), 5f, SnapTypes.All, ctx);
+        Assert.Equal(SnapKind.Edge, result.Kind);
+    }
+
+    [Fact]
     public void EdgeSnapProjectsOntoCenterline()
     {
         var (_, snap) = Setup();

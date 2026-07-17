@@ -278,7 +278,8 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             reference = d.StartTangent;
         }
         var ctx = new SnapContext(anchor, reference,
-            (EnabledSnaps & SnapTypes.Grid) != 0 ? Grid : null, RoadType);
+            (EnabledSnaps & SnapTypes.Grid) != 0 ? Grid : null, RoadType,
+            HeldNode: LastSnap.Kind == SnapKind.Node ? LastSnap.Node : null);
         return snap.Resolve(raw, radius, EnabledSnaps, ctx);
     }
 
