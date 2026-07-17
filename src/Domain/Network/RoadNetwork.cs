@@ -565,11 +565,18 @@ public sealed partial class RoadNetwork
         if (!_edges.TryGetValue(id, out var edge))
             return;
 
+        // any roundabout touched by this removal (approach or ring edge) re-arcs afterward
+        foreach (var nid in new[] { edge.StartNode, edge.EndNode })
+            if (_nodes.TryGetValue(nid, out var nd) && nd.Ring is { } rid)
+                _dirtyRoundabouts.Add(rid);
+
         BeginBatch();
         RemoveEdgeInternal(edge);
         foreach (var nodeId in new[] { edge.StartNode, edge.EndNode })
             HandleNodeAfterRemoval(nodeId);
         EndBatch();
+
+        DrainDirtyRoundabouts();
     }
 
     private void HandleNodeAfterRemoval(NodeId nodeId)

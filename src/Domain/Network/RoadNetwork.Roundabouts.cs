@@ -6,6 +6,31 @@ namespace CityBuilder.Domain.Network;
 
 public sealed partial class RoadNetwork
 {
+    // roundabouts whose ring must be re-arced after the current edit's batch closes.
+    // Drained by DrainDirtyRoundabouts (each regenerate opens its own batch).
+    private readonly HashSet<RoundaboutId> _dirtyRoundabouts = new();
+    private bool _draining;
+
+    /// <summary>Re-arc every roundabout marked dirty by the just-closed edit batch. Runs
+    /// each regenerate in its own batch; re-entrancy-guarded.</summary>
+    internal void DrainDirtyRoundabouts()
+    {
+        if (_draining)
+            return;
+        _draining = true;
+        try
+        {
+            while (_dirtyRoundabouts.Count > 0)
+            {
+                var id = _dirtyRoundabouts.First();
+                _dirtyRoundabouts.Remove(id);
+                if (_roundabouts.TryGetValue(id, out var rb))
+                    Regenerate(id, rb.Radius);
+            }
+        }
+        finally { _draining = false; }
+    }
+
     /// <summary>Find the roundabout a node belongs to, if any (ring nodes only).</summary>
     public Roundabout? RoundaboutForNode(NodeId n)
         => _nodes.TryGetValue(n, out var node) && node.Ring is { } id && _roundabouts.TryGetValue(id, out var rb)

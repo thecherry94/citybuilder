@@ -129,4 +129,30 @@ public class RoundaboutTests
         n.ConvertToRoundabout(center, 20f);
         Assert.Equal(RoundaboutError.UnknownRoundabout, n.SetRoundaboutRadius(new RoundaboutId(999), 25f).Error);
     }
+
+    [Fact]
+    public void BulldozingAnApproachReArcsRing()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        var leg = n.Edges.Values.First(e => IsApproach(n, e));
+        n.RemoveEdge(leg.Id);
+        Assert.Empty(NetworkInvariants.Check(n));
+        // 4 → 3 approaches; still a live roundabout
+        Assert.True(n.Roundabouts.ContainsKey(id));
+        Assert.Equal(3, n.Edges.Values.Count(e => IsApproach(n, e)));
+    }
+
+    [Fact]
+    public void BulldozingDownToTwoApproachesDissolves()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        var legs = n.Edges.Values.Where(e => IsApproach(n, e)).Select(e => e.Id).ToList();
+        n.RemoveEdge(legs[0]);
+        n.RemoveEdge(legs[1]); // now 2 approaches
+        Assert.False(n.Roundabouts.ContainsKey(id));
+        Assert.DoesNotContain(n.Nodes.Values, x => x.Ring != null);
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
 }
