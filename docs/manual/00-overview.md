@@ -58,7 +58,7 @@ flowchart TB
         JB[JunctionBuilder + JunctionControl + SignalController  ch.03]
         CB[ConnectorBuilder + LaneGraph  ch.04]
         SIM[TrafficSim + Idm + JunctionArbiter + RoutePlanner  ch.05]
-        PERS[Persistence: SaveLoad + RestoreInto  ch.08]
+        PERS[Persistence: SaveLoad + RestoreInto + UndoStack  ch.08]
         CAT[(RoadCatalog — 6 road types)]
     end
     TC -->|clicks| DS

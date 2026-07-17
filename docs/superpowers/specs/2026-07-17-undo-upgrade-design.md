@@ -162,6 +162,21 @@ Fix, minimal and safe:
 - DoD: 3×10k cert fuzz, KPI rerun + `docs/health/M7.md`, manual drift (ch02 heal/
   retype/flip, ch08 undo, 00 overview, glossary), conventions constants, roadmap.
 
+## Implementation notes (deltas from this spec, recorded at ship time)
+
+- **`RoadEdge` stayed fully immutable** — retype/flip swap a *new* `RoadEdge` with the
+  same `EdgeId` into the dictionaries (`ReplaceEdgeInPlace`); node `EdgeSet`s hold ids
+  so no visibility changes were needed at all (the spec's "internally settable"
+  clause turned out unnecessary).
+- **Retype-under-traffic coverage** is provided by the fuzzer's burst checks running
+  after retype actions (every 25 actions) rather than a bespoke spawn-on-retyped-edge
+  test — same seam, standing coverage.
+- The heal-fix code landed inside the T2/T3 commit (`9d61778`) with its tests in
+  `c1dc452` — a background-gate commit boundary slip, content fully tested either way.
+- Smoke's flip scenario asserts both directions: a flipped one-way loop edge *breaks*
+  strong connectivity (expected), flip-back restores it, and undo replays the broken
+  state — the connectivity gate doubles as flip evidence.
+
 ## Testing seams / risks
 
 - **Undo across traffic**: vehicles are not part of snapshots (same as quicksave);

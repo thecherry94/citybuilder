@@ -18,7 +18,7 @@ public class KpiSuiteTests
     /// <summary>Controls the report filename: docs/health/{Milestone}.md. Bump this
     /// when a milestone's KPI pass starts; earlier milestone reports stay in git
     /// history under their own filename (never deleted).</summary>
-    private const string Milestone = "M6.75";
+    private const string Milestone = "M7";
 
     private const float BandPct = 0.25f;
     private const float ValidateCeilingMs = 150f;

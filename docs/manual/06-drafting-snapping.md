@@ -31,7 +31,8 @@ explained.
   `.Cancel`, `.Confirm`, `.TryBeginHandleDrag`/`.EndHandleDrag`,
   `.ReleaseTangentLock`. Events out: `Flashed` (human-readable status),
   `HandlePlaced` / `Committed` / `Rejected` (M6.75 — the game layer maps these to
-  click/plop/blip sounds; pure C# events, no Godot).
+  click/plop/blip sounds; pure C# events, no Godot), `BeforeCommit` (M7 — fires just
+  before a validated proposal commits; the undo-checkpoint hook).
 - **Used by:** `src/Game`'s `ToolController` (not in this chapter's scope) forwards
   raw pointer input 1:1 to these methods and renders `Draft`/`Ghost`/`LastSnap`/
   `Readout`; `GestureFuzzer` drives the identical surface headlessly for invariant
