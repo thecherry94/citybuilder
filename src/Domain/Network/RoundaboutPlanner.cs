@@ -78,6 +78,10 @@ public static class RoundaboutPlanner
             var trimmed = Trim(leg, center, radius);
             if (trimmed.Length() < RoadCatalog.Get(leg.Type).MinSegmentLength)
                 return Fail(RoundaboutError.LegTooShort);
+            // the approach must meet the ring clear of the ring tangent, or the ring node
+            // would carry two legs closer than the junction floor (a sharp leg)
+            if (!MeetsRingCleanly(trimmed, leg.EndsAtCenter, bearing))
+                return Fail(RoundaboutError.ApproachTooTangential);
             slots.Add(new RingSlot(bearing, pos, leg, trimmed, leg.EndsAtCenter));
         }
 
@@ -117,6 +121,28 @@ public static class RoundaboutPlanner
             minSubSpan = MathF.Min(minSubSpan, span / subs);
         }
         return RoadCatalog.OneWay.MinSegmentLength / minSubSpan;
+    }
+
+    // approach leg direction leaving the ring node, vs the ring tangent at that bearing:
+    // must clear the junction angle floor from BOTH tangent directions, else conversion
+    // would produce a sharp leg at the ring node.
+    private static bool MeetsRingCleanly(in Bezier3 trimmed, bool endsAtCenter, float bearing)
+    {
+        var outward = endsAtCenter ? -trimmed.Tangent(1) : trimmed.Tangent(0);
+        var tangent = new Vector3(-MathF.Sin(bearing), 0, MathF.Cos(bearing)); // CCW ring tangent
+        float a = AngleDegXZ(outward, tangent);
+        float b = AngleDegXZ(outward, -tangent);
+        return MathF.Min(a, b) >= RoadNetwork.MinJunctionAngleDeg;
+    }
+
+    private static float AngleDegXZ(Vector3 u, Vector3 v)
+    {
+        var a = new Vector2(u.X, u.Z);
+        var b = new Vector2(v.X, v.Z);
+        if (a.LengthSquared() < 1e-12f || b.LengthSquared() < 1e-12f)
+            return 180f;
+        float cos = Math.Clamp(Vector2.Dot(Vector2.Normalize(a), Vector2.Normalize(b)), -1f, 1f);
+        return MathF.Acos(cos) * 180f / MathF.PI;
     }
 
     private static Vector3 OutwardDir(ApproachLeg leg)

@@ -2,6 +2,7 @@ using System.Linq;
 using System.Numerics;
 using CityBuilder.Domain.Catalog;
 using CityBuilder.Domain.Network;
+using CityBuilder.Domain.Tools;
 using Xunit;
 
 namespace CityBuilder.Domain.Tests.Network;
@@ -141,6 +142,44 @@ public class RoundaboutTests
         // 4 → 3 approaches; still a live roundabout
         Assert.True(n.Roundabouts.ContainsKey(id));
         Assert.Equal(3, n.Edges.Values.Count(e => IsApproach(n, e)));
+    }
+
+    [Fact]
+    public void RingEdgesAreImmutableToRetypeAndFlip()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        var ringEdge = n.Roundabouts[id].RingEdges[0];
+        Assert.Equal(RetypeError.Locked, n.RetypeEdge(ringEdge, RoadCatalog.Street.Id));
+        Assert.False(n.FlipEdge(ringEdge));
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
+    public void ConfiguringARingNodeIsIgnored()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        var ringNode = n.Nodes.Values.First(x => x.Ring == id && x.Edges.Count == 3);
+        n.ConfigureJunction(ringNode.Id, ringNode.Config with { Mode = JunctionControlMode.AllWayStop });
+        Assert.Empty(NetworkInvariants.Check(n)); // yield-on-entry preserved
+    }
+
+    [Fact]
+    public void DrawingOntoARingNodeIsRefused()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        var ringNode = n.Nodes.Values.First(x => x.Ring == id && x.Edges.Count == 3);
+        var prop = new PlacementProposal(new[]
+        {
+            new ProposedCurve(
+                CityBuilder.Domain.Geometry.Bezier3.Line(ringNode.Position + new Vector3(20, 0, 60), ringNode.Position),
+                EndpointBinding.None, new EndpointBinding.AtNode(ringNode.Id))
+        }, RoadCatalog.TwoLane.Id);
+        var v = n.Validate(prop);
+        Assert.False(v.IsValid);
+        Assert.Contains(PlacementError.TouchesRoundabout, v.Errors);
     }
 
     [Fact]

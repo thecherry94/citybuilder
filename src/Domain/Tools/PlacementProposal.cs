@@ -24,13 +24,14 @@ public sealed record ProposedCurve(Bezier3 Curve, EndpointBinding Start, Endpoin
 
 public sealed record PlacementProposal(IReadOnlyList<ProposedCurve> Curves, RoadTypeId Type);
 
-/// <summary>Why an in-place retype was refused (M7 upgrade tool).</summary>
-public enum RetypeError { UnknownEdge, SameType, TooShort, TooTight }
+/// <summary>Why an in-place retype was refused (M7 upgrade tool). <c>Locked</c>: the edge
+/// is a roundabout ring edge, owned by the roundabout and not directly editable (M7.5).</summary>
+public enum RetypeError { UnknownEdge, SameType, TooShort, TooTight, Locked }
 
 public enum PlacementError
 {
     TooShort, SelfIntersecting, Overlapping, CrossingTooShallow,
-    RadiusTooTight, SharpAngle, Kinked,
+    RadiusTooTight, SharpAngle, Kinked, TouchesRoundabout,
 }
 
 /// <summary>Result of dry-running a proposal against the network. Only a valid,

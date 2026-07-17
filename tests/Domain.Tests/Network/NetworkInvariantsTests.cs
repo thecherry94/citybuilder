@@ -19,12 +19,21 @@ public class NetworkInvariantsTests
     [Fact]
     public void CorruptedRingEdgeTypeIsFlagged()
     {
+        // Ring edges are locked against RetypeEdge, so corrupt one via a hand-edited save
+        // (Street and OneWay share a 4-lane profile, so the load stays structurally valid).
         var n = RoundaboutTests.FourWayJunction(out var center);
         var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
-        var ringEdge = n.Roundabouts[id].RingEdges[0];
-        Assert.Null(n.RetypeEdge(ringEdge, RoadCatalog.Street.Id)); // succeeds; ring now mistyped
-        var violations = NetworkInvariants.Check(n);
-        Assert.Contains(violations, v => v.Contains("not OneWay"));
+        var ringEdge = n.Roundabouts[id].RingEdges[0].Value;
+
+        var game = System.Text.Json.JsonSerializer.Deserialize<CityBuilder.Domain.Persistence.SaveGame>(
+            CityBuilder.Domain.Persistence.SaveLoad.Save(n))!;
+        var edges = game.Edges
+            .Select(e => e.Id == ringEdge ? e with { Type = RoadCatalog.Street.Id.Value } : e)
+            .ToArray();
+        var corrupt = System.Text.Json.JsonSerializer.Serialize(game with { Edges = edges });
+
+        var loaded = CityBuilder.Domain.Persistence.SaveLoad.Load(corrupt);
+        Assert.Contains(NetworkInvariants.Check(loaded), v => v.Contains("not OneWay"));
     }
 
     [Fact]

@@ -91,6 +91,9 @@ public sealed partial class RoadNetwork
             if (OverlapsExisting(pc, proposal.Type))
                 errors.Add(PlacementError.Overlapping);
 
+            if (TouchesRoundabout(pc))
+                errors.Add(PlacementError.TouchesRoundabout);
+
             Vector3 a = pc.Curve.Point(0), b = pc.Curve.Point(1);
             bool shallow = false, sliver = false;
             var crossParams = new List<float>();
@@ -627,6 +630,9 @@ public sealed partial class RoadNetwork
         var farB = edges[1].OtherNode(node.Id);
         if (farA == farB)
             return; // would create a loop edge; keep the node
+        if (_nodes[farA].Ring != null || _nodes[farB].Ring != null)
+            return; // merged edge would attach to a ring node — a roundabout-owned approach
+                    // must not be recreated with a new EdgeId; keep the node
 
         var type = edges[0].Type;
         RemoveEdgeInternal(edges[0]);
@@ -720,6 +726,8 @@ public sealed partial class RoadNetwork
     {
         if (!_nodes.TryGetValue(id, out var node))
             throw new ArgumentException($"unknown node {id}");
+        if (node.Ring != null)
+            return; // ring-node control is owned by the roundabout, not hand-editable
         node.Config = Prune(config, node.EdgeSet);
         RebuildDerived(node);
         Version++;
@@ -737,6 +745,8 @@ public sealed partial class RoadNetwork
     {
         if (!_edges.TryGetValue(id, out var edge))
             return RetypeError.UnknownEdge;
+        if (IsRingEdge(id))
+            return RetypeError.Locked; // ring edges are owned by the roundabout
         if (edge.Type == newType)
             return RetypeError.SameType;
         var type = RoadCatalog.Get(newType);
@@ -756,6 +766,8 @@ public sealed partial class RoadNetwork
     {
         if (!_edges.TryGetValue(id, out var edge))
             return false;
+        if (IsRingEdge(id))
+            return false; // ring edges are owned by the roundabout
         ReplaceEdgeInPlace(edge, edge.EndNode, edge.StartNode, edge.Curve.Reversed(), edge.Type);
         return true;
     }
@@ -800,7 +812,10 @@ public sealed partial class RoadNetwork
     /// Order matters: connectors start at the junction cuts.</summary>
     private void RebuildDerived(RoadNode node)
     {
-        node.Config = Prune(node.Config, node.EdgeSet);
+        // Ring-node control is derived fresh from ring membership every rebuild (not stored
+        // per-edge), so any approach churn — split, heal, retype, flip — that changes an
+        // approach's EdgeId still yields on entry after the node is touched.
+        node.Config = node.Ring != null ? RingNodeConfig(node) : Prune(node.Config, node.EdgeSet);
         node.Junction = JunctionBuilder.Build(node, _edges);
         node.Connectors = ConnectorBuilder.Build(node, _edges);
         node.ConnectorConflicts = ConnectorBuilder.BuildConflicts(node.Connectors);

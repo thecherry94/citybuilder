@@ -75,13 +75,16 @@ public static class GestureFuzzer
             try
             {
                 int pick = rng.Next(100);
-                if (pick < 45) { undo.Checkpoint(); DrawGesture(session, network, rng, Log); }
-                else if (pick < 60) { undo.Checkpoint(); Bulldoze(network, rng, Log); }
-                else if (pick < 70) { undo.Checkpoint(); ConfigureJunctionAction(network, rng, Log); }
-                else if (pick < 78) { undo.Checkpoint(); Retype(network, rng, Log); }
-                else if (pick < 83) { undo.Checkpoint(); Flip(network, rng, Log); }
-                else if (pick < 90) UndoRedo(undo, session, rng, Log);
-                else if (pick < 95) ToggleSnap(session, rng, Log);
+                if (pick < 42) { undo.Checkpoint(); DrawGesture(session, network, rng, Log); }
+                else if (pick < 56) { undo.Checkpoint(); Bulldoze(network, rng, Log); }
+                else if (pick < 65) { undo.Checkpoint(); ConfigureJunctionAction(network, rng, Log); }
+                else if (pick < 72) { undo.Checkpoint(); Retype(network, rng, Log); }
+                else if (pick < 77) { undo.Checkpoint(); Flip(network, rng, Log); }
+                else if (pick < 82) { undo.Checkpoint(); ConvertRoundabout(network, rng, Log); }
+                else if (pick < 85) { undo.Checkpoint(); AdjustRoundaboutRadius(network, rng, Log); }
+                else if (pick < 87) { undo.Checkpoint(); RemoveRoundaboutAction(network, rng, Log); }
+                else if (pick < 93) UndoRedo(undo, session, rng, Log);
+                else if (pick < 97) ToggleSnap(session, rng, Log);
                 else StepBackCancel(session, network, rng, Log);
             }
             catch (Exception ex)
@@ -238,6 +241,39 @@ public static class GestureFuzzer
         var id = ids[rng.Next(ids.Length)];
         network.FlipEdge(id);
         log($"flip edge={id.Value}");
+    }
+
+    private static void ConvertRoundabout(RoadNetwork network, Random rng, Action<string> log)
+    {
+        // a plain junction: degree >= 3, not already a ring node
+        var candidates = network.Nodes.Values
+            .Where(n => n.Ring == null && n.Edges.Count >= 3)
+            .OrderBy(n => n.Id.Value)
+            .ToArray();
+        if (candidates.Length == 0) { log("convert skip=no-junction"); return; }
+        var node = candidates[rng.Next(candidates.Length)];
+        float radius = 12f + (float)rng.NextDouble() * 28f; // 12..40 m
+        var res = network.ConvertToRoundabout(node.Id, radius);
+        log($"convert node={node.Id.Value} r={radius:F1} result={(res.Success ? "ok" : res.Error.ToString())}");
+    }
+
+    private static void AdjustRoundaboutRadius(RoadNetwork network, Random rng, Action<string> log)
+    {
+        var ids = network.Roundabouts.Keys.OrderBy(r => r.Value).ToArray();
+        if (ids.Length == 0) { log("radius skip=none"); return; }
+        var id = ids[rng.Next(ids.Length)];
+        float radius = 12f + (float)rng.NextDouble() * 28f;
+        var res = network.SetRoundaboutRadius(id, radius);
+        log($"radius rb={id.Value} r={radius:F1} result={(res.Success ? "ok" : res.Error.ToString())}");
+    }
+
+    private static void RemoveRoundaboutAction(RoadNetwork network, Random rng, Action<string> log)
+    {
+        var ids = network.Roundabouts.Keys.OrderBy(r => r.Value).ToArray();
+        if (ids.Length == 0) { log("rb-remove skip=none"); return; }
+        var id = ids[rng.Next(ids.Length)];
+        network.RemoveRoundabout(id);
+        log($"rb-remove rb={id.Value}");
     }
 
     private static void UndoRedo(UndoStack undo, DraftSession session, Random rng, Action<string> log)
