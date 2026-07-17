@@ -29,9 +29,12 @@ public partial class JunctionPanel : PanelContainer
     private static readonly string[] ModeNames =
         { "Auto", "Priority signs", "All-way stop", "Traffic lights", "None" };
 
-    public void Bind(RoadNetwork network)
+    private Action? _beforeMutate;
+
+    public void Bind(RoadNetwork network, Action? beforeMutate = null)
     {
         _network = network;
+        _beforeMutate = beforeMutate;
         network.Changed += OnNetworkChanged;
     }
 
@@ -78,6 +81,7 @@ public partial class JunctionPanel : PanelContainer
         {
             if (_node is { } id && _network.Nodes.ContainsKey(id))
             {
+                _beforeMutate?.Invoke();
                 _network.ConfigureJunction(id, JunctionConfig.Default);
                 Refresh();
             }
@@ -173,6 +177,7 @@ public partial class JunctionPanel : PanelContainer
             _ => LegRole.Main,
         };
         var overrides = new Dictionary<EdgeId, LegRole>(node.Config.RoleOverrides) { [eid] = next };
+        _beforeMutate?.Invoke();
         _network.ConfigureJunction(id, node.Config with { RoleOverrides = overrides });
         Refresh();
     }
@@ -200,6 +205,7 @@ public partial class JunctionPanel : PanelContainer
                 ? node.Config.RoleOverrides
                 : new Dictionary<EdgeId, LegRole>(),
         };
+        _beforeMutate?.Invoke();
         _network.ConfigureJunction(id, config);
         Refresh();
     }

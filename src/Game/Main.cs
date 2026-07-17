@@ -19,6 +19,9 @@ public partial class Main : Node3D
     private LaneDebugOverlay _lanes = null!;
     private CityBuilder.Domain.Traffic.TrafficSim _traffic = null!;
     private AudioFx _audio = null!;
+    private UndoStack _undo = null!;
+
+    public UndoStack Undo => _undo;
     private double _trafficAccum;
 
     public CityBuilder.Domain.Traffic.TrafficSim Traffic => _traffic;
@@ -44,6 +47,8 @@ public partial class Main : Node3D
         _network = new RoadNetwork();
         var snap = new SnapEngine(_network);
         var session = new DraftSession(_network, snap);
+        _undo = new UndoStack(_network);
+        session.BeforeCommit += _undo.Checkpoint;
 
         // thin road markings (0.15 m) vanish below ~1 px without multisampling
         GetViewport().Msaa3D = Viewport.Msaa.Msaa4X;
@@ -87,6 +92,7 @@ public partial class Main : Node3D
         _audio = new AudioFx { Name = "AudioFx" };
         AddChild(_audio);
         _controller.BindAudio(_audio);
+        _controller.BindUndo(_undo);
 
         var gridOverlay = new GridOverlay { Name = "GridOverlay" };
         gridOverlay.Bind(_controller, camera);
@@ -115,7 +121,7 @@ public partial class Main : Node3D
         ui.AddChild(toolbar);
 
         var junctionPanel = new JunctionPanel { Name = "JunctionPanel" };
-        junctionPanel.Bind(_network);
+        junctionPanel.Bind(_network, () => _undo.Checkpoint());
         ui.AddChild(junctionPanel);
         _controller.NodeSelected += id =>
         {
@@ -141,6 +147,12 @@ public partial class Main : Node3D
                 break;
             case InputEventKey { Keycode: Key.F9, Pressed: true }:
                 QuickLoad();
+                break;
+            case InputEventKey { Keycode: Key.Z, Pressed: true, CtrlPressed: true }:
+                TryUndo();
+                break;
+            case InputEventKey { Keycode: Key.Y, Pressed: true, CtrlPressed: true }:
+                TryRedo();
                 break;
         }
     }
@@ -176,6 +188,7 @@ public partial class Main : Node3D
         }
         try
         {
+            _undo.Checkpoint(); // a quickload is itself undoable
             SaveLoad.LoadInto(File.ReadAllText(path), _network);
             _traffic.EnsureSynced();
             // restored ids may describe different geometry — drop the draft, hover
@@ -187,6 +200,26 @@ public partial class Main : Node3D
         {
             StatusFlashed?.Invoke($"load failed: {ex.Message}");
         }
+    }
+
+    /// <summary>Undo the last network mutation (Ctrl+Z). Restores a snapshot in
+    /// place, then reruns the quickload resync: traffic drops strandees, the active
+    /// gesture and selections are cleared (restored ids may describe different
+    /// geometry).</summary>
+    public void TryUndo()
+    {
+        if (!_undo.Undo()) { StatusFlashed?.Invoke("Nothing to undo"); return; }
+        _traffic.EnsureSynced();
+        _controller.ClearTransientState();
+        StatusFlashed?.Invoke("Undone");
+    }
+
+    public void TryRedo()
+    {
+        if (!_undo.Redo()) { StatusFlashed?.Invoke("Nothing to redo"); return; }
+        _traffic.EnsureSynced();
+        _controller.ClearTransientState();
+        StatusFlashed?.Invoke("Redone");
     }
 
     private static bool RawCmdlineHasEditorPid()

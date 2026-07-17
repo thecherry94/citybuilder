@@ -143,10 +143,16 @@ public partial class Toolbar : Control
         var loadBtn = new Button { Text = "Load (F9)" };
         loadBtn.Pressed += () => _main.QuickLoad();
         saveRow.AddChild(loadBtn);
+        var undoBtn = new Button { Text = "Undo (^Z)" };
+        undoBtn.Pressed += () => _main.TryUndo();
+        saveRow.AddChild(undoBtn);
+        var redoBtn = new Button { Text = "Redo (^Y)" };
+        redoBtn.Pressed += () => _main.TryRedo();
+        saveRow.AddChild(redoBtn);
 
         var hint = new Label
         {
-            Text = "LMB place/drag handle · RMB step back · Enter confirm · Esc cancel · T release tangent lock · WASD pan · wheel zoom · Q/E rotate",
+            Text = "LMB place/drag handle · RMB step back · Enter confirm · Esc cancel · T release tangent lock · Ctrl+Z undo · Ctrl+Y redo · WASD pan · wheel zoom · Q/E rotate",
             Modulate = new Color(1, 1, 1, 0.6f),
         };
         box.AddChild(hint);

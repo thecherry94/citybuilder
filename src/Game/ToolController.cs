@@ -35,7 +35,10 @@ public partial class ToolController : Node
     public event Action<NodeId?>? NodeSelected;
 
     private AudioFx? _audio;
+    private CityBuilder.Domain.Persistence.UndoStack? _undoStack;
     private (SnapKind Kind, int Id) _lastSnapSig = (SnapKind.Free, -1);
+
+    public void BindUndo(CityBuilder.Domain.Persistence.UndoStack undo) => _undoStack = undo;
 
     /// <summary>Wire the sound effects. Call after <see cref="Bind"/> — the session
     /// events subscribed here come from the bound session.</summary>
@@ -217,6 +220,7 @@ public partial class ToolController : Node
             HandleHoverAt(world); // refresh target under the cursor
             if (_bulldozeTarget is { } target)
             {
+                _undoStack?.Checkpoint();
                 _network.RemoveEdge(target);
                 _audio?.Play(Sfx.Bulldoze);
                 _view.HighlightEdge(null);
