@@ -9,6 +9,25 @@ namespace CityBuilder.Domain.Tests.Network;
 public class NetworkInvariantsTests
 {
     [Fact]
+    public void ConvertedRoundaboutHasNoViolations()
+    {
+        var n = RoundaboutTests.FourWayJunction(out var center);
+        n.ConvertToRoundabout(center, 20f);
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
+    public void CorruptedRingEdgeTypeIsFlagged()
+    {
+        var n = RoundaboutTests.FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        var ringEdge = n.Roundabouts[id].RingEdges[0];
+        Assert.Null(n.RetypeEdge(ringEdge, RoadCatalog.Street.Id)); // succeeds; ring now mistyped
+        var violations = NetworkInvariants.Check(n);
+        Assert.Contains(violations, v => v.Contains("not OneWay"));
+    }
+
+    [Fact]
     public void HealthyMixedNetworkHasNoViolations()
     {
         var n = Net.New();

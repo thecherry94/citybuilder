@@ -51,7 +51,75 @@ public static class NetworkInvariants
                     o.Add($"type {type.Id.Value}: marking offset {offset:F2} outside +/-{half:F2}");
         }
 
+        CheckRoundabouts(n, o);
+
         return o;
+    }
+
+    /// <summary>Structural health of every roundabout: ring nodes/edges consistent with
+    /// the registry, ring edges a single OneWay CCW cycle, and each approach-carrying ring
+    /// node yields its approach to circulating traffic. Ring-tagged nodes must map back to
+    /// a roundabout that lists them (no orphan tags).</summary>
+    public static void CheckRoundabouts(RoadNetwork n, List<string> o)
+    {
+        foreach (var node in n.Nodes.Values)
+            if (node.Ring is { } rid)
+            {
+                if (!n.Roundabouts.TryGetValue(rid, out var owner))
+                    o.Add($"node {node.Id.Value}: Ring={rid.Value} not in registry");
+                else if (!owner.RingNodes.Contains(node.Id))
+                    o.Add($"node {node.Id.Value}: Ring={rid.Value} but absent from its RingNodes");
+            }
+
+        foreach (var rb in n.Roundabouts.Values)
+        {
+            if (rb.RingNodes.Count < 3)
+                o.Add($"roundabout {rb.Id.Value}: only {rb.RingNodes.Count} ring nodes (< 3)");
+            if (rb.RingEdges.Count != rb.RingNodes.Count)
+                o.Add($"roundabout {rb.Id.Value}: {rb.RingEdges.Count} ring edges vs {rb.RingNodes.Count} ring nodes (not a simple cycle)");
+
+            var ringEdgeSet = rb.RingEdges.ToHashSet();
+            var ringNodeSet = rb.RingNodes.ToHashSet();
+
+            foreach (var reId in rb.RingEdges)
+            {
+                if (!n.Edges.TryGetValue(reId, out var re))
+                {
+                    o.Add($"roundabout {rb.Id.Value}: ring edge {reId.Value} missing");
+                    continue;
+                }
+                if (re.Type != RoadCatalog.OneWay.Id)
+                    o.Add($"roundabout {rb.Id.Value}: ring edge {reId.Value} type {re.Type.Value} is not OneWay");
+                if (!ringNodeSet.Contains(re.StartNode) || !ringNodeSet.Contains(re.EndNode))
+                    o.Add($"roundabout {rb.Id.Value}: ring edge {reId.Value} has a non-ring endpoint");
+            }
+
+            foreach (var rnId in rb.RingNodes)
+            {
+                if (!n.Nodes.TryGetValue(rnId, out var rn))
+                {
+                    o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} missing");
+                    continue;
+                }
+                if (rn.Ring != rb.Id)
+                    o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} not tagged to it");
+
+                int ringLegs = rn.Edges.Count(e => ringEdgeSet.Contains(e));
+                if (ringLegs != 2)
+                    o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} has {ringLegs} ring legs (expected 2)");
+
+                var approaches = rn.Edges.Where(e => !ringEdgeSet.Contains(e)).ToList();
+                if (approaches.Count > 1)
+                    o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} has {approaches.Count} approaches (expected 0 or 1)");
+                if (approaches.Count == 1)
+                {
+                    var appr = approaches[0];
+                    if (rn.Config.Mode != JunctionControlMode.PrioritySigns
+                        || !rn.Config.RoleOverrides.TryGetValue(appr, out var role) || role != LegRole.Yield)
+                        o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} approach {appr.Value} does not yield");
+                }
+            }
+        }
     }
 
     /// <summary>Edge must meet its road type's minimum committable length and minimum
