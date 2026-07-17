@@ -24,14 +24,15 @@ complaints, all confirmed in code:
    mesh on every mouse move (perceived sluggishness), and the project has no audio at
    all.
 
-Research on CS2 (web pass, 2026-07-17; sources in the research notes at the bottom)
-adds the twist: CS2's own snapping is *criticized* by its players — the 90° angle snap
-is a magnetic bias whose tolerance is angular (so it weakens with segment length and can
-commit 179.6°), overlapping snap candidates fight each other with no priority feedback,
-and the community workaround is "turn most snaps off". The scope decision is therefore:
-**clone CS2's semantics and rhythm (sticky node capture, dashed guides, the 8 m cell),
-but fix the weaknesses — exact committed angles, hysteresis against candidate fighting,
-and always-visible snap state.**
+Research on CS2 (two web passes, 2026-07-17; sources in the research notes at the
+bottom) adds the twist: CS2's own snapping is *criticized* by its players — the 90°
+angle snap accepts within a **constant lateral band in world meters** (decompile-level
+evidence), so its angular window shrinks with segment length and long roads can commit
+179.6°; overlapping snap candidates fight each other with no priority feedback; and the
+community workaround is "turn most snaps off". The scope decision is therefore: **clone
+CS2's semantics and rhythm (sticky node capture, dashed guides, the 8 m cell), but fix
+the weaknesses — length-independent angular snapping with exact committed angles,
+hysteresis against candidate fighting, and always-visible snap state.**
 
 ## Non-goals
 
@@ -41,8 +42,9 @@ and always-visible snap state.**
   strip stays.
 - No zoning-cell preview, no named-error taxonomy or red/orange severity tiers, no
   replace mode, no elevation (M8), no undo/redo or upgrade-in-place (M7).
-- No CS2-style soft angle snap — ours stays a hard 15°-step quantization; we adopt the
-  *readout-exactness* property (a snapped commit is exactly on the ray), not the
+- No CS2-style lateral-band angle snap — ours stays a hard 15°-step *angular*
+  quantization (constant in degrees, so it never weakens with segment length); we adopt
+  the *readout-exactness* property (a snapped commit is exactly on the ray), not the
   magnetic weakness.
 - Audio: exactly five one-shot SFX on a single bus. No music, no mixing UI, no
   spatialization, no vehicle/ambient sounds.
@@ -74,8 +76,12 @@ Constants (all tunable, `SnapEngine`): `NodeCaptureFraction = 0.6`,
 
 **Angle-snap exactness (no change, now guarded).** Our angle snap already quantizes to
 exact 15° rays measured from `ReferenceTangent` — the CS2 "179.6°" failure cannot
-happen. A regression test pins this invariant (committed direction exactly on the
-snapped ray) so it survives future snapping work.
+happen. Decompiled CS2 code shows why theirs fails: direction snap accepts within a
+constant *lateral* band in meters, so the effective angular window shrinks ∝ 1/length
+and long roads barely snap. Our quantization is *angular* (constant in degrees at any
+length) — already the strong version; the milestone adds a regression test pinning the
+invariant (committed direction exactly on the snapped ray) so it survives future
+snapping work.
 
 ## 2. Cell-length ticks (`SnapTypes.CellLength`, new toolbar toggle)
 
@@ -186,18 +192,38 @@ DoD: KPI harness rerun (expect traffic metrics unchanged — editor-only milesto
 `docs/health/M6.75.md`, manual chapters drift-updated (road tools + new audio note),
 roadmap updated.
 
-## Research notes (CS2 reference, gathered 2026-07-17)
+## Research notes (CS2 reference, two passes, gathered 2026-07-17)
 
-Key facts the design leans on — full source list in the M6.75 research pass:
+Pass 1 (docs/community) and pass 2 (mod source + decompiled `Game.dll` snippets via
+bwolman/cs_modding_claude, yenyang/Anarchy, optimus-code/Cities2Modding, et al.). Key
+facts the design leans on:
+
 - CS2 snap toggles: all-snapping master, existing geometry, zoning cell length (8 m
-  ticks), 90° angles, building sides, guidelines, zone grid. Node capture is sticky
-  soft-capture (~one 8 m cell, screen-space-influenced); node beats edge near
-  junctions. ([cs2.paradoxwikis.com/Roads](https://cs2.paradoxwikis.com/Roads))
-- Guides are dashed continuation + perpendicular helpers with a dot at crossings;
-  stated use "connecting different road networks & grids". (CO Dev Diary #1,
-  [colossalorder.fi](https://colossalorder.fi/?p=1547))
-- Documented weaknesses we fix: angular-tolerance 90° snap that weakens with length
-  and commits 179.6°; snap candidates fighting with no priority feedback.
-  ([Paradox forum: "180 and 90 Degree Hard Snapping"](https://forum.paradoxplaza.com/forum/threads/180-and-90-degree-hard-snapping.1608414/))
-- The 8 m zoning cell is the universal rhythm (length ticks, parallel offsets in
-  quarter-cells, elevation ladder 1.25/2.5/5/10 m).
+  ticks), 90° angles, building sides, guidelines, zone grid. Node capture is sticky;
+  node beats edge near junctions (observed).
+  ([cs2.paradoxwikis.com/Roads](https://cs2.paradoxwikis.com/Roads))
+- **Tier-then-distance priority is how CS2 actually works** (decompiled call sites):
+  candidates carry a `float2` snap priority from
+  `ToolUtils.CalculateSnapPriority(level, …)`; net node/area candidates pass
+  `level = 1`, guides/grid/direction/shoreline pass `level = 0` — a hard tier that
+  beats any distance advantage, with scaled world distance deciding within a tier.
+  Our hard node-capture tier is the same architecture, sharpened (node above edge in
+  the capture ring, which CS2 leaves to distance — the T-junction fix).
+- **Angle snap weakness confirmed at code level**: direction snap accepts iff the
+  lateral offset from the candidate ray is below a constant world-meters threshold
+  (`< m_DistanceScale`), so the angular window shrinks with length — the "179.6° on
+  long roads" complaint ([Paradox forum](https://forum.paradoxplaza.com/forum/threads/180-and-90-degree-hard-snapping.1608414/)).
+  Ours stays angular (15° steps, constant at any length) with exact commits.
+- **The 8 m cell is a code constant**: `Game.Zones.ZoneUtils.CELL_SIZE = 8f`;
+  zone/building snapping quantizes `round(x/8)·8` with 4 m parity offsets; snap
+  distances are normalized into 8 m units for scoring. Validates the cell-length tick
+  design and the 8 m default grid.
+- CS2 snap radii are **world-space and per road prefab** (`PlaceableNetData
+  .m_SnapDistance`); no camera-zoom scaling found in code. Our zoom-scaled resolve
+  radius is a deliberate divergence (our camera ranges far wider than CS2's).
+- Guides are dashed continuation + perpendicular helpers with a marker at crossings;
+  stated use "connecting different road networks & grids" (CO Dev Diary #1,
+  [colossalorder.fi](https://colossalorder.fi/?p=1547)). `NetToolSystem`'s guideline
+  generation internals are not public — reach/appearance remain observation-grade.
+- The 8 m rhythm elsewhere: parallel offsets 0.25–12 cells, elevation ladder
+  1.25/2.5/5/10 m.
