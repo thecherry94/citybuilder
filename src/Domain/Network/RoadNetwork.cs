@@ -589,9 +589,24 @@ public sealed partial class RoadNetwork
     {
         if (node.EdgeSet.Count != 2)
             return;
-        var edges = node.EdgeSet.Select(e => _edges[e]).ToArray();
+        // deterministic pair order (HashSet iteration order decided merge
+        // orientation before M7 — the one-way reversal bug)
+        var edges = node.EdgeSet.Select(e => _edges[e]).OrderBy(e => e.Id.Value).ToArray();
         if (edges[0].Type != edges[1].Type)
             return;
+
+        if (RoadCatalog.Get(edges[0].Type).IsDirectionAsymmetric)
+        {
+            // heal only when flow is continuous through the node: exactly one edge
+            // ends here (upstream) and the other starts here (downstream); merge
+            // upstream-first so the healed curve keeps the travel direction
+            bool in0 = edges[0].EndNode == node.Id;
+            bool in1 = edges[1].EndNode == node.Id;
+            if (in0 == in1)
+                return; // both inbound or both outbound: flows oppose, keep the node
+            if (!in0)
+                (edges[0], edges[1]) = (edges[1], edges[0]);
+        }
 
         var (merged, maxError) = CurveFit.FitComposite(edges[0], edges[1], node.Id, _nodes);
         if (maxError > GeoConstants.MergeTolerance)
@@ -695,6 +710,60 @@ public sealed partial class RoadNetwork
             new HashSet<EdgeId>(), new HashSet<EdgeId>(),
             new HashSet<NodeId>(), new HashSet<NodeId>(),
             new HashSet<NodeId> { id }));
+    }
+
+    /// <summary>Change a road's type in place (M7 upgrade tool). The EdgeId — and
+    /// therefore every EdgeId-keyed junction override — survives; lanes regenerate
+    /// with fresh ids (vehicles on them are dropped by TrafficSim.Sync, like CS2
+    /// despawning on replace). Returns null on success.</summary>
+    public RetypeError? RetypeEdge(EdgeId id, RoadTypeId newType)
+    {
+        if (!_edges.TryGetValue(id, out var edge))
+            return RetypeError.UnknownEdge;
+        if (edge.Type == newType)
+            return RetypeError.SameType;
+        var type = RoadCatalog.Get(newType);
+        if (edge.ArcLength.TotalLength < type.MinSegmentLength)
+            return RetypeError.TooShort;
+        if (BezierOps.MinRadius(edge.Curve) < type.MinRadius)
+            return RetypeError.TooTight;
+
+        ReplaceEdgeInPlace(edge, edge.StartNode, edge.EndNode, edge.Curve, newType);
+        return null;
+    }
+
+    /// <summary>Reverse a road's travel direction in place (M7 upgrade tool, the
+    /// one-way flip). Same-id replacement — junction configs survive; lanes
+    /// regenerate. Symmetric types re-derive an equivalent road.</summary>
+    public bool FlipEdge(EdgeId id)
+    {
+        if (!_edges.TryGetValue(id, out var edge))
+            return false;
+        ReplaceEdgeInPlace(edge, edge.EndNode, edge.StartNode, edge.Curve.Reversed(), edge.Type);
+        return true;
+    }
+
+    /// <summary>Swap a same-id RoadEdge into the network (retype/flip), regenerate
+    /// its lanes, rebuild both end nodes, and raise an EdgesChanged delta.</summary>
+    private void ReplaceEdgeInPlace(RoadEdge old, NodeId start, NodeId end,
+        in Bezier3 curve, RoadTypeId type)
+    {
+        var replacement = new RoadEdge(old.Id, start, end, curve, type);
+        replacement.Lanes = RoadCatalog.Get(type).Lanes
+            .Select(spec => new Lane(new LaneId(_nextLane++), replacement.Id,
+                spec.Offset, spec.Direction, spec.Width, spec.Kind))
+            .ToArray();
+        _edges[old.Id] = replacement;
+        // EdgeSets key by id — nothing to update there even when start/end swap (flip)
+        foreach (var nodeId in new[] { start, end }.Distinct())
+            if (_nodes.TryGetValue(nodeId, out var node))
+                RebuildDerived(node);
+        Version++;
+        Changed?.Invoke(new NetworkDelta(
+            new HashSet<EdgeId>(), new HashSet<EdgeId>(),
+            new HashSet<NodeId>(), new HashSet<NodeId>(),
+            new HashSet<NodeId> { start, end })
+        { EdgesChanged = new HashSet<EdgeId> { old.Id } });
     }
 
     private static JunctionConfig Prune(JunctionConfig c, IReadOnlySet<EdgeId> edges)

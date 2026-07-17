@@ -117,4 +117,9 @@ public sealed record NetworkDelta(
     IReadOnlySet<EdgeId> EdgesRemoved,
     IReadOnlySet<NodeId> NodesAdded,
     IReadOnlySet<NodeId> NodesRemoved,
-    IReadOnlySet<NodeId> NodesChanged);
+    IReadOnlySet<NodeId> NodesChanged)
+{
+    /// <summary>Edges whose identity survived but whose substance changed in place —
+    /// retype/flip (M7). Renderers re-mesh these like adds.</summary>
+    public IReadOnlySet<EdgeId> EdgesChanged { get; init; } = new HashSet<EdgeId>();
+}
