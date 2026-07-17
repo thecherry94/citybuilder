@@ -17,6 +17,10 @@ public partial class JunctionPanel : PanelContainer
     private HSlider _size = null!;
     private Label _sizeLabel = null!;
     private VBoxContainer _legRows = null!;
+    private VBoxContainer _roundaboutBox = null!;
+    private VBoxContainer _controlBox = null!;
+
+    private const float DefaultRoundaboutRadius = 20f;
 
     private static readonly JunctionControlMode[] ModeOrder =
     {
@@ -49,6 +53,13 @@ public partial class JunctionPanel : PanelContainer
         AddChild(box);
 
         box.AddChild(new Label { Text = "Junction" });
+
+        _roundaboutBox = new VBoxContainer();
+        box.AddChild(_roundaboutBox);
+
+        _controlBox = new VBoxContainer();
+        box.AddChild(_controlBox);
+        box = _controlBox; // the mode/size/leg widgets live under the control box now
 
         var modeRow = new HBoxContainer();
         box.AddChild(modeRow);
@@ -120,6 +131,15 @@ public partial class JunctionPanel : PanelContainer
             return;
         _updating = true;
 
+        RefreshRoundabout(node);
+        // a ring node's control is owned by the roundabout — hide the manual junction UI
+        _controlBox.Visible = node.Ring == null;
+        if (node.Ring != null)
+        {
+            _updating = false;
+            return;
+        }
+
         var eff = JunctionControl.Resolve(node, _network.Edges);
         _modePick.Selected = Array.IndexOf(ModeOrder, node.Config.Mode);
         _size.Value = node.Config.SizeOffset;
@@ -163,6 +183,69 @@ public partial class JunctionPanel : PanelContainer
         }
 
         _updating = false;
+    }
+
+    /// <summary>Roundabout section: for a ring node, a radius spinner + remove button; for
+    /// a plain junction of degree ≥ 3, a convert button + radius spinner. Errors surface in
+    /// an inline label. All mutations checkpoint undo via <see cref="_beforeMutate"/>.</summary>
+    private void RefreshRoundabout(RoadNode node)
+    {
+        foreach (var child in _roundaboutBox.GetChildren())
+            child.QueueFree();
+
+        var status = new Label { Visible = false };
+
+        if (node.Ring is { } rid && _network.Roundabouts.TryGetValue(rid, out var rb))
+        {
+            _roundaboutBox.AddChild(new Label { Text = "Roundabout" });
+
+            var row = new HBoxContainer();
+            _roundaboutBox.AddChild(row);
+            row.AddChild(new Label { Text = "Radius " });
+            var radius = new SpinBox
+            {
+                MinValue = 8, MaxValue = 60, Step = 1, Value = rb.Radius,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            };
+            radius.ValueChanged += v =>
+            {
+                if (_updating) return;
+                _beforeMutate?.Invoke();
+                var res = _network.SetRoundaboutRadius(rid, (float)v);
+                if (!res.Success) { status.Text = $"radius: {res.Error}"; status.Visible = true; }
+            };
+            row.AddChild(radius);
+
+            var remove = new Button { Text = "Remove roundabout" };
+            remove.Pressed += () =>
+            {
+                _beforeMutate?.Invoke();
+                _network.RemoveRoundabout(rid);
+            };
+            _roundaboutBox.AddChild(remove);
+        }
+        else if (node.Ring == null && node.Edges.Count >= 3)
+        {
+            var row = new HBoxContainer();
+            _roundaboutBox.AddChild(row);
+            var convert = new Button
+            {
+                Text = "Convert to roundabout",
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            };
+            var radius = new SpinBox { MinValue = 8, MaxValue = 60, Step = 1, Value = DefaultRoundaboutRadius };
+            convert.Pressed += () =>
+            {
+                if (_node is not { } id) return;
+                _beforeMutate?.Invoke();
+                var res = _network.ConvertToRoundabout(id, (float)radius.Value);
+                if (!res.Success) { status.Text = $"convert: {res.Error}"; status.Visible = true; }
+            };
+            row.AddChild(convert);
+            row.AddChild(radius);
+        }
+
+        _roundaboutBox.AddChild(status);
     }
 
     private void CycleRole(EdgeId eid)

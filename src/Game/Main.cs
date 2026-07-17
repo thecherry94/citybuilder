@@ -535,6 +535,34 @@ public partial class Main : Node3D
 
             Expect(_audio.LoadedCount == 5, $"audio streams loaded {_audio.LoadedCount}/5");
 
+            // M7.5: roundabout conversion on an isolated 4-way far from the rest
+            _controller.SetMode(ToolMode.Straight);
+            _controller.HandleClickAt(V(600, 0));
+            _controller.HandleClickAt(V(760, 0));
+            _controller.HandleClickAt(V(680, -80));
+            _controller.HandleClickAt(V(680, 80));
+            var rbCenter = _network.Nodes.Values.First(n =>
+                System.Numerics.Vector3.Distance(n.Position, V(680, 0)) < 1f);
+            Expect(rbCenter.Edges.Count == 4, $"roundabout precursor not a 4-way ({rbCenter.Edges.Count})");
+            _undo.Checkpoint();
+            var conv = _network.ConvertToRoundabout(rbCenter.Id, 20f);
+            Expect(conv.Success, $"convert to roundabout failed: {conv.Error}");
+            Expect(_network.Roundabouts.Count == 1, "roundabout not registered");
+            Expect(!_network.Nodes.ContainsKey(rbCenter.Id), "center node not replaced by ring");
+            _view.FlushDirty(); // ring meshes build without throwing
+            // bulldoze one approach -> ring re-arcs, roundabout survives (3 approaches left)
+            var approach = _network.Edges.Values.First(e =>
+                (_network.Nodes[e.StartNode].Ring == null) ^ (_network.Nodes[e.EndNode].Ring == null));
+            _undo.Checkpoint();
+            _network.RemoveEdge(approach.Id);
+            Expect(_network.Roundabouts.Count == 1, "roundabout dissolved after a single approach bulldoze");
+            _view.FlushDirty();
+            // undo back to the pre-conversion 4-way
+            TryUndo(); // undo bulldoze
+            TryUndo(); // undo convert
+            Expect(_network.Roundabouts.Count == 0, "undo did not remove the roundabout");
+            _view.FlushDirty();
+
             GD.Print("SMOKE OK");
             GetTree().Quit(0);
         }
