@@ -143,6 +143,29 @@ public class SnapEngineTests
         Assert.Equal(MathF.Sin(MathF.PI / 4), dir.Z, 2);
     }
 
+    [Theory]
+    [InlineData(40f)]
+    [InlineData(400f)]
+    public void AngleSnapIsExactAndLengthIndependent(float length)
+    {
+        // CS2 accepts within a constant *lateral* band, so its angular window shrinks
+        // with length and long roads commit 179.6°. Ours is angular: a ~6°-off cursor
+        // snaps to the exact 15° ray at ANY length, and the snapped direction is
+        // exactly on the ray (cross product ~0).
+        var (_, snap) = Setup();
+        var anchor = new Vector3(100, 0, 0);
+        var ctx = new SnapContext(anchor, new Vector3(1, 0, 0));
+        float offRad = 51f * MathF.PI / 180f; // 6° off the 45° ray
+        var raw = anchor + length * new Vector3(MathF.Cos(offRad), 0, MathF.Sin(offRad));
+        var result = snap.Resolve(raw, 2f, SnapTypes.Angle, ctx);
+        Assert.Equal(SnapKind.Angle, result.Kind);
+        Assert.Equal(45f, result.SnappedAngleDeg!.Value, 3);
+        var dir = Vector3.Normalize(result.Position - anchor);
+        var exact = new Vector3(MathF.Cos(MathF.PI / 4), 0, MathF.Sin(MathF.PI / 4));
+        float cross = MathF.Abs(dir.X * exact.Z - dir.Z * exact.X);
+        Assert.True(cross < 1e-5f, $"direction off the exact ray by cross={cross}");
+    }
+
     [Fact]
     public void FreeWhenNothingInRange()
     {
