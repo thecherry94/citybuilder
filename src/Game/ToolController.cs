@@ -249,7 +249,15 @@ public partial class ToolController : Node
     {
         long t0 = GhostProbe ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         var handles = _session.Draft?.Handles.Select(h => h.Position).ToArray();
-        _ghost.Show(_session.Ghost, _session.LastSnap, handles, _session.DraggingHandle);
+        var s = _session.LastSnap;
+        System.Numerics.Vector3? edgeTan = null;
+        if (s.Edge is { } eh && _network.Edges.TryGetValue(eh.Edge, out var hitEdge))
+            edgeTan = hitEdge.Curve.Tangent(eh.T);
+        System.Numerics.Vector3? anchor = null;
+        if (_session.Draft is { } dft && dft.Handles.Count > 0)
+            anchor = (_session.DraggingHandle > 0 ? dft.Handles[0] : dft.Handles[^1]).Position;
+        _ghost.Show(_session.Ghost, s, handles, _session.DraggingHandle,
+            edgeTan, _session.Draft?.StartTangent, anchor);
         if (GhostProbe)
         {
             _probeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;

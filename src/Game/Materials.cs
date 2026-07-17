@@ -129,4 +129,21 @@ public static class Materials
         Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
         ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
     };
+
+    public static readonly StandardMaterial3D SnapNode = new()
+    {
+        // node lock ring — the decisive-capture signal, brighter than everything else
+        AlbedoColor = new Color(0.35f, 0.95f, 1f, 0.95f),
+        Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
+    public static readonly StandardMaterial3D SnapAccent = new()
+    {
+        AlbedoColor = new Color(0.55f, 0.8f, 1f, 0.9f),
+        Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
 }
