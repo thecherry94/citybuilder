@@ -18,6 +18,7 @@ public partial class Main : Node3D
     private RoadNetworkView _view = null!;
     private LaneDebugOverlay _lanes = null!;
     private CityBuilder.Domain.Traffic.TrafficSim _traffic = null!;
+    private AudioFx _audio = null!;
     private double _trafficAccum;
 
     public CityBuilder.Domain.Traffic.TrafficSim Traffic => _traffic;
@@ -82,6 +83,10 @@ public partial class Main : Node3D
         _controller = new ToolController { Name = "ToolController" };
         _controller.Bind(_network, session, camera, ghost, _view);
         AddChild(_controller);
+
+        _audio = new AudioFx { Name = "AudioFx" };
+        AddChild(_audio);
+        _controller.BindAudio(_audio);
 
         var gridOverlay = new GridOverlay { Name = "GridOverlay" };
         gridOverlay.Bind(_controller, camera);
@@ -414,8 +419,13 @@ public partial class Main : Node3D
             // see UrbanRoadTests.MixedKindNetworkIsNotConnectedAcrossKinds), so the
             // all-kinds check would fail the moment any sidewalk-carrying type (like
             // OneWay) enters the network regardless of the driving topology.
-            Expect(LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
-                "driving lane graph not strongly connected");
+            if (!LaneGraph.IsStronglyConnected(_network, LaneKind.Driving))
+            {
+                foreach (var e in _network.Edges.Values)
+                    GD.Print($"SMOKE-DUMP edge {e.Id.Value} type={e.Type.Value} " +
+                        $"({e.Curve.P0.X:F1},{e.Curve.P0.Z:F1})->({e.Curve.P3.X:F1},{e.Curve.P3.Z:F1})");
+                Expect(false, "driving lane graph not strongly connected");
+            }
 
             // junction control: lights + resize on the T junction left by the bulldoze
             var tee = _network.Nodes.Values.First(n => n.Edges.Count == 3);
@@ -444,6 +454,8 @@ public partial class Main : Node3D
             Expect(_traffic.Vehicles.Count >= 5,
                 $"expected ≥5 ambient vehicles, got {_traffic.Vehicles.Count}");
             Expect(_traffic.Arrived > 0, "no vehicle completed a trip");
+
+            Expect(_audio.LoadedCount == 5, $"audio streams loaded {_audio.LoadedCount}/5");
 
             GD.Print("SMOKE OK");
             GetTree().Quit(0);

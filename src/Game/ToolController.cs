@@ -34,6 +34,19 @@ public partial class ToolController : Node
     public event Action<string>? ReadoutChanged;
     public event Action<NodeId?>? NodeSelected;
 
+    private AudioFx? _audio;
+    private (SnapKind Kind, int Id) _lastSnapSig = (SnapKind.Free, -1);
+
+    /// <summary>Wire the sound effects. Call after <see cref="Bind"/> — the session
+    /// events subscribed here come from the bound session.</summary>
+    public void BindAudio(AudioFx audio)
+    {
+        _audio = audio;
+        _session.HandlePlaced += () => _audio?.Play(Sfx.Place);
+        _session.Committed += () => _audio?.Play(Sfx.Commit);
+        _session.Rejected += () => _audio?.Play(Sfx.Reject);
+    }
+
     public ToolMode Mode => _mode;
     public DraftSession Session => _session;
 
@@ -205,6 +218,7 @@ public partial class ToolController : Node
             if (_bulldozeTarget is { } target)
             {
                 _network.RemoveEdge(target);
+                _audio?.Play(Sfx.Bulldoze);
                 _view.HighlightEdge(null);
                 _bulldozeTarget = null;
             }
@@ -258,6 +272,10 @@ public partial class ToolController : Node
             anchor = (_session.DraggingHandle > 0 ? dft.Handles[0] : dft.Handles[^1]).Position;
         _ghost.Show(_session.Ghost, s, handles, _session.DraggingHandle,
             edgeTan, _session.Draft?.StartTangent, anchor);
+        var sig = (s.Kind, s.Node?.Value ?? s.Edge?.Edge.Value ?? (int)s.Kind);
+        if (sig != _lastSnapSig && s.Kind != SnapKind.Free)
+            _audio?.Play(Sfx.SnapTick);
+        _lastSnapSig = sig;
         if (GhostProbe)
         {
             _probeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
