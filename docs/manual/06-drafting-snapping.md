@@ -29,7 +29,10 @@ explained.
   populated by `RoadNetwork` — ch. 02).
 - **Entry points:** `DraftSession.SetMode`, `.Click`, `.PointerMoved`, `.StepBack`,
   `.Cancel`, `.Confirm`, `.TryBeginHandleDrag`/`.EndHandleDrag`,
-  `.ReleaseTangentLock`.
+  `.ReleaseTangentLock`. Events out: `Flashed` (human-readable status),
+  `HandlePlaced` / `Committed` / `Rejected` (M6.75 — the game layer maps these to
+  click/plop/blip sounds; pure C# events, no Godot), `BeforeCommit` (M7 — fires just
+  before a validated proposal commits; the undo-checkpoint hook).
 - **Used by:** `src/Game`'s `ToolController` (not in this chapter's scope) forwards
   raw pointer input 1:1 to these methods and renders `Draft`/`Ghost`/`LastSnap`/
   `Readout`; `GestureFuzzer` drives the identical surface headlessly for invariant
@@ -39,7 +42,7 @@ explained.
   (`Bezier3.FromQuadratic`, `BezierOps.ArcFromTangent`) and `MinRadius` for the live
   readout; `RoadCatalog`/`RoadType` (ch. 02) for per-type floors and `OuterHalf`
   (parallel-guide offset).
-- **Last verified against commit:** `f0542d7`, 2026-07-16.
+- **Last verified against commit:** `dfae6af`, 2026-07-17 (M6.75).
 
 ## The session state machine
 
@@ -173,8 +176,27 @@ segment, not per gesture.
 
 ## Snapping
 
-`SnapEngine.Resolve` (`SnapEngine.cs:39-84`) is a candidate-scored resolver, not a
-priority cascade: every enabled snap kind contributes zero or more
+**Hard node capture + hysteresis (M6.75).** Before any candidate scoring,
+`Resolve` runs `HardNodeCapture`: a node within
+`max(NodeCaptureFraction × radius, NodeCaptureFloor)` = `max(0.6 × radius, 3 m)` of
+the raw cursor wins **outright** (nearest node if several) — no weight scoring, no
+edge competition. This is the T-junction fix: an edge under the cursor scores ~0 in
+the soft model and used to make node reuse near junctions nearly impossible. The
+absolute 3 m floor exists because the zoom-scaled radius can drop to ~2.4 m
+(default zoom), shrinking the fractional ring below the ~2 m node-miss distances
+cell-length quantization produces — without it, a cursor 2.1 m past a road end sat
+*on that end's own continuation guide*, which outscored the node and committed a
+disconnected duplicate (the smoke's one-way loop found this;
+`NodeCaptureFloorBeatsOwnGuidelineAtSmallRadius` pins it). On top of capture sits
+**hysteresis**: `SnapContext.HeldNode` (threaded by `DraftSession` from the previous
+resolve's node) keeps a captured node winning until the cursor leaves
+`ReleaseFactor (1.4) ×` the capture ring; a *different* node captured strictly closer
+transfers the hold. The engine stays stateless — the session owns the memory. CS2
+uses the same tier-then-distance architecture (decompile evidence in the M6.75
+research notes); the hysteresis is our fix for its documented candidate-fighting.
+
+Below the capture tier, `SnapEngine.Resolve` (`SnapEngine.cs`) is a candidate-scored
+resolver, not a priority cascade: every enabled snap kind contributes zero or more
 `SnapCandidate`s (position + `Kind` + `Weight`, plus kind-specific payload — a
 `NodeId`, an `(EdgeId, T)`, a direction, or the guideline(s) involved), and the
 lowest-**score** candidate wins, where `score = distance / weight`
@@ -196,6 +218,7 @@ Weights, verified against `SnapEngine.cs:31-37`:
 | `Edge` | 2.0 | `AddEdgeCandidates` — closest point on the nearest edge centerline |
 | `Guideline` | 1.5 | `AddGuidelineCandidates` — projection onto one active guideline |
 | `GridPoint` | 1.5 | `AddGridCandidates` — nearest grid intersection |
+| `CellLength` | 1.2 | `AddCellLengthCandidates` (M6.75) — anchor distance quantized to 8 m ticks |
 | `GridLine` | 1.0 | `AddGridCandidates` — nearer of the two axis-aligned grid lines through the cursor |
 
 Node's weight is explicitly *not* the value the original spec sketched — the comment
@@ -206,10 +229,23 @@ derived from a formula. `Guideline` and `GridPoint` sharing 1.5 is presumably
 deliberate (both are "soft alignment aids," not real network features) but this is
 **[UNCERTAIN]** — no comment confirms the equality is intentional, not coincidental.
 
-Guidelines are the dashed "extend this road's tangent past its node" construction
-lines (`Guideline` record, `SnapTypes.cs:24-27`); `CollectGuidelines` (`:192-213`)
-builds one per edge leaving every node within `GuidelineSearch = 200 m` of the
-cursor, reaching `GuidelineReach = 200 m` past its origin. `Perpendicular` snapping
+Guidelines are the dashed construction lines (`Guideline` record); since M6.75
+`CollectGuidelines` builds **three** per edge leaving every node within
+`GuidelineSearch = 200 m` of the cursor: the tangent continuation past the node plus
+two **perpendicular helpers** (±90° off the leg) — connecting two distant roads at a
+right angle now snaps to a visible guide crossing. Each reaches
+`GuidelineReach = 200 m`. Collection is capped at `MaxGuidelines = 48`, nearest by
+origin (the pairwise intersection scan is O(G²); far guides are visual noise).
+
+**Cell-length ticks (M6.75, `SnapTypes.CellLength`).** With an anchor set, the drawn
+length ratchets in `CellLength = 8 m` steps — CS2's zoning-cell rhythm
+(`ZoneUtils.CELL_SIZE = 8f` in its decompile). It contributes a *weak* candidate
+(weight 1.2, loses to any geometry snap) at the quantized distance along the raw
+direction, and additionally quantizes the **angle-snap fallback's** length when both
+flags are on — angle-snapped diagonals land on the ray *and* the tick. It needs an
+anchor, so a gesture's first click is never quantized. Off in the raw session default
+(`All & ~Grid & ~CellLength` — domain tests stay unquantized); the game Toolbar
+enables it by default. `Perpendicular` snapping
 only activates with `ctx.Anchor` set (`:52`) — it needs a "from where," which is the
 anchor `DraftSession.Resolve` supplies (the fixed start handle); it's unavailable on
 a gesture's first click. `Parallel` guides (`AddParallelGuides`, `:226-252`) are
@@ -229,7 +265,7 @@ failing seed's snapping behavior stays reproducible from the seed alone.
 **Grid.** Two unrelated grids exist: `GridStampShape.CellSize = 48 m` (the fixed
 stamp spacing above) and `GridConfig` (`SnapTypes.cs:30-33`, the cursor-snap grid),
 whose `Default` cell is 8 m, toolbar-selectable among 4/8/16/32 m, off by default
-(`EnabledSnaps` starts as `SnapTypes.All & ~SnapTypes.Grid`, `DraftSession.cs:26`).
+(`EnabledSnaps` starts as `SnapTypes.All & ~SnapTypes.Grid & ~SnapTypes.CellLength`).
 `AddGridCandidates` only runs when `ctx.Grid` is non-null, which `Resolve` only
 supplies when the `Grid` flag is enabled (`:280-281`) — toggling grid off is a real
 no-op for scoring, not just rendering.
@@ -345,6 +381,11 @@ returns to `Idle`, leaving however many segments had already committed.
 
 | Constant | Value | Rationale |
 |---|---|---|
+| `NodeCaptureFraction` (M6.75) | 0.6 | Hard-capture ring as a fraction of the resolve radius — node beats everything inside it |
+| `NodeCaptureFloor` (M6.75) | 3 m | Absolute ring floor; the zoom-scaled ring can shrink below cell-tick miss distances (regression: disconnected duplicate node) |
+| `ReleaseFactor` (M6.75) | 1.4 | Held node releases only beyond 1.4 × the capture ring — kills candidate flicker |
+| `CellLength` / `WeightCellLength` (M6.75) | 8 m / 1.2 | Length ratchet tick (CS2 zoning cell); weak candidate, loses to geometry snaps |
+| `MaxGuidelines` (M6.75) | 48 | Nearest-first guide cap — perp guides tripled per-leg count, intersection scan is O(G²) |
 | `SnapEngine.WeightNode` | 4.0 | Raised from a sketched 3.0 specifically so a node still beats a closer edge underneath it (`SnapEngine.cs:29-30`) |
 | `WeightGuideIntersection` | 2.5 | Second-strongest: two guides crossing is a strong geometric hint (extension of two existing roads) |
 | `WeightPerpendicular` | 2.2 | Strong but below guide-intersections; only active with an anchor |
@@ -395,7 +436,10 @@ as fixed):
 - `tests/Domain.Tests/Tools/SnapEngineTests.cs` — every `SnapKind`'s weight ordering,
   dead-on-weak-beats-distant-strong scoring, angle-snap reference framing, grid
   point/line/ignored-without-config, perpendicular's anchor-required guard,
-  parallel-guide curb offset and curved-edge exclusion.
+  parallel-guide curb offset and curved-edge exclusion; M6.75: hard capture on a
+  junction leg, the 3 m floor vs own-guideline theft, hysteresis
+  hold/release/transfer/stale-id, angle exactness at 40 m and 400 m, cell-length
+  quantization + angle composition, perpendicular-guide crossings, the 48-guide cap.
 - `tests/Domain.Tests/Network/PlacementTests.cs` — every `Validate` guard this
   chapter summarizes: length/radius floors, self-intersection, overlap, shallow and
   too-close crossings, kinks, tangential-departure G1 exemption and its

@@ -18,6 +18,70 @@ public class DraftSessionTests
     private static void ClickAt(DraftSession s, float x, float z) => s.Click(new Vector3(x, 0, z), 5f);
 
     [Fact]
+    public void SessionHoldsNodeSnapWhileCursorDriftsAlongLeg()
+    {
+        // capture the node, then drift 4.9 m away along the edge: the session-threaded
+        // hold keeps the node; drifting past the release ring lets go.
+        var (n, s) = Setup();
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, 0), new Vector3(100, 0, 0)));
+        s.SetMode(DraftMode.Straight);
+        s.PointerMoved(new Vector3(98f, 0, 0.5f), 6f);
+        Assert.Equal(SnapKind.Node, s.LastSnap.Kind);
+        s.PointerMoved(new Vector3(95.2f, 0, 1.0f), 6f);
+        Assert.Equal(SnapKind.Node, s.LastSnap.Kind);
+        s.PointerMoved(new Vector3(90f, 0, 1.0f), 6f);
+        Assert.Equal(SnapKind.Edge, s.LastSnap.Kind);
+    }
+
+    [Fact]
+    public void BeforeCommitFiresOnlyWhenCommitProceeds()
+    {
+        var (n, s) = Setup();
+        int before = 0, committed = 0;
+        s.BeforeCommit += () => before++;
+        s.Committed += () => committed++;
+        s.SetMode(DraftMode.Straight);
+        ClickAt(s, 0, 0);
+        ClickAt(s, 5, 0); // TooShort → Adjustable, no commit attempt
+        Assert.Equal(0, before);
+        s.Cancel();
+        ClickAt(s, 0, 0);
+        ClickAt(s, 100, 0);
+        Assert.Equal(1, before);
+        Assert.Equal(1, committed);
+    }
+
+    [Fact]
+    public void EventsFireOnPlaceAndCommit()
+    {
+        var (n, s) = Setup();
+        int placed = 0, committed = 0, rejected = 0;
+        s.HandlePlaced += () => placed++;
+        s.Committed += () => committed++;
+        s.Rejected += () => rejected++;
+        s.SetMode(DraftMode.Straight);
+        ClickAt(s, 0, 0);
+        ClickAt(s, 100, 0);
+        Assert.Equal(2, placed);
+        Assert.Equal(1, committed);
+        Assert.Equal(0, rejected);
+        Assert.Single(n.Edges);
+    }
+
+    [Fact]
+    public void RejectedFiresOnInvalidCompletion()
+    {
+        var (n, s) = Setup();
+        int rejected = 0;
+        s.Rejected += () => rejected++;
+        s.SetMode(DraftMode.Straight);
+        ClickAt(s, 0, 0);
+        ClickAt(s, 5, 0); // TooShort → Adjustable
+        Assert.Equal(1, rejected);
+        Assert.Empty(n.Edges);
+    }
+
+    [Fact]
     public void StraightRoadCommitsInstantlyOnSecondClick()
     {
         var (n, s) = Setup();

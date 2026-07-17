@@ -53,6 +53,7 @@ public partial class Toolbar : Control
             ("Arc", ToolMode.Arc),
             ("Chain", ToolMode.Continuous),
             ("Grid", ToolMode.Grid),
+            ("Upgrade", ToolMode.Upgrade),
             ("Bulldoze", ToolMode.Bulldoze),
             ("Junction", ToolMode.Inspect),
             ("Car", ToolMode.SpawnVehicle),
@@ -91,14 +92,16 @@ public partial class Toolbar : Control
             ("Guides", SnapTypes.Guidelines, true),
             ("Parallel", SnapTypes.Parallel, true),
             ("Perp", SnapTypes.Perpendicular, true),
+            ("8 m", SnapTypes.CellLength, true),
             ("Grid", SnapTypes.Grid, false),
         })
         {
             var cb = new CheckBox { Text = label, ButtonPressed = initial };
             cb.Toggled += on => _controller.SetSnapType(flag, on);
             snapRow.AddChild(cb);
-            if (!initial)
-                _controller.SetSnapType(flag, false);
+            // push every initial state: the session default differs (CellLength is
+            // off there so raw domain tests stay unquantized; the game wants it on)
+            _controller.SetSnapType(flag, initial);
         }
         var cellPick = new OptionButton();
         foreach (var size in new[] { 4, 8, 16, 32 })
@@ -141,10 +144,16 @@ public partial class Toolbar : Control
         var loadBtn = new Button { Text = "Load (F9)" };
         loadBtn.Pressed += () => _main.QuickLoad();
         saveRow.AddChild(loadBtn);
+        var undoBtn = new Button { Text = "Undo (^Z)" };
+        undoBtn.Pressed += () => _main.TryUndo();
+        saveRow.AddChild(undoBtn);
+        var redoBtn = new Button { Text = "Redo (^Y)" };
+        redoBtn.Pressed += () => _main.TryRedo();
+        saveRow.AddChild(redoBtn);
 
         var hint = new Label
         {
-            Text = "LMB place/drag handle · RMB step back · Enter confirm · Esc cancel · T release tangent lock · WASD pan · wheel zoom · Q/E rotate",
+            Text = "LMB place/drag handle · RMB step back · Enter confirm · Esc cancel · T release tangent lock · Ctrl+Z undo · Ctrl+Y redo · WASD pan · wheel zoom · Q/E rotate",
             Modulate = new Color(1, 1, 1, 0.6f),
         };
         box.AddChild(hint);

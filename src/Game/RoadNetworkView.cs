@@ -38,6 +38,8 @@ public partial class RoadNetworkView : Node3D
         }
         foreach (var e in delta.EdgesAdded)
             _dirtyEdges.Add(e);
+        foreach (var e in delta.EdgesChanged)
+            _dirtyEdges.Add(e);
         foreach (var n in delta.NodesAdded.Concat(delta.NodesChanged))
         {
             _dirtyNodes.Add(n);

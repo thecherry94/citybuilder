@@ -23,7 +23,10 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
     }
     private RoadTypeId _roadType = RoadCatalog.TwoLane.Id;
 
-    public SnapTypes EnabledSnaps { get; set; } = SnapTypes.All & ~SnapTypes.Grid;
+    // CellLength is excluded here (domain tests build raw sessions and would see 8 m
+    // quantization everywhere); the Toolbar turns it ON for the game — spec default-ON
+    // is user-facing.
+    public SnapTypes EnabledSnaps { get; set; } = SnapTypes.All & ~SnapTypes.Grid & ~SnapTypes.CellLength;
     public GridConfig Grid { get; set; } = GridConfig.Default;
     public bool AdjustMode { get; set; }
 
@@ -34,6 +37,15 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
     public (float LengthM, float AngleDeg, float? RadiusM)? Readout { get; private set; }
 
     public event Action<string>? Flashed;
+    /// <summary>A click appended a handle to the draft (game layer: placement click).</summary>
+    public event Action? HandlePlaced;
+    /// <summary>A proposal committed to the network (game layer: commit plop).</summary>
+    public event Action? Committed;
+    /// <summary>Completion or commit was refused (game layer: error blip).</summary>
+    public event Action? Rejected;
+    /// <summary>Fires immediately before a validated proposal is committed — the
+    /// game layer's undo-checkpoint hook (M7).</summary>
+    public event Action? BeforeCommit;
 
     public void SetMode(DraftMode mode)
     {
@@ -118,6 +130,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             return;
         }
         d.AddHandle(s, d.Handles.Count == 0 ? BoundTangent(s) : null);
+        HandlePlaced?.Invoke();
         if (!d.IsComplete)
         {
             Revalidate();
@@ -181,6 +194,8 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
                 Flashed?.Invoke("shape is not buildable here");
             else if (!validated.IsValid)
                 Flashed?.Invoke("invalid placement: " + string.Join(", ", validated.Errors));
+            if (validated is null || !validated.IsValid)
+                Rejected?.Invoke();
             State = SessionState.Adjustable;
             return;
         }
@@ -197,16 +212,20 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             Flashed?.Invoke(validated is null
                 ? "shape is not buildable here"
                 : "invalid placement: " + string.Join(", ", validated.Errors));
+            Rejected?.Invoke();
             State = SessionState.Adjustable;
             return;
         }
+        BeforeCommit?.Invoke();
         var result = network.Commit(validated);
         if (!result.Success)
         {
             Flashed?.Invoke(result.FailureReason ?? "could not build");
+            Rejected?.Invoke();
             State = SessionState.Adjustable;
             return;
         }
+        Committed?.Invoke();
         if (result.DroppedSegments > 0)
             Flashed?.Invoke(result.DroppedSegments == 1
                 ? "1 segment degenerated while merging and was skipped"
@@ -278,7 +297,8 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             reference = d.StartTangent;
         }
         var ctx = new SnapContext(anchor, reference,
-            (EnabledSnaps & SnapTypes.Grid) != 0 ? Grid : null, RoadType);
+            (EnabledSnaps & SnapTypes.Grid) != 0 ? Grid : null, RoadType,
+            HeldNode: LastSnap.Kind == SnapKind.Node ? LastSnap.Node : null);
         return snap.Resolve(raw, radius, EnabledSnaps, ctx);
     }
 

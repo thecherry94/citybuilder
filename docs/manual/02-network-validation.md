@@ -37,7 +37,7 @@ edits `_nodes`/`_edges` directly.
 - **Depends on:** `Bezier3`/`BezierOps`/`ArcLengthTable` ([ch. 01](01-geometry.md)) for curve math,
   `RoadCatalog` (this chapter) for per-type floors, `JunctionBuilder`/`ConnectorBuilder`
   ([ch. 03](03-junctions-control.md)/[04](04-lane-graph-connectors.md), invoked from `RebuildDerived`, `RoadNetwork.cs:715-721`).
-- **Last verified against commit:** `f0542d7`, 2026-07-16.
+- **Last verified against commit:** `9fd7f81`, 2026-07-17 (M7).
 
 ## The road-type catalog
 
@@ -194,17 +194,37 @@ appear as either to subscribers (`:669-674`), then bumps `Version` and fires one
 authored config changes don't touch topology, so it rebuilds and fires its own
 single-node delta directly.
 
-**`TryHealNode`** (`:588-611`) runs after every edge removal on any node left at degree 2
-(`HandleNodeAfterRemoval`, `:573-584`): refit the two remaining edges as one cubic via
+**`TryHealNode`** runs after every edge removal on any node left at degree 2
+(`HandleNodeAfterRemoval`): refit the two remaining edges as one cubic via
 `CurveFit.FitComposite`, merge if the fit is within `GeoConstants.MergeTolerance`
 (0.05 m), the edges share a `RoadType`, and merging wouldn't create a self-loop
-(`farA == farB`). **A gap this reading surfaces**: unlike `CommitCurve`'s segments, the
+(`farA == farB`). **M7 hardening**: the pair is ordered by `EdgeId` (heals no longer
+depend on `HashSet` iteration order), and **direction-asymmetric types heal only when
+flow is continuous** through the node — exactly one edge ends there (upstream) and the
+other starts there; the merge runs upstream-first so the healed curve keeps the travel
+direction, and opposing flows (both-in / both-out) keep the node. This closed the top
+M7-backlog bug (one-way chains could heal reversed). Covered by `HealingTests`
+(`OneWayChainHealsInFlowDirection`, `OpposingOneWaysNeverHeal`,
+`SymmetricHealOrientationFollowsLowerEdgeId`).
+**A remaining gap**: unlike `CommitCurve`'s segments, the
 merged edge is never re-checked against its type's `MinSegmentLength`/`MinRadius` floor.
 `FitComposite` constrains tangent *direction* at both ends (G1) but solves only the two
 control-point *distances* by least squares (`CurveFit.cs:6-11`) — nothing guarantees the
 result clears the curvature floor. In the tested scenarios both source edges were
 already floor-compliant and the fit tracks within 5 cm, so this would need an unusual
 composite shape to trigger; no `HealingTests.cs` case exercises it. See Known limits.
+
+**In-place edge replacement (M7 upgrade tool).** `RetypeEdge(EdgeId, RoadTypeId)
+→ RetypeError?` and `FlipEdge(EdgeId) → bool` swap a **new `RoadEdge` carrying the
+same `EdgeId`** into the network (`ReplaceEdgeInPlace`): retype validates the new
+type's `MinSegmentLength`/`MinRadius` against the existing curve first
+(`UnknownEdge / SameType / TooShort / TooTight`); flip reverses the curve and swaps
+`StartNode`/`EndNode`. Because the id survives, every `EdgeId`-keyed `JunctionConfig`
+override survives — the whole point versus remove+add, whose id churn lets `Prune`
+eat the player's junction authoring. Lanes regenerate with fresh `LaneId`s (vehicles
+on them are dropped by `TrafficSim.Sync`). Both raise a `NetworkDelta` with the new
+`EdgesChanged` set (renderers re-mesh those like adds) plus both end nodes in
+`NodesChanged`. Covered by `RetypeTests`.
 
 ## NetworkInvariants
 
@@ -328,6 +348,9 @@ touched node. Final graph: **3 edges** (`e2`, `e3`, `e4` — `e1` didn't survive
   above the radius floor for an unusual shape. `[UNCERTAIN]` — no concrete failing case
   found from reading alone; a fuzz/property test feeding near-degenerate tangent pairs
   into `TryHealNode` would settle whether this is reachable.
+- **[FIXED in M7]** ~~`TryHealNode` can silently reverse a one-way road~~ — direction
+  continuity + deterministic ordering shipped with M7 (see the heal section above);
+  the historical description below is kept for context:
 - **`TryHealNode` can silently reverse a one-way road** (M6 final-review find, top M7
   bug). It checks type equality but not direction continuity, and the merged edge's
   orientation follows `edges[0]` = first element of `node.EdgeSet` — a `HashSet`, so

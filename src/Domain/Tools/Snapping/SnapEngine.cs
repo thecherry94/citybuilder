@@ -26,6 +26,37 @@ public sealed class SnapEngine(RoadNetwork network)
     public const float GuidelineSearch = 200f;
     public const float AngleStepDeg = 15f;
 
+    // Hard node capture (M6.75 spec §1): within this fraction of the resolve radius a
+    // node wins outright over every soft candidate — the T-junction "slides along the
+    // leg" fix. CS2 uses the same tier-then-distance architecture (net candidates
+    // score at a hard higher tier than guides/grid; see the M6.75 research notes).
+    public const float NodeCaptureFraction = 0.6f;
+
+    // Absolute floor on the capture ring (meters). The zoom-scaled resolve radius can
+    // drop to ~2.4 m at default zoom, shrinking the ring below the node-miss distances
+    // cell-length quantization produces — found when the smoke's one-way loop committed
+    // 2.12 m from its intended reuse node ON the node's own continuation guide, which
+    // outscored it and split the network. CS2's node snap distance is world-space
+    // absolute (PlaceableNetData.m_SnapDistance, M6.75 research); this floor is our
+    // equivalent.
+    public const float NodeCaptureFloor = 3f;
+
+    // Hysteresis (M6.75 spec §1): a captured node only releases when the cursor leaves
+    // ReleaseFactor × the capture ring — kills candidate flicker, CS2's top complaint.
+    // Node captures only; the engine stays stateless (the session remembers the held
+    // node between resolves via SnapContext.HeldNode).
+    public const float ReleaseFactor = 1.4f;
+
+    // CS2's zoning-cell rhythm (Game.Zones.ZoneUtils.CELL_SIZE = 8f): with an anchor,
+    // segment length ratchets in 8 m ticks. Weak — loses to any geometry snap nearby.
+    public const float CellLength = 8f;
+    public const float WeightCellLength = 1.2f;
+
+    // Guide-count cap: perp guides triple the per-leg count and the pairwise
+    // intersection scan is O(G²); keep the nearest guides only (far ones are
+    // visual noise anyway).
+    public const int MaxGuidelines = 48;
+
     // node is 4.0 (not the spec's sketched 3.0): with 3.0, a node 1.9 m away
     // loses to the edge underneath it 1.2 m away — the ported NodeBeatsEdge test fails
     public const float WeightNode = 4.0f;
@@ -44,7 +75,12 @@ public sealed class SnapEngine(RoadNetwork network)
 
         var candidates = new List<SnapCandidate>();
         if ((enabled & SnapTypes.Nodes) != 0)
+        {
+            if (HardNodeCapture(raw, radius, ctx) is { } captured)
+                return new SnapResult(captured.Position, SnapKind.Node, captured.Id, null, null,
+                    NearbyGuides(guidelines, captured.Position, radius));
             AddNodeCandidates(raw, radius, candidates);
+        }
         if ((enabled & SnapTypes.Edges) != 0)
             AddEdgeCandidates(raw, radius, candidates);
         if ((enabled & SnapTypes.Guidelines) != 0)
@@ -53,6 +89,8 @@ public sealed class SnapEngine(RoadNetwork network)
             AddPerpendicularCandidates(raw, radius, anchor, candidates);
         if ((enabled & SnapTypes.Grid) != 0 && ctx.Grid is { } grid)
             AddGridCandidates(raw, radius, grid, candidates);
+        if ((enabled & SnapTypes.CellLength) != 0 && ctx.Anchor is { } cellAnchor)
+            AddCellLengthCandidates(raw, radius, cellAnchor, candidates);
 
         SnapCandidate? best = null;
         float bestScore = float.MaxValue;
@@ -78,12 +116,41 @@ public sealed class SnapEngine(RoadNetwork network)
         }
 
         if ((enabled & SnapTypes.Angle) != 0 && ctx.Anchor is { } a2 && AngleSnap(raw, a2, ctx) is { } angled)
-            return angled;
+            return (enabled & SnapTypes.CellLength) != 0 && QuantizeToCell(angled.Position, a2) is { } ticked
+                ? angled with { Position = ticked }
+                : angled;
 
         return SnapResult.Free(raw);
     }
 
     // ------------------------------------------------------------- producers
+
+    /// <summary>Nearest node inside the hard-capture ring, or null. Hysteresis (M6.75
+    /// spec §1) extends this via <see cref="SnapContext.HeldNode"/>.</summary>
+    private (NodeId Id, Vector3 Position)? HardNodeCapture(Vector3 raw, float radius, SnapContext ctx)
+    {
+        float captureR = MathF.Max(NodeCaptureFraction * radius, NodeCaptureFloor);
+        (NodeId Id, Vector3 Position)? best = null;
+        float bestDist = float.MaxValue;
+        foreach (var n in network.Nodes.Values)
+        {
+            float d = Vector3.Distance(n.Position, raw);
+            if (d <= captureR && d < bestDist)
+            {
+                bestDist = d;
+                best = (n.Id, n.Position);
+            }
+        }
+        // the held node survives out to the release ring and wins ties; a different
+        // node captured strictly closer transfers the hold
+        if (ctx.HeldNode is { } heldId && network.Nodes.TryGetValue(heldId, out var held))
+        {
+            float dHeld = Vector3.Distance(held.Position, raw);
+            if (dHeld <= ReleaseFactor * captureR && dHeld <= bestDist)
+                best = (heldId, held.Position);
+        }
+        return best;
+    }
 
     private void AddNodeCandidates(Vector3 raw, float radius, List<SnapCandidate> outList)
     {
@@ -168,6 +235,28 @@ public sealed class SnapEngine(RoadNetwork network)
         }
     }
 
+    private static void AddCellLengthCandidates(Vector3 raw, float radius, Vector3 anchor,
+        List<SnapCandidate> outList)
+    {
+        if (QuantizeToCell(raw, anchor) is { } pos && Vector3.Distance(pos, raw) <= radius)
+            outList.Add(new SnapCandidate(pos, SnapKind.CellLength, WeightCellLength));
+    }
+
+    /// <summary>Position at the 8 m-quantized distance from the anchor along
+    /// anchor→p, or null when degenerate/zero-length.</summary>
+    private static Vector3? QuantizeToCell(Vector3 p, Vector3 anchor)
+    {
+        var v = p - anchor;
+        v.Y = 0;
+        float d = v.Length();
+        if (d < GeoConstants.Eps)
+            return null;
+        float q = MathF.Round(d / CellLength) * CellLength;
+        if (q < CellLength)
+            return null;
+        return anchor + v / d * q;
+    }
+
     private static void AddGridCandidates(Vector3 raw, float radius, GridConfig grid,
         List<SnapCandidate> outList)
     {
@@ -204,11 +293,19 @@ public sealed class SnapEngine(RoadNetwork network)
                 leaving.Y = 0;
                 if (leaving.LengthSquared() < GeoConstants.Eps)
                     continue;
-                guides.Add(new Guideline(node.Position, Vector3.Normalize(-leaving), GuidelineReach));
+                var dir = Vector3.Normalize(-leaving);
+                guides.Add(new Guideline(node.Position, dir, GuidelineReach));
+                // perpendicular helpers (M6.75 spec §3): ±90° off the leg, for
+                // connecting distant roads at right angles via guide intersections
+                var perp = new Vector3(dir.Z, 0, -dir.X);
+                guides.Add(new Guideline(node.Position, perp, GuidelineReach));
+                guides.Add(new Guideline(node.Position, -perp, GuidelineReach));
             }
         }
         if ((enabled & SnapTypes.Parallel) != 0 && ctx.DrawingType is { } drawType)
             AddParallelGuides(near, drawType, guides);
+        if (guides.Count > MaxGuidelines)
+            guides = guides.OrderBy(g => Vector3.Distance(g.Origin, near)).Take(MaxGuidelines).ToList();
         return guides;
     }
 

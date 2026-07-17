@@ -27,6 +27,30 @@ car waits at the line — one of the two M5 assertiveness levers (with `Idm.T`) 
 completed, valid gesture to stop at `Adjustable` for manual confirmation instead of
 committing immediately. See [06 · Session state machine](06-drafting-snapping.md#the-session-state-machine).
 
+**Upgrade-in-place (retype/flip)** — `RetypeEdge`/`FlipEdge` (M7): replace an edge
+with a new `RoadEdge` carrying the **same `EdgeId`**, so `EdgeId`-keyed junction
+configs survive; lanes regenerate with fresh ids. Surfaced as the Upgrade tool
+(LMB retype, RMB flip). See [02 · In-place edge replacement](02-network-validation.md).
+
+**Capture ring (hard node capture)** — The zone where a node wins the snap outright,
+bypassing candidate scoring: `max(0.6 × snap radius, 3 m)` (M6.75). The absolute 3 m
+floor guards against the zoom-scaled radius shrinking the ring below cell-tick miss
+distances. See [06 · Snapping](06-drafting-snapping.md#snapping).
+
+**Cell tick (cell-length snap)** — The 8 m length ratchet (`SnapTypes.CellLength`,
+M6.75): with an anchor set, drawn segment length quantizes to multiples of 8 m — CS2's
+zoning-cell rhythm. Weak candidate; also quantizes the angle-snap fallback's length.
+See [06 · Snapping](06-drafting-snapping.md#snapping).
+
+**Checkpoint (undo)** — A pre-mutation snapshot push onto the `UndoStack` (M7):
+`SaveLoad.Save` of the whole network, deduped by `RoadNetwork.Version` so failed
+operations never leave junk entries. See [08 · Snapshot undo/redo](08-persistence.md#snapshot-undoredo-m7).
+
+**Release ring (snap hysteresis)** — A captured node stays the winner until the cursor
+leaves 1.4 × the capture ring (`SnapContext.HeldNode`, threaded by `DraftSession`;
+M6.75). A different node captured strictly closer transfers the hold. Kills the
+candidate flicker CS2 players complain about. See [06 · Snapping](06-drafting-snapping.md#snapping).
+
 **ArcFromTangent** — The one constructive geometry algorithm: fits a circular arc through
 a start point, a required departure tangent, and an end point, returned as one cubic
 (sweep ≤ 90°) or two (up to a 175° cap; `null` beyond). Backs the draft tool's arc

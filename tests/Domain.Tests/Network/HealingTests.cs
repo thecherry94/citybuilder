@@ -38,6 +38,61 @@ public class HealingTests
     }
 
     [Fact]
+    public void OneWayChainHealsInFlowDirection()
+    {
+        // A→B→C one-way chain + a two-way stub at B; bulldozing the stub heals A→C
+        // and the healed edge must still flow A→C (the M6 final-review bug: HashSet
+        // order could rebuild it C→A, silently reversing the road).
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, 0), new Vector3(100, 0, 0), RoadCatalog.OneWay.Id));
+        Net.Commit(n, Net.Straight(new Vector3(100, 0, 0), new Vector3(200, 0, 0), RoadCatalog.OneWay.Id));
+        var stubResult = Net.Commit(n, Net.Straight(new Vector3(100, 0, 0), new Vector3(100, 0, 80)));
+        n.RemoveEdge(stubResult.CreatedEdges[0]);
+
+        var healed = Assert.Single(n.Edges.Values);
+        Assert.Equal(RoadCatalog.OneWay.Id, healed.Type);
+        Assert.Equal(new Vector3(0, 0, 0), healed.Curve.P0);
+        Assert.Equal(new Vector3(200, 0, 0), healed.Curve.P3);
+    }
+
+    [Fact]
+    public void OpposingOneWaysNeverHeal()
+    {
+        // A→B and C→B (head-on at B) + stub at B: after the stub goes, the flows
+        // still oppose — the node must survive, no heal.
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, 0), new Vector3(100, 0, 0), RoadCatalog.OneWay.Id));
+        Net.Commit(n, Net.Straight(new Vector3(200, 0, 0), new Vector3(100, 0, 0), RoadCatalog.OneWay.Id));
+        var stubResult = Net.Commit(n, Net.Straight(new Vector3(100, 0, 0), new Vector3(100, 0, 80)));
+        n.RemoveEdge(stubResult.CreatedEdges[0]);
+
+        Assert.Equal(2, n.Edges.Count);
+        Assert.Equal(3, n.Nodes.Count); // shared node kept
+    }
+
+    [Fact]
+    public void SymmetricHealOrientationFollowsLowerEdgeId()
+    {
+        // deterministic rule replacing HashSet iteration order: the healed curve
+        // starts at the lower-EdgeId edge's far end
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, 0), new Vector3(100, 0, 0)));
+        Net.Commit(n, Net.Straight(new Vector3(100, 0, 0), new Vector3(200, 0, 0)));
+        var stubResult = Net.Commit(n, Net.Straight(new Vector3(100, 0, 0), new Vector3(100, 0, 80)));
+        var survivors = n.Edges.Values
+            .Where(e => !stubResult.CreatedEdges.Contains(e.Id))
+            .OrderBy(e => e.Id.Value).ToArray();
+        var lowerFar = survivors[0].OtherNode(
+            survivors[0].EndNode == survivors[1].StartNode || survivors[0].EndNode == survivors[1].EndNode
+                ? survivors[0].EndNode : survivors[0].StartNode);
+        var expectedStart = n.Nodes[lowerFar].Position;
+        n.RemoveEdge(stubResult.CreatedEdges[0]);
+
+        var healed = Assert.Single(n.Edges.Values);
+        Assert.Equal(expectedStart, healed.Curve.P0);
+    }
+
+    [Fact]
     public void CornerNodeIsNotMerged()
     {
         var n = Net.New();

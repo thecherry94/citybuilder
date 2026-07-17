@@ -5,7 +5,11 @@ using Godot;
 namespace CityBuilder.Game;
 
 /// <summary>Renders the placement preview: ghost road strips (blue = valid, red =
-/// invalid), guide lines, crossing markers, and the snap indicator.</summary>
+/// invalid), dashed guide lines, crossing markers, and the snap indicator. All scene
+/// nodes are pooled — hidden rather than freed — so continuous mouse motion never
+/// allocates or frees nodes; strip meshes rebuild only when the validated placement
+/// actually changed (the session emits a fresh instance whenever geometry or
+/// validity moved, so reference identity is the dirty flag).</summary>
 public partial class GhostView : Node3D
 {
     private readonly List<MeshInstance3D> _strips = new();
@@ -13,6 +17,13 @@ public partial class GhostView : Node3D
     private MeshInstance3D _lines = null!;
     private ImmediateMesh _linesMesh = null!;
     private MeshInstance3D _snapDot = null!;
+    private MeshInstance3D _nodeRing = null!;
+    private MeshInstance3D _edgeTick = null!;
+    private Node3D _perpGlyph = null!;
+    private MeshInstance3D _gridQuad = null!;
+    private Label3D _angleLabel = null!;
+    private readonly List<MeshInstance3D> _crossDots = new();
+    private ValidatedPlacement? _lastPlacement;
 
     public override void _Ready()
     {
@@ -27,31 +38,98 @@ public partial class GhostView : Node3D
             Visible = false,
         };
         AddChild(_snapDot);
+        _nodeRing = new MeshInstance3D
+        {
+            Name = "snap_node",
+            Mesh = new TorusMesh { InnerRadius = 2.0f, OuterRadius = 2.7f },
+            MaterialOverride = Materials.SnapNode,
+            Visible = false,
+        };
+        AddChild(_nodeRing);
+        _edgeTick = new MeshInstance3D
+        {
+            Name = "snap_edge",
+            Mesh = new BoxMesh { Size = new Vector3(0.5f, 0.15f, 5.5f) },
+            MaterialOverride = Materials.SnapAccent,
+            Visible = false,
+        };
+        AddChild(_edgeTick);
+        _perpGlyph = new Node3D { Name = "snap_perp", Visible = false };
+        _perpGlyph.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(0.35f, 0.15f, 3.0f) },
+            Position = new Vector3(0, 0, 1.5f),
+            MaterialOverride = Materials.SnapAccent,
+        });
+        _perpGlyph.AddChild(new MeshInstance3D
+        {
+            Mesh = new BoxMesh { Size = new Vector3(3.0f, 0.15f, 0.35f) },
+            Position = new Vector3(1.5f, 0, 0),
+            MaterialOverride = Materials.SnapAccent,
+        });
+        AddChild(_perpGlyph);
+        _gridQuad = new MeshInstance3D
+        {
+            Name = "snap_grid",
+            Mesh = new BoxMesh { Size = new Vector3(1.6f, 0.1f, 1.6f) },
+            MaterialOverride = Materials.SnapAccent,
+            Visible = false,
+        };
+        AddChild(_gridQuad);
+        _angleLabel = new Label3D
+        {
+            Name = "snap_angle",
+            FontSize = 64,
+            PixelSize = 0.05f,
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            Modulate = new Color(0.55f, 0.85f, 1f),
+            OutlineSize = 12,
+            Visible = false,
+        };
+        AddChild(_angleLabel);
     }
 
     public void Clear()
     {
-        foreach (var s in _strips)
-            s.QueueFree();
-        _strips.Clear();
-        foreach (var h in _handles)
-            h.QueueFree();
-        _handles.Clear();
+        HideFrom(_strips, 0);
+        HideFrom(_handles, 0);
+        HideFrom(_crossDots, 0);
         _linesMesh.ClearSurfaces();
         _snapDot.Visible = false;
+        _nodeRing.Visible = false;
+        _edgeTick.Visible = false;
+        _perpGlyph.Visible = false;
+        _gridQuad.Visible = false;
+        _angleLabel.Visible = false;
+        _lastPlacement = null;
+    }
+
+    private static void HideFrom(List<MeshInstance3D> pool, int from)
+    {
+        for (int i = from; i < pool.Count; i++)
+            pool[i].Visible = false;
+    }
+
+    private MeshInstance3D Pooled(List<MeshInstance3D> pool, ref int used)
+    {
+        if (used == pool.Count)
+        {
+            var inst = new MeshInstance3D();
+            AddChild(inst);
+            pool.Add(inst);
+        }
+        var node = pool[used++];
+        node.Visible = true;
+        return node;
     }
 
     public void Show(ValidatedPlacement? placement, SnapResult snap,
-        IReadOnlyList<System.Numerics.Vector3>? handles = null, int hotHandle = -1)
+        IReadOnlyList<System.Numerics.Vector3>? handles = null, int hotHandle = -1,
+        System.Numerics.Vector3? edgeTangent = null,
+        System.Numerics.Vector3? referenceDir = null,
+        System.Numerics.Vector3? anchor = null)
     {
-        Clear();
-
-        // snap indicator
-        if (snap.Kind != SnapKind.Free)
-        {
-            _snapDot.Visible = true;
-            _snapDot.Position = snap.Position.ToGodot() + Vector3.Up * 0.4f;
-        }
+        ShowIndicator(snap, edgeTangent);
 
         bool anyLines = false;
         _linesMesh.ClearSurfaces();
@@ -72,20 +150,56 @@ public partial class GhostView : Node3D
                     _linesMesh.SurfaceAddVertex(g.PointAt(s1).ToGodot() + Vector3.Up * 0.15f);
                 }
             }
+            ShowGuideCrossings(snap.ActiveGuidelines);
+        }
+        else
+        {
+            HideFrom(_crossDots, 0);
+        }
+
+        // cell ticks: length landed on the 8 m rhythm — cross-ticks along the last
+        // stretch toward the anchor (CellLength snap, or Angle with quantized length)
+        if (anchor is { } anch
+            && snap.Kind is SnapKind.CellLength or SnapKind.Angle
+            && System.Numerics.Vector3.Distance(snap.Position, anch) is > 1f and var len
+            && MathF.Abs(len / 8f - MathF.Round(len / 8f)) < 0.01f)
+        {
+            if (!anyLines)
+            {
+                _linesMesh.SurfaceBegin(Mesh.PrimitiveType.Lines);
+                anyLines = true;
+            }
+            var dirN = System.Numerics.Vector3.Normalize(snap.Position - anch);
+            var side = (new System.Numerics.Vector3(dirN.Z, 0, -dirN.X) * 0.9f).ToGodot();
+            int ticks = (int)MathF.Round(len / 8f);
+            var col = new Color(0.55f, 0.8f, 1f, 0.9f);
+            for (int k = Math.Max(1, ticks - 4); k <= ticks; k++)
+            {
+                var p = (anch + dirN * (k * 8f)).ToGodot() + Vector3.Up * 0.25f;
+                _linesMesh.SurfaceSetColor(col);
+                _linesMesh.SurfaceAddVertex(p + side);
+                _linesMesh.SurfaceSetColor(col);
+                _linesMesh.SurfaceAddVertex(p - side);
+            }
         }
 
         if (placement is not null)
         {
-            var material = placement.IsValid ? Materials.GhostValid : Materials.GhostInvalid;
-            foreach (var pc in placement.Proposal.Curves)
+            if (!ReferenceEquals(placement, _lastPlacement))
             {
-                float width = RoadCatalog.Get(placement.Proposal.Type).Width;
-                var mesh = MeshBuilders.BuildGhostStrip(pc.Curve, width);
-                if (mesh is null)
-                    continue;
-                var inst = new MeshInstance3D { Mesh = mesh, MaterialOverride = material };
-                AddChild(inst);
-                _strips.Add(inst);
+                int used = 0;
+                var material = placement.IsValid ? Materials.GhostValid : Materials.GhostInvalid;
+                foreach (var pc in placement.Proposal.Curves)
+                {
+                    float width = RoadCatalog.Get(placement.Proposal.Type).Width;
+                    var mesh = MeshBuilders.BuildGhostStrip(pc.Curve, width);
+                    if (mesh is null)
+                        continue;
+                    var inst = Pooled(_strips, ref used);
+                    inst.Mesh = mesh;
+                    inst.MaterialOverride = material;
+                }
+                HideFrom(_strips, used);
             }
 
             // direction arrows: drawing an asymmetric type, show which way it will flow
@@ -124,6 +238,11 @@ public partial class GhostView : Node3D
                 }
             }
         }
+        else
+        {
+            HideFrom(_strips, 0);
+        }
+        _lastPlacement = placement;
 
         if (anyLines)
             _linesMesh.SurfaceEnd();
@@ -131,24 +250,117 @@ public partial class GhostView : Node3D
         ShowHandles(handles, hotHandle);
     }
 
+    /// <summary>One indicator per snap kind — the user always sees WHAT they are
+    /// snapped to (spec §4): node = lock ring, edge = tick across the road,
+    /// perpendicular = right-angle glyph, grid = cell quad, angle = degree badge,
+    /// guides/cell ticks = the plain dot at the snapped tip.</summary>
+    private void ShowIndicator(SnapResult snap, System.Numerics.Vector3? edgeTangent)
+    {
+        _nodeRing.Visible = false;
+        _edgeTick.Visible = false;
+        _perpGlyph.Visible = false;
+        _gridQuad.Visible = false;
+        _angleLabel.Visible = false;
+        _snapDot.Visible = false;
+        var pos = snap.Position.ToGodot() + Vector3.Up * 0.25f;
+        switch (snap.Kind)
+        {
+            case SnapKind.Node:
+                _nodeRing.Visible = true;
+                _nodeRing.Position = pos;
+                break;
+            case SnapKind.Edge when edgeTangent is { } tan:
+                _edgeTick.Visible = true;
+                _edgeTick.Position = pos;
+                _edgeTick.Rotation = new Vector3(0, MathF.Atan2(tan.X, tan.Z) + MathF.PI / 2, 0);
+                break;
+            case SnapKind.Edge:
+                ShowSnapDot(pos);
+                break;
+            case SnapKind.Perpendicular when snap.DirectionConstraint is { } arrive:
+                _perpGlyph.Visible = true;
+                _perpGlyph.Position = pos;
+                _perpGlyph.Rotation = new Vector3(0, MathF.Atan2(arrive.X, arrive.Z), 0);
+                break;
+            case SnapKind.GridPoint or SnapKind.GridLine:
+                _gridQuad.Visible = true;
+                _gridQuad.Position = pos;
+                break;
+            case SnapKind.Angle when snap.SnappedAngleDeg is { } deg:
+                _angleLabel.Visible = true;
+                _angleLabel.Position = pos + Vector3.Up * 2.5f;
+                _angleLabel.Text = $"{NormalizeDeg(deg):0}°";
+                ShowSnapDot(pos);
+                break;
+            case SnapKind.GuidelineIntersection or SnapKind.Guideline or SnapKind.CellLength
+                or SnapKind.Perpendicular:
+                ShowSnapDot(pos);
+                break;
+        }
+    }
+
+    private void ShowSnapDot(Vector3 pos)
+    {
+        _snapDot.Visible = true;
+        _snapDot.Position = pos + Vector3.Up * 0.15f;
+    }
+
+    private static float NormalizeDeg(float deg)
+    {
+        deg %= 360f;
+        if (deg < 0) deg += 360f;
+        return deg;
+    }
+
+    /// <summary>Dots where active guides cross — the snappable intersections
+    /// (CS2 shows these so you can aim for them).</summary>
+    private void ShowGuideCrossings(IReadOnlyList<Guideline> guides)
+    {
+        int used = 0;
+        for (int i = 0; i < guides.Count; i++)
+        for (int j = i + 1; j < guides.Count; j++)
+        {
+            var a = guides[i];
+            var b = guides[j];
+            if (!GuidesCross(a, b, out float u))
+                continue;
+            var dot = Pooled(_crossDots, ref used);
+            dot.Mesh ??= new CylinderMesh { TopRadius = 0.7f, BottomRadius = 0.7f, Height = 0.15f };
+            dot.MaterialOverride = Materials.SnapAccent;
+            dot.Position = a.PointAt(u * a.Length).ToGodot() + Vector3.Up * 0.3f;
+        }
+        HideFrom(_crossDots, used);
+    }
+
+    /// <summary>XZ segment intersection of two guides; u = normalized position on a.</summary>
+    private static bool GuidesCross(Guideline a, Guideline b, out float u)
+    {
+        u = 0;
+        float ax = a.Direction.X * a.Length, az = a.Direction.Z * a.Length;
+        float bx = b.Direction.X * b.Length, bz = b.Direction.Z * b.Length;
+        float denom = ax * bz - az * bx;
+        if (MathF.Abs(denom) < 1e-6f)
+            return false;
+        float dx = b.Origin.X - a.Origin.X, dz = b.Origin.Z - a.Origin.Z;
+        u = (dx * bz - dz * bx) / denom;
+        float v = (dx * az - dz * ax) / denom;
+        return u is >= 0 and <= 1 && v is >= 0 and <= 1;
+    }
+
     private void ShowHandles(IReadOnlyList<System.Numerics.Vector3>? handles, int hot)
     {
-        foreach (var h in _handles)
-            h.QueueFree();
-        _handles.Clear();
-        if (handles is null)
-            return;
-        for (int i = 0; i < handles.Count; i++)
+        int used = 0;
+        if (handles is not null)
         {
-            var inst = new MeshInstance3D
+            for (int i = 0; i < handles.Count; i++)
             {
-                Mesh = new SphereMesh { Radius = 1.4f, Height = 2.8f },
-                MaterialOverride = i == hot ? Materials.SnapIndicator : Materials.GhostValid,
-                Position = handles[i].ToGodot() + Vector3.Up * 0.5f,
-            };
-            AddChild(inst);
-            _handles.Add(inst);
+                var inst = Pooled(_handles, ref used);
+                inst.Mesh ??= new SphereMesh { Radius = 1.4f, Height = 2.8f };
+                inst.MaterialOverride = i == hot ? Materials.SnapIndicator : Materials.GhostValid;
+                inst.Position = handles[i].ToGodot() + Vector3.Up * 0.5f;
+            }
         }
+        HideFrom(_handles, used);
     }
 
     private void AddGhostArrows(CityBuilder.Domain.Geometry.Bezier3 curve)

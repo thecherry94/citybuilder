@@ -15,13 +15,19 @@ one that never started.
 
 - **Source:** `src/Domain/Persistence/SaveGame.cs` (DTOs, 23 lines),
   `src/Domain/Persistence/SaveLoad.cs` (serialize/deserialize entry points, 92 lines),
+  `src/Domain/Persistence/UndoStack.cs` (M7 snapshot undo/redo),
   `src/Domain/Network/RoadNetwork.Persistence.cs` (`RestoreInto`, validation, DTO↔domain
   conversion, 167 lines).
 - **Entry points:** `SaveLoad.Save(RoadNetwork) : string`, `SaveLoad.Load(string) :
-  RoadNetwork`, `SaveLoad.LoadInto(string, RoadNetwork)`.
-- **Called by:** `Main.QuickSave`/`Main.QuickLoad` (`src/Game/Main.cs:146-185`), wired
-  to F5/F9 and the toolbar's Save/Load buttons (`src/Game/Toolbar.cs:138-142`); the
-  gesture fuzzer's periodic round-trip check (`tests/Domain.Tests/Fuzzing/GestureFuzzer.cs:137-149`).
+  RoadNetwork`, `SaveLoad.LoadInto(string, RoadNetwork)`;
+  `UndoStack(network, capacity = 50)` with `Checkpoint()` / `Undo()` / `Redo()` /
+  `UndoCount` / `RedoCount`.
+- **Called by:** `Main.QuickSave`/`Main.QuickLoad`, wired
+  to F5/F9 and the toolbar's Save/Load buttons; `Main.TryUndo`/`TryRedo` (Ctrl+Z/Y +
+  toolbar) via `UndoStack`; checkpoint call sites: `DraftSession.BeforeCommit`,
+  bulldoze click, the JunctionPanel's three `ConfigureJunction` applies, upgrade-tool
+  retype/flip, and `QuickLoad` itself (a quickload is undoable); the
+  gesture fuzzer checkpoints before every mutating action and runs undo/redo bursts.
   Not used by anything mid-simulation — this is an edit-mode operation only.
 - **Depends on:** `RoadCatalog.Get` ([ch. 02](02-network-validation.md)) for road-type lane specs on load,
   `JunctionBuilder`/`ConnectorBuilder` ([ch. 03](03-junctions-control.md), [ch. 04](04-lane-graph-connectors.md)) via `RoadNetwork.RebuildDerived`
@@ -29,7 +35,24 @@ one that never started.
 - **Used by:** `TrafficSim.EnsureSynced` and `ToolController.ClearTransientState`
   resync after every `QuickLoad` (see below); nothing else in the domain reaches into
   persistence directly.
-- **Last verified against commit:** `f0542d7` on 2026-07-16.
+- **Last verified against commit:** `9fd7f81` on 2026-07-17 (M7).
+
+## Snapshot undo/redo (M7)
+
+`UndoStack` is deliberately **snapshot-based, not delta-based**: each `Checkpoint()`
+stores `SaveLoad.Save(network)` (deduped by `RoadNetwork.Version` — a checkpoint when
+nothing changed since the last one is a no-op, so optimistic checkpoints before
+operations that then fail never push junk). `Undo()`/`Redo()` swap the current state
+with the stack top via `LoadInto`, inheriting the byte-stable round-trip contract and
+the quickload resync path wholesale. Capacity (default 50) trims the oldest.
+Rationale over invertible deltas: inverting commit-with-splits/node-reuse/heals is
+exactly the seam class where the fuzzer keeps finding real bugs, while the snapshot
+path was already fuzz-certified. Cost: ~100 KB per checkpoint at 500 edges and a
+`LoadInto` per undo — `UndoStackTests.PerfGuard480EdgeGrid` pins both under 100 ms.
+The caller owns post-restore side effects exactly like quickload
+(`TrafficSim.EnsureSynced` + `ToolController.ClearTransientState` in `Main.TryUndo`).
+Fuzzing bonus: every post-undo action edits a `LoadInto`-restored network — the
+"post-load-edit seams untested" M6 gap is now standing coverage.
 
 ## The format
 

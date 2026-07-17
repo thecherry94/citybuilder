@@ -24,7 +24,14 @@
 | Per-type MinRadius | TwoLane 20, FourLane 35, Street 10, Avenue 25, OneWay 10, Asymmetric 20 m |
 | Grid tool cell (`GridStampShape`) | 48 m |
 | Snap grid cell (`GridConfig.Default`, toolbar-selectable) | 8 m (4/8/16/32 also offered), off by default |
-| Snap weights (`SnapEngine`, distance/weight scoring — higher wins ties) | Node 4.0 > GuideIntersection 2.5 > Perpendicular 2.2 > Edge 2.0 > Guideline 1.5 = GridPoint 1.5 > GridLine 1.0 |
+| Snap weights (`SnapEngine`, distance/weight scoring — higher wins ties) | Node 4.0 > GuideIntersection 2.5 > Perpendicular 2.2 > Edge 2.0 > Guideline 1.5 = GridPoint 1.5 > CellLength 1.2 > GridLine 1.0 |
+| Hard node capture (M6.75, pre-scoring tier) | ring `max(0.6 × snap radius, 3 m)` — nearest node inside wins outright; 3 m absolute floor guards the zoomed-in ring against cell-tick miss distances |
+| Snap hysteresis (M6.75, `SnapContext.HeldNode`) | held node releases beyond 1.4 × capture ring; a different node captured strictly closer transfers the hold; session threads the memory, engine stays stateless |
+| Cell-length tick (M6.75, `SnapTypes.CellLength`) | 8 m (CS2 zoning cell); weak candidate (1.2) + quantizes the angle-fallback length; needs an anchor; game-default ON via toolbar, raw session default OFF |
+| Guideline set per node leg (M6.75) | continuation + two perpendiculars (±90°), reach 200 m, collection capped at the 48 nearest by origin |
+| Undo (M7, `UndoStack`) | snapshot-based on SaveLoad; capacity 50; `Checkpoint()` BEFORE mutations, deduped by `RoadNetwork.Version`; restore reruns the quickload resync; perf-guarded < 100 ms at 480 edges |
+| Retype/flip (M7, `RetypeEdge`/`FlipEdge`) | same-`EdgeId` replacement (junction configs survive, `LaneId`s regenerate); retype errors `UnknownEdge/SameType/TooShort/TooTight` validated against the existing curve; delta carries `EdgesChanged` |
+| Heal continuity (M7, `TryHealNode`) | pair ordered by `EdgeId`; direction-asymmetric types heal only continuous flow (one in, one out), merged upstream-first; opposing flows keep the node |
 | SurfaceY / MarkingY / SidewalkRise | 0.07 / 0.10 / 0.13 |
 | Marking dash on/off, line width | 3 m / 3 m, 0.15 m |
 | JunctionBuilder CornerMargin / MaxCutFraction / MaxExtra | 0.5 m / 30 % / 12 m |

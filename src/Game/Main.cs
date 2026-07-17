@@ -18,6 +18,10 @@ public partial class Main : Node3D
     private RoadNetworkView _view = null!;
     private LaneDebugOverlay _lanes = null!;
     private CityBuilder.Domain.Traffic.TrafficSim _traffic = null!;
+    private AudioFx _audio = null!;
+    private UndoStack _undo = null!;
+
+    public UndoStack Undo => _undo;
     private double _trafficAccum;
 
     public CityBuilder.Domain.Traffic.TrafficSim Traffic => _traffic;
@@ -43,6 +47,8 @@ public partial class Main : Node3D
         _network = new RoadNetwork();
         var snap = new SnapEngine(_network);
         var session = new DraftSession(_network, snap);
+        _undo = new UndoStack(_network);
+        session.BeforeCommit += _undo.Checkpoint;
 
         // thin road markings (0.15 m) vanish below ~1 px without multisampling
         GetViewport().Msaa3D = Viewport.Msaa.Msaa4X;
@@ -83,6 +89,11 @@ public partial class Main : Node3D
         _controller.Bind(_network, session, camera, ghost, _view);
         AddChild(_controller);
 
+        _audio = new AudioFx { Name = "AudioFx" };
+        AddChild(_audio);
+        _controller.BindAudio(_audio);
+        _controller.BindUndo(_undo);
+
         var gridOverlay = new GridOverlay { Name = "GridOverlay" };
         gridOverlay.Bind(_controller, camera);
         AddChild(gridOverlay);
@@ -110,7 +121,7 @@ public partial class Main : Node3D
         ui.AddChild(toolbar);
 
         var junctionPanel = new JunctionPanel { Name = "JunctionPanel" };
-        junctionPanel.Bind(_network);
+        junctionPanel.Bind(_network, () => _undo.Checkpoint());
         ui.AddChild(junctionPanel);
         _controller.NodeSelected += id =>
         {
@@ -136,6 +147,12 @@ public partial class Main : Node3D
                 break;
             case InputEventKey { Keycode: Key.F9, Pressed: true }:
                 QuickLoad();
+                break;
+            case InputEventKey { Keycode: Key.Z, Pressed: true, CtrlPressed: true }:
+                TryUndo();
+                break;
+            case InputEventKey { Keycode: Key.Y, Pressed: true, CtrlPressed: true }:
+                TryRedo();
                 break;
         }
     }
@@ -171,6 +188,7 @@ public partial class Main : Node3D
         }
         try
         {
+            _undo.Checkpoint(); // a quickload is itself undoable
             SaveLoad.LoadInto(File.ReadAllText(path), _network);
             _traffic.EnsureSynced();
             // restored ids may describe different geometry — drop the draft, hover
@@ -182,6 +200,26 @@ public partial class Main : Node3D
         {
             StatusFlashed?.Invoke($"load failed: {ex.Message}");
         }
+    }
+
+    /// <summary>Undo the last network mutation (Ctrl+Z). Restores a snapshot in
+    /// place, then reruns the quickload resync: traffic drops strandees, the active
+    /// gesture and selections are cleared (restored ids may describe different
+    /// geometry).</summary>
+    public void TryUndo()
+    {
+        if (!_undo.Undo()) { StatusFlashed?.Invoke("Nothing to undo"); return; }
+        _traffic.EnsureSynced();
+        _controller.ClearTransientState();
+        StatusFlashed?.Invoke("Undone");
+    }
+
+    public void TryRedo()
+    {
+        if (!_undo.Redo()) { StatusFlashed?.Invoke("Nothing to redo"); return; }
+        _traffic.EnsureSynced();
+        _controller.ClearTransientState();
+        StatusFlashed?.Invoke("Redone");
     }
 
     private static bool RawCmdlineHasEditorPid()
@@ -318,6 +356,29 @@ public partial class Main : Node3D
             for (int i = 0; i < 60; i++)
                 _traffic.Tick(1f / 60f);
 
+            // ghost stress: 900 hovers on an active draft — with CITYBUILDER_GHOSTPROBE=1
+            // this prints avg RenderGhost cost (the M6.75 before/after pooling evidence)
+            _controller.SetMode(ToolMode.Straight);
+            _controller.HandleClickAt(V(-80, -60));
+            for (int i = 0; i < 900; i++)
+                _controller.HandleHoverAt(V(-80 + i * 0.15f, -60 + (i % 7) * 0.3f));
+            _controller.CancelGesture();
+
+            // M7: upgrade via the tool surface + Ctrl+Z path (calls, not raw keys)
+            _controller.SetMode(ToolMode.Upgrade);
+            var upEdge = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), V(-40, 0)) < 6f);
+            _controller.SetRoadType(RoadCatalog.Street.Id);
+            _controller.HandleHoverAt(V(-40, 0));
+            _controller.HandleClickAt(V(-40, 0));
+            Expect(_network.Edges[upEdge.Id].Type == RoadCatalog.Street.Id,
+                "upgrade tool did not retype");
+            TryUndo();
+            Expect(_network.Edges[upEdge.Id].Type != RoadCatalog.Street.Id,
+                "undo did not revert the upgrade");
+            _controller.SetRoadType(RoadCatalog.TwoLane.Id);
+            _controller.SetMode(ToolMode.Straight);
+
             // park the cursor over open ground so the grid overlay lands deterministically
             Input.WarpMouse(GetViewport().GetVisibleRect().Size * new Vector2(0.72f, 0.55f));
             await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
@@ -406,8 +467,13 @@ public partial class Main : Node3D
             // see UrbanRoadTests.MixedKindNetworkIsNotConnectedAcrossKinds), so the
             // all-kinds check would fail the moment any sidewalk-carrying type (like
             // OneWay) enters the network regardless of the driving topology.
-            Expect(LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
-                "driving lane graph not strongly connected");
+            if (!LaneGraph.IsStronglyConnected(_network, LaneKind.Driving))
+            {
+                foreach (var e in _network.Edges.Values)
+                    GD.Print($"SMOKE-DUMP edge {e.Id.Value} type={e.Type.Value} " +
+                        $"({e.Curve.P0.X:F1},{e.Curve.P0.Z:F1})->({e.Curve.P3.X:F1},{e.Curve.P3.Z:F1})");
+                Expect(false, "driving lane graph not strongly connected");
+            }
 
             // junction control: lights + resize on the T junction left by the bulldoze
             var tee = _network.Nodes.Values.First(n => n.Edges.Count == 3);
@@ -436,6 +502,38 @@ public partial class Main : Node3D
             Expect(_traffic.Vehicles.Count >= 5,
                 $"expected ≥5 ambient vehicles, got {_traffic.Vehicles.Count}");
             Expect(_traffic.Arrived > 0, "no vehicle completed a trip");
+
+            // M7: upgrade-in-place — retype a grid edge, flip a one-way loop edge
+            // (and back — a lone flipped loop edge breaks strong connectivity),
+            // then undo everything and assert the network state rewinds
+            int edgesBeforeM7 = _network.Edges.Count;
+            var gridEdge = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), V(224, 0)) < 5f);
+            _undo.Checkpoint();
+            Expect(_network.RetypeEdge(gridEdge.Id, RoadCatalog.Street.Id) is null,
+                "retype grid edge failed");
+            Expect(_network.Edges[gridEdge.Id].Type == RoadCatalog.Street.Id,
+                "retype did not stick");
+            var loopEdge = _network.Edges.Values.First(e => e.Type == RoadCatalog.OneWay.Id);
+            _undo.Checkpoint();
+            Expect(_network.FlipEdge(loopEdge.Id), "flip failed");
+            Expect(!LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
+                "flipped loop edge should break strong connectivity");
+            _undo.Checkpoint();
+            Expect(_network.FlipEdge(loopEdge.Id), "flip back failed");
+            Expect(LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
+                "flip back did not restore connectivity");
+            TryUndo(); // undo flip-back
+            Expect(!LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
+                "undo did not restore the flipped state");
+            TryUndo(); // undo flip
+            TryUndo(); // undo retype
+            Expect(_network.Edges[gridEdge.Id].Type == RoadCatalog.TwoLane.Id,
+                "undo did not restore the original type");
+            Expect(_network.Edges.Count == edgesBeforeM7,
+                $"edge count after undos: {_network.Edges.Count} != {edgesBeforeM7}");
+
+            Expect(_audio.LoadedCount == 5, $"audio streams loaded {_audio.LoadedCount}/5");
 
             GD.Print("SMOKE OK");
             GetTree().Quit(0);

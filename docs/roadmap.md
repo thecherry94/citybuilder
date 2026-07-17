@@ -111,28 +111,62 @@ verified build.
   (IDM-guarded only, clamp lands one tick late there) — add a cross-seam invariant
   check next milestone.
 
+- **M6.75 — Road-building feel** (2026-07-17): the CS2-feel editor pass, driven by two
+  web-research rounds (docs/community + decompiled-`Game.dll` snippets via the modding
+  ecosystem). Hard node capture (`max(0.6·radius, 3 m)` ring beats every soft candidate
+  — the T-junction "slides along the leg" fix) with hysteresis (1.4× release ring via
+  `SnapContext.HeldNode`; kills CS2's documented candidate-fighting), 8 m cell-length
+  ticks (`SnapTypes.CellLength`, composes with the always-exact 15° angle snap — CS2's
+  lateral-band weakness deliberately not cloned), perpendicular guides off every node
+  leg (+ 48-nearest cap), per-kind snap indicators (node lock ring, edge tick, perp
+  glyph, angle badge, cell ticks, guide-crossing dots), pooled ghost rendering
+  (~543 → ~113 µs per render, `CITYBUILDER_GHOSTPROBE=1`), and the project's first
+  audio (five synthesized one-shots via `tools/sfxgen`, `DraftSession`
+  `HandlePlaced/Committed/Rejected` events, rate-limited snap ticks). Shipped on the
+  Godot 4.7 migration. Found-and-fixed: the zoom-scaled capture ring could shrink
+  below cell-tick miss distances, letting a node's own continuation guide steal the
+  snap and commit a disconnected duplicate node (smoke caught it; 3 m absolute floor +
+  regression test). Known limits: perpendicular-arrival snap (weight 2.2) practically
+  never beats an edge candidate under the cursor — reachable only with Edges toggled
+  off; guide-crossing dots render only for *active* guides (those near the current
+  snap), not every collectable pair on screen; snap indicators have no screenshot
+  coverage at extreme zoom (gallery shots are mid-zoom only).
+
+- **M7 — Undo/redo + upgrade-in-place** (2026-07-17): CS2's most-loved editing
+  comforts. **Snapshot undo** (`UndoStack` on the byte-stable `SaveLoad`, capacity 50,
+  version-deduped pre-mutation checkpoints; Ctrl+Z/Y + toolbar; restore reruns the
+  quickload resync) — chosen over the roadmap's sketched invertible deltas: the
+  snapshot path was already fuzz-certified while delta inversion lives exactly where
+  the fuzzer keeps finding bugs; perf guard pins checkpoint+undo < 100 ms at 480
+  edges. **Upgrade tool** (`ToolMode.Upgrade`): LMB retypes to the current toolbar
+  type, RMB flips travel direction — both as same-`EdgeId` in-place replacements
+  (`RetypeEdge` with `TooShort/TooTight` validation against the existing curve,
+  `FlipEdge`), preserving `EdgeId`-keyed junction configs; `NetworkDelta.EdgesChanged`
+  re-meshes them. **Top-backlog bug fixed**: `TryHealNode` now orders its pair by
+  `EdgeId` and heals direction-asymmetric types only with continuous flow
+  (upstream-first merge) — one-way chains can no longer heal reversed. Fuzzer gained
+  checkpoint-before-mutation + retype/flip/undo-redo actions, turning the M6
+  "post-load-edit seams untested" gap into standing coverage.
+  Known limits: undo covers the network only (vehicles resync as after quickload —
+  ambient traffic respawns); the healed-edge floor recheck gap remains (pre-M7,
+  see ch02); `Prune`-on-EdgeId-churn config loss for *fully-dropped* commit segments
+  and `SaveLoad.ValidateGame` counter bounds stay deferred.
+
 ## Next up (roughly in order — each is one milestone)
 
-1. **Editing comfort: undo/redo + upgrade tool (M7).** Invertible `NetworkDelta`s (the
-   batching already exists), upgrade-in-place (change a road's type without redrawing,
-   preserving junction configs). CS2's most-loved road UX. Small, self-contained, huge
-   daily payoff.
-   *(The formerly-listed KPI tuning fast-follow shipped as M6.5 — signal discharge,
-   curvature turn speeds, and driver personalities are done; creep at yield lines was
-   not needed once the spillback root cause was fixed.)*
-2. **Elevation & bridges.** The domain carries Y everywhere but is flat: gradient
+1. **Elevation & bridges.** The domain carries Y everywhere but is flat: gradient
    limits, ramps, pillars, over/underpasses (crossing rule changes: grade-separated
    crossings don't create junctions), retaining-wall/bridge meshes. Big win for network
    expressiveness; prerequisite for highways.
-3. **Zoning & buildings.** Zone strips along edges (the offset machinery generalizes),
+2. **Zoning & buildings.** Zone strips along edges (the offset machinery generalizes),
    demand-free procedural growth first: lots, simple building shells, despawn on
    bulldoze. Purely visual city-ness; no economy yet.
-4. **Citizens & destinations.** Trips get meaning: buildings spawn/attract vehicle
+3. **Citizens & destinations.** Trips get meaning: buildings spawn/attract vehicle
    trips (home→work), pedestrians walk the sidewalk graph (it's already a lane kind!),
    crosswalk usage ties into signals. This is where the sim starts feeling like CS.
-5. **Public transport (first line).** Bus stops on sidewalk lanes, a line editor,
+4. **Public transport (first line).** Bus stops on sidewalk lanes, a line editor,
    buses as vehicles with stop dwell — exercises everything above.
-6. **Economy & services (long game).** Demand model driving zoning growth, service
+5. **Economy & services (long game).** Demand model driving zoning growth, service
    buildings with coverage (fire/police/garbage as vehicle trips), districts/policies.
    Only start when 1–5 feel solid.
 
