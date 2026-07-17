@@ -91,14 +91,16 @@ public partial class Toolbar : Control
             ("Guides", SnapTypes.Guidelines, true),
             ("Parallel", SnapTypes.Parallel, true),
             ("Perp", SnapTypes.Perpendicular, true),
+            ("8 m", SnapTypes.CellLength, true),
             ("Grid", SnapTypes.Grid, false),
         })
         {
             var cb = new CheckBox { Text = label, ButtonPressed = initial };
             cb.Toggled += on => _controller.SetSnapType(flag, on);
             snapRow.AddChild(cb);
-            if (!initial)
-                _controller.SetSnapType(flag, false);
+            // push every initial state: the session default differs (CellLength is
+            // off there so raw domain tests stay unquantized; the game wants it on)
+            _controller.SetSnapType(flag, initial);
         }
         var cellPick = new OptionButton();
         foreach (var size in new[] { 4, 8, 16, 32 })
