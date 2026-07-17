@@ -26,6 +26,17 @@ bind once, subscribe to `Changed`, never hold a stale mesh.
   `SignalLampView.Bind`.
 - **Called by:** `Main._Ready()` wires every view once at scene start (`Main.cs:71-104`);
   `ToolController` ([ch. 06](06-drafting-snapping.md)) drives `GhostView`/`RoadNetworkView.HighlightEdge` per frame.
+  M6.75: `GhostView` is fully **pooled** — preview strips, handles, and indicators are
+  hidden rather than freed, and strip meshes rebuild only when the
+  `ValidatedPlacement` reference changed (the session emits a fresh instance per real
+  change). Measured via the `CITYBUILDER_GHOSTPROBE=1` env probe in `ToolController`:
+  ~543 µs → ~113 µs per render under continuous hover. The old anonymous snap sphere
+  is now a per-kind indicator set (node lock ring, edge tick, perpendicular L-glyph,
+  grid quad, angle badge `Label3D`, 8 m cell ticks, guide-crossing dots) — see the
+  spec's §4 table; the sphere survives as the dot for guide/cell-tick kinds.
+  `AudioFx` (also M6.75) is the first audio: five synthesized one-shots
+  (`assets/audio`, regenerable via `tools/sfxgen`), fired by `ToolController` from
+  `DraftSession` events + snap-signature changes, rate-limited for snap ticks.
 - **Depends on:** `RoadNetwork.Changed`/`NetworkDelta` (ch. 02), `RoadType`/`LaneSpec`,
   `JunctionGeometry`/`Corners`/`SurfacePolygon` ([ch. 03](03-junctions-control.md)), `Bezier3`/`ArcLengthTable`
   ([ch. 01](01-geometry.md)), `TrafficSim.Pose`/`PhaseFor` ([ch. 05](05-traffic-sim.md)).

@@ -111,6 +111,27 @@ verified build.
   (IDM-guarded only, clamp lands one tick late there) — add a cross-seam invariant
   check next milestone.
 
+- **M6.75 — Road-building feel** (2026-07-17): the CS2-feel editor pass, driven by two
+  web-research rounds (docs/community + decompiled-`Game.dll` snippets via the modding
+  ecosystem). Hard node capture (`max(0.6·radius, 3 m)` ring beats every soft candidate
+  — the T-junction "slides along the leg" fix) with hysteresis (1.4× release ring via
+  `SnapContext.HeldNode`; kills CS2's documented candidate-fighting), 8 m cell-length
+  ticks (`SnapTypes.CellLength`, composes with the always-exact 15° angle snap — CS2's
+  lateral-band weakness deliberately not cloned), perpendicular guides off every node
+  leg (+ 48-nearest cap), per-kind snap indicators (node lock ring, edge tick, perp
+  glyph, angle badge, cell ticks, guide-crossing dots), pooled ghost rendering
+  (~543 → ~113 µs per render, `CITYBUILDER_GHOSTPROBE=1`), and the project's first
+  audio (five synthesized one-shots via `tools/sfxgen`, `DraftSession`
+  `HandlePlaced/Committed/Rejected` events, rate-limited snap ticks). Shipped on the
+  Godot 4.7 migration. Found-and-fixed: the zoom-scaled capture ring could shrink
+  below cell-tick miss distances, letting a node's own continuation guide steal the
+  snap and commit a disconnected duplicate node (smoke caught it; 3 m absolute floor +
+  regression test). Known limits: perpendicular-arrival snap (weight 2.2) practically
+  never beats an edge candidate under the cursor — reachable only with Edges toggled
+  off; guide-crossing dots render only for *active* guides (those near the current
+  snap), not every collectable pair on screen; snap indicators have no screenshot
+  coverage at extreme zoom (gallery shots are mid-zoom only).
+
 ## Next up (roughly in order — each is one milestone)
 
 1. **Editing comfort: undo/redo + upgrade tool (M7).** Invertible `NetworkDelta`s (the

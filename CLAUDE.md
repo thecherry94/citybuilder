@@ -1,6 +1,6 @@
 # citybuilder
 
-A Cities: Skylines 2–inspired city builder in Godot 4.6 (mono/C#), built milestone by
+A Cities: Skylines 2–inspired city builder in Godot 4.7 (mono/C#), built milestone by
 milestone — **it's a marathon, not a sprint**. The road network and traffic systems are
 the foundation everything else grows on.
 
@@ -31,11 +31,14 @@ the foundation everything else grows on.
 ## Quick commands
 
 ```bash
-dotnet test                                   # 267 xUnit domain tests, headless
+dotnet test                                   # 284 xUnit domain tests, headless
 dotnet build citybuilder.sln                  # domain + game + tests
 CITYBUILDER_SMOKE=1 godot --headless .        # scripted end-to-end, prints SMOKE OK
 CITYBUILDER_SHOTS=tests/visual/shots godot .  # screenshot harness (needs a window)
 CITYBUILDER_UITEST=/tmp/ui.png godot .        # scripted UI flow + full-UI screenshot
 ```
 
-`godot` is 4.6.2 mono on PATH; dotnet 10 SDK (tests target net10.0, game/domain net8.0).
+`godot` is 4.7 stable mono — if not on PATH, the console exe lives at
+`%LOCALAPPDATA%\Programs\Godot-4.7-mono\Godot_v4.7-stable_mono_win64\Godot_v4.7-stable_mono_win64_console.exe`.
+dotnet 10 SDK (tests target net10.0, game/domain net8.0; only the .NET 10 runtime is
+installed — standalone tools like `tools/sfxgen` must target net10.0).

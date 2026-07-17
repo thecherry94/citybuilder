@@ -192,6 +192,28 @@ DoD: KPI harness rerun (expect traffic metrics unchanged — editor-only milesto
 `docs/health/M6.75.md`, manual chapters drift-updated (road tools + new audio note),
 roadmap updated.
 
+## Implementation notes (deltas from this spec, recorded at ship time)
+
+- **Ghost dirty-skip**: implemented as a `ValidatedPlacement` reference cache inside
+  `GhostView` instead of a session revision counter — the session already emits a
+  fresh instance per real change, so reference identity is the dirty flag; fewer
+  moving parts, same effect. Measured ~543 → ~113 µs per render.
+- **Audio source**: synthesized in-repo (`tools/sfxgen`, fixed seed, byte-stable,
+  CC0-equivalent) instead of downloading Kenney packs — deterministic and
+  license-trivial. Five WAVs under `assets/audio` with provenance in `LICENSE.md`.
+- **Angle badge**: rendered as a `Label3D` degree readout + snapped-tip dot + cell
+  ticks; no arc mesh (the arc added clutter without information).
+- **Capture-floor amendment (found by smoke)**: the spec's ring `0.6 × radius` alone
+  breaks at small zoom-scaled radii (~2.4 m): cell-length quantization can commit a
+  node up to 4 m from the raw click, and a follow-up click at the intended spot then
+  sits on that node's own continuation guide, which outscores it — committing a
+  disconnected duplicate node. Shipped as `max(0.6 × radius, NodeCaptureFloor = 3 m)`
+  with a regression test; mirrors CS2's world-space-absolute snap distance.
+- **Gallery-only snap states**: the perpendicular-arrival glyph is practically
+  unreachable with Edge snapping on (edge at ~0 m always outscores the foot); the
+  screenshot gallery disables Edges for that station, mirroring how a player would
+  actually reach it.
+
 ## Research notes (CS2 reference, two passes, gathered 2026-07-17)
 
 Pass 1 (docs/community) and pass 2 (mod source + decompiled `Game.dll` snippets via

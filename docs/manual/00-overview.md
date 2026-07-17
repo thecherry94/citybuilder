@@ -43,10 +43,11 @@ own. Tests (`tests/`, net10.0) exercise the domain headlessly.
 
 ```mermaid
 flowchart TB
-    subgraph Game["src/Game — Godot 4.6 mono (renders + forwards input, no state)"]
+    subgraph Game["src/Game — Godot 4.7 mono (renders + forwards input, no state)"]
         TC[ToolController / Toolbar / JunctionPanel]
         RV[RoadNetworkView · MeshBuilders · JunctionMarkings]
         TV[TrafficView · SignalLampView · overlays]
+        AFX[AudioFx — five UI one-shots, M6.75]
         MAIN[Main — scene wiring, quick save/load, fixed-step driver]
     end
     subgraph Domain["src/Domain — pure C# net8.0 (all state + simulation)"]
