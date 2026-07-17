@@ -59,6 +59,7 @@ public static class GestureFuzzer
         var network = new RoadNetwork();
         var snap = new SnapEngine(network);
         var session = new DraftSession(network, snap);
+        var undo = new UndoStack(network);
         var rng = new Random(opts.Seed);
         var tail = new List<string>();
 
@@ -74,9 +75,12 @@ public static class GestureFuzzer
             try
             {
                 int pick = rng.Next(100);
-                if (pick < 55) DrawGesture(session, network, rng, Log);
-                else if (pick < 75) Bulldoze(network, rng, Log);
-                else if (pick < 90) ConfigureJunctionAction(network, rng, Log);
+                if (pick < 45) { undo.Checkpoint(); DrawGesture(session, network, rng, Log); }
+                else if (pick < 60) { undo.Checkpoint(); Bulldoze(network, rng, Log); }
+                else if (pick < 70) { undo.Checkpoint(); ConfigureJunctionAction(network, rng, Log); }
+                else if (pick < 78) { undo.Checkpoint(); Retype(network, rng, Log); }
+                else if (pick < 83) { undo.Checkpoint(); Flip(network, rng, Log); }
+                else if (pick < 90) UndoRedo(undo, session, rng, Log);
                 else if (pick < 95) ToggleSnap(session, rng, Log);
                 else StepBackCancel(session, network, rng, Log);
             }
@@ -212,6 +216,42 @@ public static class GestureFuzzer
         }
 
         log($"draw {mode} type={type.Id.Value} clicks=" + FormatPoints(points));
+    }
+
+    private static readonly RoadTypeId[] AllTypes =
+        RoadCatalog.All.Select(t => t.Id).ToArray();
+
+    private static void Retype(RoadNetwork network, Random rng, Action<string> log)
+    {
+        var ids = network.Edges.Keys.OrderBy(e => e.Value).ToArray();
+        if (ids.Length == 0) { log("retype skip=empty"); return; }
+        var id = ids[rng.Next(ids.Length)];
+        var type = AllTypes[rng.Next(AllTypes.Length)];
+        var err = network.RetypeEdge(id, type);
+        log($"retype edge={id.Value} type={type.Value} result={(err is null ? "ok" : err.ToString())}");
+    }
+
+    private static void Flip(RoadNetwork network, Random rng, Action<string> log)
+    {
+        var ids = network.Edges.Keys.OrderBy(e => e.Value).ToArray();
+        if (ids.Length == 0) { log("flip skip=empty"); return; }
+        var id = ids[rng.Next(ids.Length)];
+        network.FlipEdge(id);
+        log($"flip edge={id.Value}");
+    }
+
+    private static void UndoRedo(UndoStack undo, DraftSession session, Random rng, Action<string> log)
+    {
+        // the editor clears the active gesture on restore; mirror that or a held
+        // draft would reference pre-undo ids
+        session.Cancel();
+        int steps = rng.Next(1, 4);
+        int done = 0;
+        bool redo = rng.NextDouble() < 0.4;
+        for (int i = 0; i < steps; i++)
+            if (redo ? undo.Redo() : undo.Undo())
+                done++;
+        log($"{(redo ? "redo" : "undo")} steps={done}/{steps}");
     }
 
     private static void Bulldoze(RoadNetwork network, Random rng, Action<string> log)
