@@ -152,6 +152,31 @@ verified build.
   see ch02); `Prune`-on-EdgeId-churn config loss for *fully-dropped* commit segments
   and `SaveLoad.ValidateGame` counter bounds stay deferred.
 
+- **M7.5 — Roundabouts** (2026-07-17): CS2's convert-in-place workflow, replacing the
+  CS1 hand-built ring (which trips the sliver/sharp-leg guards when an approach lands on a
+  ring segment). **Convert any junction** (degree ≥ 3) **to a live roundabout**: a pure
+  `RoundaboutPlanner` computes a CCW one-way ring (built from the existing `OneWay` type,
+  arcs sliced directly from angle spans so >90° gaps split cleanly), and a network-owned
+  registry (`RoadNetwork.Roundabouts.cs`) trims each leg in place (same `EdgeId`), wires the
+  ring, and deletes the center — all in one batch. **Zero traffic-sim changes**:
+  yield-on-entry is *derived* in `RebuildDerived` (ring legs `Main`, approaches `Yield` under
+  `PrioritySigns`), so M2 control + M5 arbitration give circulating priority for free
+  (`RoundaboutTrafficTests`: entry yields, ring is drivable + collision-free). **Live entity**:
+  radius editable (lossless re-trim from captured `LegFullCurves`), bulldozing an approach
+  re-arcs the ring, dropping below 3 approaches auto-dissolves. Save format **v2** (byte-stable
+  round-trip; v1 loads unchanged). Editor: convert/radius/remove in the junction inspector,
+  undo-checkpointed. Certified: **3 × 10k-action fuzz clean** (extended with
+  convert/adjust-radius/remove actions), KPI `roundabout.*` baseline + `docs/health/M7.5.md`,
+  new manual [ch. 09](manual/09-roundabouts.md), smoke + UITEST green.
+  The fuzzer drove out the robustness model — **roundabouts are immutable except via bulldoze
+  and the roundabout API**: ring/approach edges reject retype/flip/split/cross, ring nodes
+  reject config edits, heal won't merge onto a ring node.
+  Known limits (deferred): **drawing a new road into an existing ring** (the biggest deferral
+  — refused via `PlacementError.TouchesRoundabout` rather than corrupting the ring; change
+  approaches by bulldoze or reconvert); dedicated multi-lane / turbo ring cross-sections;
+  in-flight vehicles not preserved across conversion (resync as after quickload); radius
+  edits re-key ring ids so the inspector selection drops (cosmetic).
+
 ## Next up (roughly in order — each is one milestone)
 
 1. **Elevation & bridges.** The domain carries Y everywhere but is flat: gradient
@@ -175,8 +200,9 @@ verified build.
 - Hundreds of vehicles today, **thousands someday**: keep the sim allocation-free and
   data-oriented; batching/jobs are an optimization later, not a rewrite.
 - Save/load shipped in M6 (`SaveLoad`, versioned JSON, byte-stable round-trip, F5/F9
-  in-game) — extend `SaveGame` with a version bump whenever new persistent state appears
-  (vehicles/trips are not yet saved; ambient traffic respawns after load).
+  in-game), now at **format v2** (M7.5 added roundabouts; v1 saves still load) — extend
+  `SaveGame` with a version bump whenever new persistent state appears (vehicles/trips are
+  not yet saved; ambient traffic respawns after load).
 - Protected left-turn phases, junction merging, and lane-connector/signal-timing editing
   UI are deferred, not forgotten (movement-level priorities landed in M5).
 - **Quality-stack definition-of-done, standing from M6 on**: every milestone from M6

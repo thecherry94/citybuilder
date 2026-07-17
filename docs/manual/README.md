@@ -38,6 +38,7 @@ conventions, and the full known-issues list. Then read the chapter matching your
 | 06 | [Drafting & snapping](06-drafting-snapping.md) | The gesture state machine and scored snap resolver that produce placement proposals. |
 | 07 | [Rendering & markings](07-rendering-markings.md) | The only Godot-aware layer: the resync pattern, lane-profile meshes, junction paint, instanced vehicles. |
 | 08 | [Persistence](08-persistence.md) | Versioned JSON save/load with a byte-stable round-trip contract. |
+| 09 | [Roundabouts](09-roundabouts.md) | The live entity layered on the road graph: the pure geometry planner, the convert/re-arc registry, and why yield-on-entry is derived, not stored. |
 | — | [Glossary](glossary.md) | 60 cross-cutting terms, each linked to the chapter section that explains it best. |
 
 ## How the manual stays current

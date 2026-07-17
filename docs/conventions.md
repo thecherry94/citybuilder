@@ -12,6 +12,9 @@
 - **`Vehicle.S` is the FRONT bumper**, in metres along the current lane's drawable span
   (between junction cuts) or connector curve, in travel direction. Gap math and
   rendering both rely on this; the rendered centre trails by `Length/2`.
+- **Roundabouts circulate counter-clockwise** in XZ (the consequence of right-hand traffic).
+  Ring edges are `OneWay`, directed CCW; a ring node yields its approach to circulating
+  traffic (M7.5, see manual ch. 09).
 
 ## Key constants
 | What | Value |

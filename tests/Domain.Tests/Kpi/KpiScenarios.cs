@@ -249,6 +249,48 @@ public static class KpiScenarios
         };
     }
 
+    // ------------------------------------------------------------------- roundabout
+
+    /// <summary>A 4-way TwoLane cross converted to a roundabout (radius 22 m), ambient
+    /// TargetPopulation = 40, 180 sim-seconds. Exercises the roundabout as an ordinary
+    /// yield-controlled junction cluster under load: delay_index averages actual/free-flow
+    /// travel time over completed trips (1.0 = free flow); stops_per_trip averages recorded
+    /// stops; completed counts finished trips (throughput proxy). No roundabout-specific sim
+    /// code exists — these numbers characterise the M2 control + M5 arbitration behaviour on
+    /// the generated ring.</summary>
+    public static Dictionary<string, float> RoundaboutThroughput()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new Vector3(-150, 0, 0), new Vector3(150, 0, 0)));
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, -150), new Vector3(0, 0, 150)));
+        var center = n.Nodes.Values.Single(x => x.Edges.Count == 4);
+        var res = n.ConvertToRoundabout(center.Id, 22f);
+        if (!res.Success)
+            throw new InvalidOperationException($"roundabout KPI: convert failed ({res.Error})");
+
+        var sim = new TrafficSim(n, seed: 53)
+        {
+            TargetPopulation = 40,
+            TripLog = new List<TrafficSim.TripRecord>(),
+        };
+        for (int i = 0; i < 60 * 180; i++)
+            sim.Tick(Dt);
+
+        var trips = sim.TripLog!;
+        var ratios = trips
+            .Where(t => t.FreeFlowTime > 0.01f)
+            .Select(t => (t.ArrivalTime - t.SpawnTime) / t.FreeFlowTime)
+            .ToArray();
+        var stops = trips.Select(t => (float)t.Stops).ToArray();
+
+        return new Dictionary<string, float>
+        {
+            ["roundabout.delay_index"] = ratios.Length > 0 ? ratios.Average() : 0f,
+            ["roundabout.stops_per_trip"] = stops.Length > 0 ? stops.Average() : 0f,
+            ["roundabout.completed"] = trips.Count,
+        };
+    }
+
     // ---------------------------------------------------------------- grid_commute
 
     /// <summary>3x3 TwoLane grid (100 m cells), ambient TargetPopulation = 60, 180

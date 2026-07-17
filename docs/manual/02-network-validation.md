@@ -37,7 +37,13 @@ edits `_nodes`/`_edges` directly.
 - **Depends on:** `Bezier3`/`BezierOps`/`ArcLengthTable` ([ch. 01](01-geometry.md)) for curve math,
   `RoadCatalog` (this chapter) for per-type floors, `JunctionBuilder`/`ConnectorBuilder`
   ([ch. 03](03-junctions-control.md)/[04](04-lane-graph-connectors.md), invoked from `RebuildDerived`, `RoadNetwork.cs:715-721`).
-- **Last verified against commit:** `9fd7f81`, 2026-07-17 (M7).
+- **Last verified against commit:** M7.5, 2026-07-17.
+- **Roundabouts (M7.5):** ring nodes/edges are ordinary graph entities layered on this
+  module — see [ch. 09](09-roundabouts.md). Three hooks live here: `TryHealNode` skips a
+  ring node (and skips when either merge target is a ring node); `RetypeEdge`/`FlipEdge`
+  refuse ring edges (`RetypeError.Locked`); and `Validate` rejects proposals touching a
+  roundabout-owned node/edge (`PlacementError.TouchesRoundabout`). `RebuildDerived` derives
+  a ring node's yield-on-entry control instead of pruning stored overrides.
 
 ## The road-type catalog
 
