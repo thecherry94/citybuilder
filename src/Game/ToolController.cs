@@ -5,7 +5,7 @@ using Godot;
 
 namespace CityBuilder.Game;
 
-public enum ToolMode { Straight, SimpleCurve, ComplexCurve, Arc, Continuous, Grid, Bulldoze, Inspect, SpawnVehicle }
+public enum ToolMode { Straight, SimpleCurve, ComplexCurve, Arc, Continuous, Grid, Upgrade, Bulldoze, Inspect, SpawnVehicle }
 
 /// <summary>Thin adapter: raycasts input into the domain DraftSession and renders its
 /// ghost state. All world mutations flow through the session (roads) or
@@ -20,6 +20,7 @@ public partial class ToolController : Node
 
     private ToolMode _mode = ToolMode.Straight;
     private EdgeId? _bulldozeTarget;
+    private EdgeId? _upgradeTarget;
     private NodeId? _selectedNode;
     private CityBuilder.Domain.Traffic.TrafficSim? _traffic;
     private (EdgeId Edge, bool Forward)? _spawnOrigin;
@@ -76,6 +77,7 @@ public partial class ToolController : Node
         _ghost.Clear();
         _view.HighlightEdge(null);
         _bulldozeTarget = null;
+        _upgradeTarget = null;
         _spawnOrigin = null;
         if (mode != ToolMode.Inspect)
             SelectNode(null);
@@ -126,7 +128,10 @@ public partial class ToolController : Node
                     HandleMouseUpAt();
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true }:
-                StepBack();
+                if (_mode == ToolMode.Upgrade)
+                    FlipUpgradeTarget();
+                else
+                    StepBack();
                 break;
             case InputEventKey { Keycode: Key.Escape, Pressed: true }:
                 CancelGesture();
@@ -196,6 +201,17 @@ public partial class ToolController : Node
             return;
         }
 
+        if (_mode == ToolMode.Upgrade)
+        {
+            var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
+            _upgradeTarget = hit?.id;
+            _view.HighlightEdge(_upgradeTarget);
+            _ghost.Clear();
+            ReadoutChanged?.Invoke(_upgradeTarget is null ? ""
+                : "click: change type · right-click: flip direction");
+            return;
+        }
+
         if (_mode == ToolMode.Bulldoze)
         {
             var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
@@ -215,6 +231,26 @@ public partial class ToolController : Node
         if (_mode == ToolMode.Inspect) { SelectNode(PickNode(world)); return; }
         if (_mode == ToolMode.SpawnVehicle) { HandleSpawnClick(world); return; }
 
+        if (_mode == ToolMode.Upgrade)
+        {
+            HandleHoverAt(world); // refresh target under the cursor
+            if (_upgradeTarget is { } upTarget)
+            {
+                _undoStack?.Checkpoint();
+                var err = _network.RetypeEdge(upTarget, _session.RoadType);
+                if (err is null)
+                {
+                    _audio?.Play(Sfx.Commit);
+                }
+                else
+                {
+                    _audio?.Play(Sfx.Reject);
+                    StatusFlashed?.Invoke($"cannot upgrade: {err}");
+                }
+            }
+            return;
+        }
+
         if (_mode == ToolMode.Bulldoze)
         {
             HandleHoverAt(world); // refresh target under the cursor
@@ -231,6 +267,16 @@ public partial class ToolController : Node
 
         _session.Click(world, _camera.SnapRadius());
         RenderGhost();
+    }
+
+    /// <summary>RMB in Upgrade mode: reverse the hovered edge's travel direction.</summary>
+    public void FlipUpgradeTarget()
+    {
+        if (_upgradeTarget is not { } target)
+            return;
+        _undoStack?.Checkpoint();
+        if (_network.FlipEdge(target))
+            _audio?.Play(Sfx.Commit);
     }
 
     public void StepBack()
@@ -258,6 +304,7 @@ public partial class ToolController : Node
         _ghost.Clear();
         _view.HighlightEdge(null);
         _bulldozeTarget = null;
+        _upgradeTarget = null;
         _spawnOrigin = null;
         SelectNode(null);
         ReadoutChanged?.Invoke("");

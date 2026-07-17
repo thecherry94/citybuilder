@@ -53,6 +53,7 @@ public partial class Toolbar : Control
             ("Arc", ToolMode.Arc),
             ("Chain", ToolMode.Continuous),
             ("Grid", ToolMode.Grid),
+            ("Upgrade", ToolMode.Upgrade),
             ("Bulldoze", ToolMode.Bulldoze),
             ("Junction", ToolMode.Inspect),
             ("Car", ToolMode.SpawnVehicle),
