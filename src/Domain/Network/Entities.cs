@@ -11,6 +11,10 @@ public sealed class RoadNode
 
     public IReadOnlySet<EdgeId> Edges => EdgeSet;
     public JunctionConfig Config { get; internal set; } = JunctionConfig.Default;
+
+    /// <summary>Set when this node is part of a roundabout ring; null for plain nodes.
+    /// Ring nodes are exempt from <c>TryHealNode</c>.</summary>
+    public RoundaboutId? Ring { get; internal set; }
     public JunctionGeometry Junction { get; internal set; } = JunctionGeometry.Empty;
     public IReadOnlyList<LaneConnector> Connectors { get; internal set; } = Array.Empty<LaneConnector>();
 
