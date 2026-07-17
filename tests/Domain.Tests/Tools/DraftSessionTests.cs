@@ -34,6 +34,24 @@ public class DraftSessionTests
     }
 
     [Fact]
+    public void BeforeCommitFiresOnlyWhenCommitProceeds()
+    {
+        var (n, s) = Setup();
+        int before = 0, committed = 0;
+        s.BeforeCommit += () => before++;
+        s.Committed += () => committed++;
+        s.SetMode(DraftMode.Straight);
+        ClickAt(s, 0, 0);
+        ClickAt(s, 5, 0); // TooShort → Adjustable, no commit attempt
+        Assert.Equal(0, before);
+        s.Cancel();
+        ClickAt(s, 0, 0);
+        ClickAt(s, 100, 0);
+        Assert.Equal(1, before);
+        Assert.Equal(1, committed);
+    }
+
+    [Fact]
     public void EventsFireOnPlaceAndCommit()
     {
         var (n, s) = Setup();

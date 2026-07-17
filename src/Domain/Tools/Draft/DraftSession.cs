@@ -43,6 +43,9 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
     public event Action? Committed;
     /// <summary>Completion or commit was refused (game layer: error blip).</summary>
     public event Action? Rejected;
+    /// <summary>Fires immediately before a validated proposal is committed — the
+    /// game layer's undo-checkpoint hook (M7).</summary>
+    public event Action? BeforeCommit;
 
     public void SetMode(DraftMode mode)
     {
@@ -213,6 +216,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
             State = SessionState.Adjustable;
             return;
         }
+        BeforeCommit?.Invoke();
         var result = network.Commit(validated);
         if (!result.Success)
         {
