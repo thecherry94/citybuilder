@@ -28,7 +28,8 @@ public sealed partial class RoadNetwork
 
     private readonly Dictionary<NodeId, RoadNode> _nodes = new();
     private readonly Dictionary<EdgeId, RoadEdge> _edges = new();
-    private int _nextNode = 1, _nextEdge = 1, _nextLane = 1;
+    private readonly Dictionary<RoundaboutId, Roundabout> _roundabouts = new();
+    private int _nextNode = 1, _nextEdge = 1, _nextLane = 1, _nextRoundabout = 1;
     private Batch? _batch;
 
     public event Action<NetworkDelta>? Changed;
@@ -37,6 +38,7 @@ public sealed partial class RoadNetwork
 
     public IReadOnlyDictionary<NodeId, RoadNode> Nodes => _nodes;
     public IReadOnlyDictionary<EdgeId, RoadEdge> Edges => _edges;
+    public IReadOnlyDictionary<RoundaboutId, Roundabout> Roundabouts => _roundabouts;
 
     // ---------------------------------------------------------------- queries
 
@@ -587,6 +589,8 @@ public sealed partial class RoadNetwork
     /// Implemented in the healing task; the base implementation keeps the node.</summary>
     private void TryHealNode(RoadNode node)
     {
+        if (node.Ring != null)
+            return; // ring nodes are structural — a degree-2 ring node must never merge its arcs
         if (node.EdgeSet.Count != 2)
             return;
         // deterministic pair order (HashSet iteration order decided merge
@@ -664,7 +668,7 @@ public sealed partial class RoadNetwork
 
     private sealed class Batch
     {
-        public readonly HashSet<EdgeId> EdgesAdded = new(), EdgesRemoved = new();
+        public readonly HashSet<EdgeId> EdgesAdded = new(), EdgesRemoved = new(), EdgesChanged = new();
         public readonly HashSet<NodeId> NodesAdded = new(), NodesRemoved = new();
         public readonly HashSet<NodeId> Touched = new();
     }
@@ -691,9 +695,15 @@ public sealed partial class RoadNetwork
         var changed = new HashSet<NodeId>(b.Touched.Where(_nodes.ContainsKey));
         changed.ExceptWith(b.NodesAdded);
 
+        // edges edited in place this batch (trimmed roundabout legs): re-mesh like adds,
+        // but only those that still exist and weren't already added/removed this batch
+        var edgesChanged = new HashSet<EdgeId>(b.EdgesChanged
+            .Where(id => _edges.ContainsKey(id) && !b.EdgesAdded.Contains(id) && !b.EdgesRemoved.Contains(id)));
+
         _batch = null;
         Version++;
-        Changed?.Invoke(new NetworkDelta(b.EdgesAdded, b.EdgesRemoved, b.NodesAdded, b.NodesRemoved, changed));
+        Changed?.Invoke(new NetworkDelta(b.EdgesAdded, b.EdgesRemoved, b.NodesAdded, b.NodesRemoved, changed)
+        { EdgesChanged = edgesChanged });
     }
 
     /// <summary>Apply an authored junction configuration (control mode, per-leg roles,
