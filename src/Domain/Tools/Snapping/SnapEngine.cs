@@ -38,6 +38,11 @@ public sealed class SnapEngine(RoadNetwork network)
     // node between resolves via SnapContext.HeldNode).
     public const float ReleaseFactor = 1.4f;
 
+    // CS2's zoning-cell rhythm (Game.Zones.ZoneUtils.CELL_SIZE = 8f): with an anchor,
+    // segment length ratchets in 8 m ticks. Weak — loses to any geometry snap nearby.
+    public const float CellLength = 8f;
+    public const float WeightCellLength = 1.2f;
+
     // node is 4.0 (not the spec's sketched 3.0): with 3.0, a node 1.9 m away
     // loses to the edge underneath it 1.2 m away — the ported NodeBeatsEdge test fails
     public const float WeightNode = 4.0f;
@@ -70,6 +75,8 @@ public sealed class SnapEngine(RoadNetwork network)
             AddPerpendicularCandidates(raw, radius, anchor, candidates);
         if ((enabled & SnapTypes.Grid) != 0 && ctx.Grid is { } grid)
             AddGridCandidates(raw, radius, grid, candidates);
+        if ((enabled & SnapTypes.CellLength) != 0 && ctx.Anchor is { } cellAnchor)
+            AddCellLengthCandidates(raw, radius, cellAnchor, candidates);
 
         SnapCandidate? best = null;
         float bestScore = float.MaxValue;
@@ -95,7 +102,9 @@ public sealed class SnapEngine(RoadNetwork network)
         }
 
         if ((enabled & SnapTypes.Angle) != 0 && ctx.Anchor is { } a2 && AngleSnap(raw, a2, ctx) is { } angled)
-            return angled;
+            return (enabled & SnapTypes.CellLength) != 0 && QuantizeToCell(angled.Position, a2) is { } ticked
+                ? angled with { Position = ticked }
+                : angled;
 
         return SnapResult.Free(raw);
     }
@@ -210,6 +219,28 @@ public sealed class SnapEngine(RoadNetwork network)
                 f0 = f1;
             }
         }
+    }
+
+    private static void AddCellLengthCandidates(Vector3 raw, float radius, Vector3 anchor,
+        List<SnapCandidate> outList)
+    {
+        if (QuantizeToCell(raw, anchor) is { } pos && Vector3.Distance(pos, raw) <= radius)
+            outList.Add(new SnapCandidate(pos, SnapKind.CellLength, WeightCellLength));
+    }
+
+    /// <summary>Position at the 8 m-quantized distance from the anchor along
+    /// anchor→p, or null when degenerate/zero-length.</summary>
+    private static Vector3? QuantizeToCell(Vector3 p, Vector3 anchor)
+    {
+        var v = p - anchor;
+        v.Y = 0;
+        float d = v.Length();
+        if (d < GeoConstants.Eps)
+            return null;
+        float q = MathF.Round(d / CellLength) * CellLength;
+        if (q < CellLength)
+            return null;
+        return anchor + v / d * q;
     }
 
     private static void AddGridCandidates(Vector3 raw, float radius, GridConfig grid,

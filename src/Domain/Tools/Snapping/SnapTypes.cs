@@ -3,7 +3,7 @@ using CityBuilder.Domain.Network;
 
 namespace CityBuilder.Domain.Tools;
 
-public enum SnapKind { Free, Node, Edge, GuidelineIntersection, Guideline, Angle, GridPoint, GridLine, Perpendicular }
+public enum SnapKind { Free, Node, Edge, GuidelineIntersection, Guideline, Angle, GridPoint, GridLine, Perpendicular, CellLength }
 
 [Flags]
 public enum SnapTypes
@@ -16,7 +16,8 @@ public enum SnapTypes
     Grid = 16,
     Parallel = 32,
     Perpendicular = 64,
-    All = Nodes | Edges | Angle | Guidelines | Grid | Parallel | Perpendicular,
+    CellLength = 128,
+    All = Nodes | Edges | Angle | Guidelines | Grid | Parallel | Perpendicular | CellLength,
 }
 
 /// <summary>A construction guide: the tangent of an existing road extended past its

@@ -177,6 +177,43 @@ public class SnapEngineTests
     }
 
     [Fact]
+    public void CellLengthQuantizesFreeDrag()
+    {
+        // anchor set, empty surroundings: 27.3 m raw drag ratchets to the 24 m tick
+        var (_, snap) = Setup();
+        var anchor = new Vector3(300, 0, 300);
+        var ctx = new SnapContext(anchor, null);
+        var result = snap.Resolve(new Vector3(327.3f, 0, 300f), 6f, SnapTypes.CellLength, ctx);
+        Assert.Equal(SnapKind.CellLength, result.Kind);
+        Assert.Equal(324f, result.Position.X, 3);
+        Assert.Equal(300f, result.Position.Z, 3);
+    }
+
+    [Fact]
+    public void CellLengthComposesWithAngleSnap()
+    {
+        // angle fallback fires (46°→45°) AND the length lands on an 8 m tick (27.3→24):
+        // the CS2 rhythm — clean diagonals on both the ray and the tick.
+        var (_, snap) = Setup();
+        var anchor = new Vector3(300, 0, 300);
+        var ctx = new SnapContext(anchor, new Vector3(1, 0, 0));
+        float rad = 46f * MathF.PI / 180f;
+        var raw = anchor + 27.3f * new Vector3(MathF.Cos(rad), 0, MathF.Sin(rad));
+        var result = snap.Resolve(raw, 2f, SnapTypes.Angle | SnapTypes.CellLength, ctx);
+        Assert.Equal(SnapKind.Angle, result.Kind);
+        Assert.Equal(45f, result.SnappedAngleDeg!.Value, 3);
+        Assert.Equal(24f, Vector3.Distance(result.Position, anchor), 3);
+    }
+
+    [Fact]
+    public void CellLengthNeedsAnchor()
+    {
+        var (_, snap) = Setup();
+        var result = snap.Resolve(new Vector3(327.3f, 0, 300f), 6f, SnapTypes.CellLength, SnapContext.Empty);
+        Assert.Equal(SnapKind.Free, result.Kind);
+    }
+
+    [Fact]
     public void GridPointSnapsToNearestIntersection()
     {
         var (_, snap) = Setup();

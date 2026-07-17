@@ -49,7 +49,7 @@ public static class GestureFuzzer
     private static readonly SnapTypes[] SnapFlags =
     {
         SnapTypes.Nodes, SnapTypes.Edges, SnapTypes.Angle, SnapTypes.Guidelines,
-        SnapTypes.Grid, SnapTypes.Parallel, SnapTypes.Perpendicular,
+        SnapTypes.Grid, SnapTypes.Parallel, SnapTypes.Perpendicular, SnapTypes.CellLength,
     };
 
     private static readonly int[] GridCells = { 4, 8, 16, 32 };

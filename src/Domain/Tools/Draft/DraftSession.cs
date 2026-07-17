@@ -23,7 +23,10 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
     }
     private RoadTypeId _roadType = RoadCatalog.TwoLane.Id;
 
-    public SnapTypes EnabledSnaps { get; set; } = SnapTypes.All & ~SnapTypes.Grid;
+    // CellLength is excluded here (domain tests build raw sessions and would see 8 m
+    // quantization everywhere); the Toolbar turns it ON for the game — spec default-ON
+    // is user-facing.
+    public SnapTypes EnabledSnaps { get; set; } = SnapTypes.All & ~SnapTypes.Grid & ~SnapTypes.CellLength;
     public GridConfig Grid { get; set; } = GridConfig.Default;
     public bool AdjustMode { get; set; }
 
