@@ -10,7 +10,7 @@ namespace CityBuilder.Domain.Persistence;
 /// polygons, connectors) is never stored; it rebuilds from the restored graph.</summary>
 public static class SaveLoad
 {
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -59,8 +59,28 @@ public static class SaveLoad
             .OrderBy(x => x.Id.Value)
             .Select(ToEdgeDto)
             .ToArray();
-        return new SaveGame(FormatVersion, nodes, edges, n.NextNodeCounter, n.NextEdgeCounter, n.NextLaneCounter);
+        var roundabouts = n.Roundabouts.Values
+            .OrderBy(x => x.Id.Value)
+            .Select(ToRoundaboutDto)
+            .ToArray();
+        return new SaveGame(FormatVersion, nodes, edges,
+            n.NextNodeCounter, n.NextEdgeCounter, n.NextLaneCounter,
+            roundabouts, n.NextRoundaboutCounter);
     }
+
+    private static RoundaboutDto ToRoundaboutDto(Roundabout r) => new(
+        r.Id.Value, r.Center.X, r.Center.Y, r.Center.Z, r.Radius,
+        r.RingNodes.Select(x => x.Value).ToArray(),
+        r.RingEdges.Select(x => x.Value).ToArray(),
+        r.LegFullCurves.OrderBy(kv => kv.Key.Value)
+            .Select(kv => new LegCurveDto(kv.Key.Value, CurveFloats(kv.Value)))
+            .ToArray());
+
+    private static float[] CurveFloats(in CityBuilder.Domain.Geometry.Bezier3 c) => new[]
+    {
+        c.P0.X, c.P0.Y, c.P0.Z, c.P1.X, c.P1.Y, c.P1.Z,
+        c.P2.X, c.P2.Y, c.P2.Z, c.P3.X, c.P3.Y, c.P3.Z,
+    };
 
     private static NodeDto ToNodeDto(RoadNode node) => new(
         node.Id.Value, node.Position.X, node.Position.Y, node.Position.Z, ToConfigDto(node.Config));

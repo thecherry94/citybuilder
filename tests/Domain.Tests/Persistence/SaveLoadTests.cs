@@ -38,6 +38,46 @@ public class SaveLoadTests
     }
 
     [Fact]
+    public void RoundaboutSurvivesByteStableRoundTrip()
+    {
+        var n = RoundaboutTests.FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 22f).Id!.Value;
+
+        string json = SaveLoad.Save(n);
+        var loaded = SaveLoad.Load(json);
+        Assert.Equal(json, SaveLoad.Save(loaded)); // byte-stable
+
+        Assert.Single(loaded.Roundabouts);
+        Assert.Equal(22f, loaded.Roundabouts[id].Radius);
+        Assert.Equal(n.Roundabouts[id].RingNodes.Count, loaded.Roundabouts[id].RingNodes.Count);
+        Assert.Contains(loaded.Nodes.Values, x => x.Ring == id);
+        Assert.Empty(NetworkInvariants.Check(loaded));
+
+        // and the restored roundabout is still live-editable
+        Assert.True(loaded.SetRoundaboutRadius(id, 30f).Success);
+        Assert.Empty(NetworkInvariants.Check(loaded));
+    }
+
+    [Fact]
+    public void FormatV1SaveWithoutRoundaboutsStillLoads()
+    {
+        const string v1 = "{\"FormatVersion\":1,\"Nodes\":[],\"Edges\":[],\"NextNode\":1,\"NextEdge\":1,\"NextLane\":1}";
+        var n = SaveLoad.Load(v1);
+        Assert.Empty(n.Roundabouts);
+        Assert.Empty(n.Nodes);
+    }
+
+    [Fact]
+    public void CorruptRoundaboutDtoIsRejected()
+    {
+        var n = RoundaboutTests.FourWayJunction(out var center);
+        n.ConvertToRoundabout(center, 22f);
+        // point a ring node id at a non-existent node
+        string json = SaveLoad.Save(n).Replace("\"RingNodeIds\":[", "\"RingNodeIds\":[99999,");
+        Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
+    }
+
+    [Fact]
     public void LoadIntoReplacesInPlaceWithOneChangedEvent()
     {
         var n = Net.New();
@@ -56,7 +96,7 @@ public class SaveLoadTests
     public void NewerFormatVersionThrows()
     {
         var n = Net.New();
-        string json = SaveLoad.Save(n).Replace("\"FormatVersion\":1", "\"FormatVersion\":99");
+        string json = SaveLoad.Save(n).Replace("\"FormatVersion\":2", "\"FormatVersion\":99");
         Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
     }
 

@@ -12,6 +12,7 @@ public sealed partial class RoadNetwork
     internal int NextNodeCounter => _nextNode;
     internal int NextEdgeCounter => _nextEdge;
     internal int NextLaneCounter => _nextLane;
+    internal int NextRoundaboutCounter => _nextRoundabout;
 
     /// <summary>Replace the entire graph with the contents of <paramref name="game"/>,
     /// inside one mutation batch (one <see cref="Changed"/> event). Nodes/edges/lanes are
@@ -73,9 +74,25 @@ public sealed partial class RoadNetwork
             _batch!.Touched.Add(edge.EndNode);
         }
 
+        // Roundabouts: rebuild the registry and re-tag ring nodes (ring nodes/edges
+        // themselves were already restored as ordinary nodes/edges above).
+        _roundabouts.Clear();
+        foreach (var rd in game.Roundabouts ?? Array.Empty<Persistence.RoundaboutDto>())
+        {
+            var id = new RoundaboutId(rd.Id);
+            var ringNodes = rd.RingNodeIds.Select(x => new NodeId(x)).ToList();
+            var ringEdges = rd.RingEdgeIds.Select(x => new EdgeId(x)).ToList();
+            var legCurves = rd.LegCurves.ToDictionary(l => new EdgeId(l.Edge), l => ToCurve(l.Curve));
+            _roundabouts[id] = new Roundabout(id, new Vector3(rd.CX, rd.CY, rd.CZ), rd.Radius,
+                ringNodes, ringEdges, legCurves);
+            foreach (var rn in ringNodes)
+                _nodes[rn].Ring = id;
+        }
+
         _nextNode = game.NextNode;
         _nextEdge = game.NextEdge;
         _nextLane = game.NextLane;
+        _nextRoundabout = Math.Max(1, game.NextRoundabout); // v1 saves carry 0
 
         EndBatch();
     }
@@ -155,6 +172,39 @@ public sealed partial class RoadNetwork
                     throw new SaveFormatException($"lane id {laneId} is not below NextLane counter {game.NextLane}");
                 if (!laneIds.Add(laneId))
                     throw new SaveFormatException($"duplicate lane id {laneId}");
+            }
+        }
+
+        // Roundabouts (format v2+). Absent in v1 saves → nothing to validate.
+        var roundaboutIds = new HashSet<int>();
+        foreach (var rd in game.Roundabouts ?? Array.Empty<Persistence.RoundaboutDto>())
+        {
+            if (rd is null)
+                throw new SaveFormatException("Roundabouts array contains a null entry");
+            if (rd.Id <= 0 || rd.Id >= Math.Max(1, game.NextRoundabout))
+                throw new SaveFormatException($"roundabout id {rd.Id} is not below NextRoundabout counter {game.NextRoundabout}");
+            if (!roundaboutIds.Add(rd.Id))
+                throw new SaveFormatException($"duplicate roundabout id {rd.Id}");
+            if (rd.RingNodeIds is null || rd.RingEdgeIds is null || rd.LegCurves is null)
+                throw new SaveFormatException($"roundabout {rd.Id} has a null ring array");
+            if (rd.RingNodeIds.Length < 3)
+                throw new SaveFormatException($"roundabout {rd.Id} has {rd.RingNodeIds.Length} ring nodes (< 3)");
+            if (rd.RingEdgeIds.Length != rd.RingNodeIds.Length)
+                throw new SaveFormatException($"roundabout {rd.Id} has {rd.RingEdgeIds.Length} ring edges vs {rd.RingNodeIds.Length} ring nodes");
+            foreach (var rn in rd.RingNodeIds)
+                if (!nodeIds.Contains(rn))
+                    throw new SaveFormatException($"roundabout {rd.Id} references unknown ring node {rn}");
+            foreach (var re in rd.RingEdgeIds)
+                if (!edgeIds.Contains(re))
+                    throw new SaveFormatException($"roundabout {rd.Id} references unknown ring edge {re}");
+            foreach (var lc in rd.LegCurves)
+            {
+                if (lc is null || lc.Curve is null)
+                    throw new SaveFormatException($"roundabout {rd.Id} has a null leg curve");
+                if (lc.Curve.Length != 12)
+                    throw new SaveFormatException($"roundabout {rd.Id} leg {lc.Edge} curve must have 12 floats, got {lc.Curve.Length}");
+                if (!edgeIds.Contains(lc.Edge))
+                    throw new SaveFormatException($"roundabout {rd.Id} leg curve references unknown edge {lc.Edge}");
             }
         }
     }
