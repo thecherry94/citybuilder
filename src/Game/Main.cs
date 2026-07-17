@@ -364,6 +364,21 @@ public partial class Main : Node3D
                 _controller.HandleHoverAt(V(-80 + i * 0.15f, -60 + (i % 7) * 0.3f));
             _controller.CancelGesture();
 
+            // M7: upgrade via the tool surface + Ctrl+Z path (calls, not raw keys)
+            _controller.SetMode(ToolMode.Upgrade);
+            var upEdge = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), V(-40, 0)) < 6f);
+            _controller.SetRoadType(RoadCatalog.Street.Id);
+            _controller.HandleHoverAt(V(-40, 0));
+            _controller.HandleClickAt(V(-40, 0));
+            Expect(_network.Edges[upEdge.Id].Type == RoadCatalog.Street.Id,
+                "upgrade tool did not retype");
+            TryUndo();
+            Expect(_network.Edges[upEdge.Id].Type != RoadCatalog.Street.Id,
+                "undo did not revert the upgrade");
+            _controller.SetRoadType(RoadCatalog.TwoLane.Id);
+            _controller.SetMode(ToolMode.Straight);
+
             // park the cursor over open ground so the grid overlay lands deterministically
             Input.WarpMouse(GetViewport().GetVisibleRect().Size * new Vector2(0.72f, 0.55f));
             await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
@@ -487,6 +502,36 @@ public partial class Main : Node3D
             Expect(_traffic.Vehicles.Count >= 5,
                 $"expected ≥5 ambient vehicles, got {_traffic.Vehicles.Count}");
             Expect(_traffic.Arrived > 0, "no vehicle completed a trip");
+
+            // M7: upgrade-in-place — retype a grid edge, flip a one-way loop edge
+            // (and back — a lone flipped loop edge breaks strong connectivity),
+            // then undo everything and assert the network state rewinds
+            int edgesBeforeM7 = _network.Edges.Count;
+            var gridEdge = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), V(224, 0)) < 5f);
+            _undo.Checkpoint();
+            Expect(_network.RetypeEdge(gridEdge.Id, RoadCatalog.Street.Id) is null,
+                "retype grid edge failed");
+            Expect(_network.Edges[gridEdge.Id].Type == RoadCatalog.Street.Id,
+                "retype did not stick");
+            var loopEdge = _network.Edges.Values.First(e => e.Type == RoadCatalog.OneWay.Id);
+            _undo.Checkpoint();
+            Expect(_network.FlipEdge(loopEdge.Id), "flip failed");
+            Expect(!LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
+                "flipped loop edge should break strong connectivity");
+            _undo.Checkpoint();
+            Expect(_network.FlipEdge(loopEdge.Id), "flip back failed");
+            Expect(LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
+                "flip back did not restore connectivity");
+            TryUndo(); // undo flip-back
+            Expect(!LaneGraph.IsStronglyConnected(_network, LaneKind.Driving),
+                "undo did not restore the flipped state");
+            TryUndo(); // undo flip
+            TryUndo(); // undo retype
+            Expect(_network.Edges[gridEdge.Id].Type == RoadCatalog.TwoLane.Id,
+                "undo did not restore the original type");
+            Expect(_network.Edges.Count == edgesBeforeM7,
+                $"edge count after undos: {_network.Edges.Count} != {edgesBeforeM7}");
 
             Expect(_audio.LoadedCount == 5, $"audio streams loaded {_audio.LoadedCount}/5");
 
