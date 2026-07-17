@@ -32,6 +32,15 @@ public sealed class SnapEngine(RoadNetwork network)
     // score at a hard higher tier than guides/grid; see the M6.75 research notes).
     public const float NodeCaptureFraction = 0.6f;
 
+    // Absolute floor on the capture ring (meters). The zoom-scaled resolve radius can
+    // drop to ~2.4 m at default zoom, shrinking the ring below the node-miss distances
+    // cell-length quantization produces — found when the smoke's one-way loop committed
+    // 2.12 m from its intended reuse node ON the node's own continuation guide, which
+    // outscored it and split the network. CS2's node snap distance is world-space
+    // absolute (PlaceableNetData.m_SnapDistance, M6.75 research); this floor is our
+    // equivalent.
+    public const float NodeCaptureFloor = 3f;
+
     // Hysteresis (M6.75 spec §1): a captured node only releases when the cursor leaves
     // ReleaseFactor × the capture ring — kills candidate flicker, CS2's top complaint.
     // Node captures only; the engine stays stateless (the session remembers the held
@@ -120,7 +129,7 @@ public sealed class SnapEngine(RoadNetwork network)
     /// spec §1) extends this via <see cref="SnapContext.HeldNode"/>.</summary>
     private (NodeId Id, Vector3 Position)? HardNodeCapture(Vector3 raw, float radius, SnapContext ctx)
     {
-        float captureR = NodeCaptureFraction * radius;
+        float captureR = MathF.Max(NodeCaptureFraction * radius, NodeCaptureFloor);
         (NodeId Id, Vector3 Position)? best = null;
         float bestDist = float.MaxValue;
         foreach (var n in network.Nodes.Values)

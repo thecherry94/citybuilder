@@ -39,6 +39,21 @@ public class SnapEngineTests
     }
 
     [Fact]
+    public void NodeCaptureFloorBeatsOwnGuidelineAtSmallRadius()
+    {
+        // Regression (M6.75): at the default-zoom radius 2.4 the fractional ring is
+        // 1.44 m — smaller than the ~2 m node-miss distances cell-length quantization
+        // produces. A cursor 2.12 m past a road end sits ON that end's continuation
+        // guide (same direction), which outscored the node and committed a
+        // disconnected duplicate node (smoke one-way loop went un-strongly-connected).
+        // The absolute 3 m floor keeps the node decisive.
+        var (n, snap) = Setup(); // road (0,0,0)→(100,0,0); continuation guide along +X
+        var result = snap.Resolve(new Vector3(102.12f, 0, 0f), 2.4f, SnapTypes.All, SnapContext.Empty);
+        Assert.Equal(SnapKind.Node, result.Kind);
+        Assert.Equal(new Vector3(100, 0, 0), result.Position);
+    }
+
+    [Fact]
     public void SoftZonePreservesEdgeForMidSpanIntent()
     {
         // node 4.90 m away — outside the capture ring (3.6), inside the resolve radius:
