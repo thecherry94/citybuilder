@@ -318,6 +318,14 @@ public partial class Main : Node3D
             for (int i = 0; i < 60; i++)
                 _traffic.Tick(1f / 60f);
 
+            // ghost stress: 900 hovers on an active draft — with CITYBUILDER_GHOSTPROBE=1
+            // this prints avg RenderGhost cost (the M6.75 before/after pooling evidence)
+            _controller.SetMode(ToolMode.Straight);
+            _controller.HandleClickAt(V(-80, -60));
+            for (int i = 0; i < 900; i++)
+                _controller.HandleHoverAt(V(-80 + i * 0.15f, -60 + (i % 7) * 0.3f));
+            _controller.CancelGesture();
+
             // park the cursor over open ground so the grid overlay lands deterministically
             Input.WarpMouse(GetViewport().GetVisibleRect().Size * new Vector2(0.72f, 0.55f));
             await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);

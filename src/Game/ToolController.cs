@@ -24,6 +24,12 @@ public partial class ToolController : Node
     private CityBuilder.Domain.Traffic.TrafficSim? _traffic;
     private (EdgeId Edge, bool Forward)? _spawnOrigin;
 
+    // CITYBUILDER_GHOSTPROBE=1: print avg RenderGhost cost every 300 calls — the
+    // before/after evidence for the M6.75 ghost-pooling work (docs/health/M6.75.md)
+    private static readonly bool GhostProbe = OS.GetEnvironment("CITYBUILDER_GHOSTPROBE") == "1";
+    private long _probeTicks;
+    private int _probeCount;
+
     public event Action<string>? StatusFlashed;
     public event Action<string>? ReadoutChanged;
     public event Action<NodeId?>? NodeSelected;
@@ -241,8 +247,19 @@ public partial class ToolController : Node
 
     private void RenderGhost()
     {
+        long t0 = GhostProbe ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         var handles = _session.Draft?.Handles.Select(h => h.Position).ToArray();
         _ghost.Show(_session.Ghost, _session.LastSnap, handles, _session.DraggingHandle);
+        if (GhostProbe)
+        {
+            _probeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            if (++_probeCount == 300)
+            {
+                GD.Print($"GHOSTPROBE avg_us={_probeTicks * 1_000_000 / System.Diagnostics.Stopwatch.Frequency / 300} over 300 renders");
+                _probeTicks = 0;
+                _probeCount = 0;
+            }
+        }
         ReadoutChanged?.Invoke(_session.Readout is { } r
             ? r.RadiusM is { } rad && rad < 10000f
                 ? $"{r.LengthM:0.#} m   {NormalizeDeg(r.AngleDeg):0.#}°   R {rad:0} m"

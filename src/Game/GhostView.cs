@@ -5,7 +5,11 @@ using Godot;
 namespace CityBuilder.Game;
 
 /// <summary>Renders the placement preview: ghost road strips (blue = valid, red =
-/// invalid), guide lines, crossing markers, and the snap indicator.</summary>
+/// invalid), dashed guide lines, crossing markers, and the snap indicator. All scene
+/// nodes are pooled — hidden rather than freed — so continuous mouse motion never
+/// allocates or frees nodes; strip meshes rebuild only when the validated placement
+/// actually changed (the session emits a fresh instance whenever geometry or
+/// validity moved, so reference identity is the dirty flag).</summary>
 public partial class GhostView : Node3D
 {
     private readonly List<MeshInstance3D> _strips = new();
@@ -13,6 +17,7 @@ public partial class GhostView : Node3D
     private MeshInstance3D _lines = null!;
     private ImmediateMesh _linesMesh = null!;
     private MeshInstance3D _snapDot = null!;
+    private ValidatedPlacement? _lastPlacement;
 
     public override void _Ready()
     {
@@ -31,27 +36,39 @@ public partial class GhostView : Node3D
 
     public void Clear()
     {
-        foreach (var s in _strips)
-            s.QueueFree();
-        _strips.Clear();
-        foreach (var h in _handles)
-            h.QueueFree();
-        _handles.Clear();
+        HideFrom(_strips, 0);
+        HideFrom(_handles, 0);
         _linesMesh.ClearSurfaces();
         _snapDot.Visible = false;
+        _lastPlacement = null;
+    }
+
+    private static void HideFrom(List<MeshInstance3D> pool, int from)
+    {
+        for (int i = from; i < pool.Count; i++)
+            pool[i].Visible = false;
+    }
+
+    private MeshInstance3D Pooled(List<MeshInstance3D> pool, ref int used)
+    {
+        if (used == pool.Count)
+        {
+            var inst = new MeshInstance3D();
+            AddChild(inst);
+            pool.Add(inst);
+        }
+        var node = pool[used++];
+        node.Visible = true;
+        return node;
     }
 
     public void Show(ValidatedPlacement? placement, SnapResult snap,
         IReadOnlyList<System.Numerics.Vector3>? handles = null, int hotHandle = -1)
     {
-        Clear();
-
         // snap indicator
-        if (snap.Kind != SnapKind.Free)
-        {
-            _snapDot.Visible = true;
+        _snapDot.Visible = snap.Kind != SnapKind.Free;
+        if (_snapDot.Visible)
             _snapDot.Position = snap.Position.ToGodot() + Vector3.Up * 0.4f;
-        }
 
         bool anyLines = false;
         _linesMesh.ClearSurfaces();
@@ -76,16 +93,21 @@ public partial class GhostView : Node3D
 
         if (placement is not null)
         {
-            var material = placement.IsValid ? Materials.GhostValid : Materials.GhostInvalid;
-            foreach (var pc in placement.Proposal.Curves)
+            if (!ReferenceEquals(placement, _lastPlacement))
             {
-                float width = RoadCatalog.Get(placement.Proposal.Type).Width;
-                var mesh = MeshBuilders.BuildGhostStrip(pc.Curve, width);
-                if (mesh is null)
-                    continue;
-                var inst = new MeshInstance3D { Mesh = mesh, MaterialOverride = material };
-                AddChild(inst);
-                _strips.Add(inst);
+                int used = 0;
+                var material = placement.IsValid ? Materials.GhostValid : Materials.GhostInvalid;
+                foreach (var pc in placement.Proposal.Curves)
+                {
+                    float width = RoadCatalog.Get(placement.Proposal.Type).Width;
+                    var mesh = MeshBuilders.BuildGhostStrip(pc.Curve, width);
+                    if (mesh is null)
+                        continue;
+                    var inst = Pooled(_strips, ref used);
+                    inst.Mesh = mesh;
+                    inst.MaterialOverride = material;
+                }
+                HideFrom(_strips, used);
             }
 
             // direction arrows: drawing an asymmetric type, show which way it will flow
@@ -124,6 +146,11 @@ public partial class GhostView : Node3D
                 }
             }
         }
+        else
+        {
+            HideFrom(_strips, 0);
+        }
+        _lastPlacement = placement;
 
         if (anyLines)
             _linesMesh.SurfaceEnd();
@@ -133,22 +160,18 @@ public partial class GhostView : Node3D
 
     private void ShowHandles(IReadOnlyList<System.Numerics.Vector3>? handles, int hot)
     {
-        foreach (var h in _handles)
-            h.QueueFree();
-        _handles.Clear();
-        if (handles is null)
-            return;
-        for (int i = 0; i < handles.Count; i++)
+        int used = 0;
+        if (handles is not null)
         {
-            var inst = new MeshInstance3D
+            for (int i = 0; i < handles.Count; i++)
             {
-                Mesh = new SphereMesh { Radius = 1.4f, Height = 2.8f },
-                MaterialOverride = i == hot ? Materials.SnapIndicator : Materials.GhostValid,
-                Position = handles[i].ToGodot() + Vector3.Up * 0.5f,
-            };
-            AddChild(inst);
-            _handles.Add(inst);
+                var inst = Pooled(_handles, ref used);
+                inst.Mesh ??= new SphereMesh { Radius = 1.4f, Height = 2.8f };
+                inst.MaterialOverride = i == hot ? Materials.SnapIndicator : Materials.GhostValid;
+                inst.Position = handles[i].ToGodot() + Vector3.Up * 0.5f;
+            }
         }
+        HideFrom(_handles, used);
     }
 
     private void AddGhostArrows(CityBuilder.Domain.Geometry.Bezier3 curve)
