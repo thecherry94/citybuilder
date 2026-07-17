@@ -74,4 +74,59 @@ public class RoundaboutTests
         Assert.Empty(n.Roundabouts);
         Assert.True(n.Nodes.ContainsKey(center));
     }
+
+    [Fact]
+    public void RadiusChangeReArcsRing()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        Assert.True(n.SetRoundaboutRadius(id, 30f).Success);
+        Assert.Equal(30f, n.Roundabouts[id].Radius);
+        Assert.Empty(NetworkInvariants.Check(n));
+        foreach (var rn in n.Nodes.Values.Where(x => x.Ring == id))
+            Assert.Equal(30f, Vector3.Distance(rn.Position, n.Roundabouts[id].Center), 1);
+    }
+
+    [Fact]
+    public void RadiusChangeIsLosslessAcrossRepeats()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        n.SetRoundaboutRadius(id, 35f);
+        n.SetRoundaboutRadius(id, 20f); // back to start
+        Assert.Empty(NetworkInvariants.Check(n));
+        // four approaches still present, ring still valid
+        Assert.Equal(4, n.Edges.Values.Count(e => IsApproach(n, e)));
+    }
+
+    [Fact]
+    public void RemoveRoundaboutLeavesCleanStubs()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        n.RemoveRoundabout(id);
+        Assert.Empty(n.Roundabouts);
+        Assert.DoesNotContain(n.Nodes.Values, x => x.Ring != null);
+        Assert.Empty(NetworkInvariants.Check(n));
+        Assert.Equal(4, n.Edges.Count); // four approach stubs remain
+    }
+
+    [Fact]
+    public void RadiusTooTightDoesNotMutate()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        var edgesBefore = n.Edges.Count;
+        Assert.Equal(RoundaboutError.RadiusTooTight, n.SetRoundaboutRadius(id, 0.5f).Error);
+        Assert.Equal(20f, n.Roundabouts[id].Radius);
+        Assert.Equal(edgesBefore, n.Edges.Count);
+    }
+
+    [Fact]
+    public void SetRadiusOnUnknownRoundaboutFails()
+    {
+        var n = FourWayJunction(out var center);
+        n.ConvertToRoundabout(center, 20f);
+        Assert.Equal(RoundaboutError.UnknownRoundabout, n.SetRoundaboutRadius(new RoundaboutId(999), 25f).Error);
+    }
 }

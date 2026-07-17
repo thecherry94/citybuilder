@@ -64,6 +64,114 @@ public sealed partial class RoadNetwork
         return RoundaboutResult.Ok(id);
     }
 
+    /// <summary>Change a roundabout's radius, re-arcing the ring from the legs' full
+    /// (pre-conversion) curves so the edit is lossless. No mutation on planner failure.</summary>
+    public RoundaboutResult SetRoundaboutRadius(RoundaboutId id, float radius)
+    {
+        if (!_roundabouts.ContainsKey(id))
+            return RoundaboutResult.Failed(RoundaboutError.UnknownRoundabout);
+        return Regenerate(id, radius);
+    }
+
+    /// <summary>Dissolve a roundabout: remove its ring, leaving each approach as a
+    /// free-ended stub where the ring was. Does not reconstruct the original junction —
+    /// undo is the route back to that.</summary>
+    public void RemoveRoundabout(RoundaboutId id)
+    {
+        if (_roundabouts.ContainsKey(id))
+            Dissolve(id);
+    }
+
+    /// <summary>Tear down and rebuild a roundabout's ring at <paramref name="radius"/> from
+    /// the surviving approach legs. Auto-dissolves when fewer than 3 legs remain (a 2-leg
+    /// ring is just a bend). No mutation before planning, so a planner failure is clean.</summary>
+    private RoundaboutResult Regenerate(RoundaboutId id, float radius)
+    {
+        var rb = _roundabouts[id];
+        var legs = SurvivingLegs(rb, out var fullCurves);
+
+        if (legs.Count < 3)
+        {
+            Dissolve(id);
+            return RoundaboutResult.Ok(id);
+        }
+
+        var plan = RoundaboutPlanner.Plan(rb.Center, radius, legs);
+        if (plan.Error is { } err)
+            return RoundaboutResult.Failed(err);
+
+        BeginBatch();
+        foreach (var re in rb.RingEdges)
+            if (_edges.TryGetValue(re, out var edge))
+                RemoveEdgeInternal(edge);
+
+        var built = BuildRing(id, plan); // creates new ring nodes/edges, re-trims approaches in place
+        _roundabouts[id] = rb with
+        {
+            Radius = radius, RingNodes = built.RingNodes, RingEdges = built.RingEdges, LegFullCurves = fullCurves,
+        };
+
+        // old ring nodes are now edgeless (ring edges removed, approaches re-bound onto new nodes)
+        foreach (var rn in rb.RingNodes)
+            if (_nodes.TryGetValue(rn, out var node) && node.EdgeSet.Count == 0)
+            {
+                _nodes.Remove(rn);
+                _batch!.NodesRemoved.Add(rn);
+            }
+
+        EndBatch();
+        return RoundaboutResult.Ok(id);
+    }
+
+    private void Dissolve(RoundaboutId id)
+    {
+        var rb = _roundabouts[id];
+        BeginBatch();
+        foreach (var re in rb.RingEdges)
+            if (_edges.TryGetValue(re, out var edge))
+                RemoveEdgeInternal(edge);
+        foreach (var rn in rb.RingNodes)
+            if (_nodes.TryGetValue(rn, out var node))
+            {
+                node.Ring = null;
+                if (node.EdgeSet.Count == 0)
+                {
+                    _nodes.Remove(rn);
+                    _batch!.NodesRemoved.Add(rn);
+                }
+                else
+                {
+                    node.Config = JunctionConfig.Default; // approach stub, no longer a ring junction
+                    _batch!.Touched.Add(rn);
+                }
+            }
+        _roundabouts.Remove(id);
+        EndBatch();
+    }
+
+    /// <summary>Approach legs of a roundabout that still exist and are still bound to it,
+    /// rebuilt from their captured full (pre-conversion) curves so a re-plan trims from the
+    /// original shape. <paramref name="fullCurves"/> collects the surviving captures.</summary>
+    private List<ApproachLeg> SurvivingLegs(Roundabout rb, out Dictionary<EdgeId, Bezier3> fullCurves)
+    {
+        var legs = new List<ApproachLeg>();
+        fullCurves = new Dictionary<EdgeId, Bezier3>();
+        foreach (var (edgeId, full) in rb.LegFullCurves)
+        {
+            if (!_edges.TryGetValue(edgeId, out var e))
+                continue; // bulldozed
+            bool startRing = _nodes.TryGetValue(e.StartNode, out var sn) && sn.Ring == rb.Id;
+            bool endRing = _nodes.TryGetValue(e.EndNode, out var en) && en.Ring == rb.Id;
+            if (startRing == endRing)
+                continue; // not (or no longer) an approach of this roundabout
+            bool endsAtCenter = Vector3.Distance(full.Point(1), rb.Center)
+                              < Vector3.Distance(full.Point(0), rb.Center);
+            legs.Add(new ApproachLeg(edgeId, full, endsAtCenter, e.Type));
+            fullCurves[edgeId] = full;
+        }
+        return legs;
+    }
+
     private readonly record struct BuiltRing(IReadOnlyList<NodeId> RingNodes, IReadOnlyList<EdgeId> RingEdges);
 
     /// <summary>Realize a plan as graph surgery inside the current batch: create ring
