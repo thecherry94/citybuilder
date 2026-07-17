@@ -43,6 +43,11 @@ public sealed class SnapEngine(RoadNetwork network)
     public const float CellLength = 8f;
     public const float WeightCellLength = 1.2f;
 
+    // Guide-count cap: perp guides triple the per-leg count and the pairwise
+    // intersection scan is O(G²); keep the nearest guides only (far ones are
+    // visual noise anyway).
+    public const int MaxGuidelines = 48;
+
     // node is 4.0 (not the spec's sketched 3.0): with 3.0, a node 1.9 m away
     // loses to the edge underneath it 1.2 m away — the ported NodeBeatsEdge test fails
     public const float WeightNode = 4.0f;
@@ -279,11 +284,19 @@ public sealed class SnapEngine(RoadNetwork network)
                 leaving.Y = 0;
                 if (leaving.LengthSquared() < GeoConstants.Eps)
                     continue;
-                guides.Add(new Guideline(node.Position, Vector3.Normalize(-leaving), GuidelineReach));
+                var dir = Vector3.Normalize(-leaving);
+                guides.Add(new Guideline(node.Position, dir, GuidelineReach));
+                // perpendicular helpers (M6.75 spec §3): ±90° off the leg, for
+                // connecting distant roads at right angles via guide intersections
+                var perp = new Vector3(dir.Z, 0, -dir.X);
+                guides.Add(new Guideline(node.Position, perp, GuidelineReach));
+                guides.Add(new Guideline(node.Position, -perp, GuidelineReach));
             }
         }
         if ((enabled & SnapTypes.Parallel) != 0 && ctx.DrawingType is { } drawType)
             AddParallelGuides(near, drawType, guides);
+        if (guides.Count > MaxGuidelines)
+            guides = guides.OrderBy(g => Vector3.Distance(g.Origin, near)).Take(MaxGuidelines).ToList();
         return guides;
     }
 

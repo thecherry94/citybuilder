@@ -257,6 +257,38 @@ public class SnapEngineTests
     }
 
     [Fact]
+    public void PerpendicularGuidesConnectDistantRoadsAt90()
+    {
+        // road A ends at (100,0,0); road B starts at (150,0,60) running +X. B's
+        // continuation guide (line z=60 toward -X) crosses A's new perpendicular guide
+        // (line x=100) at (100,0,60) — the "connect two far roads at a right angle"
+        // assist. Cursor near the crossing snaps to the guide intersection.
+        var (n, engine) = Setup(); // Setup commits road A: (0,0,0)→(100,0,0)
+        Net.Commit(n, Net.Straight(new Vector3(150, 0, 60), new Vector3(250, 0, 60)));
+        var result = engine.Resolve(new Vector3(101f, 0, 59f), 6f,
+            SnapTypes.Guidelines, SnapContext.Empty);
+        Assert.Equal(SnapKind.GuidelineIntersection, result.Kind);
+        Assert.True(Vector3.Distance(result.Position, new Vector3(100, 0, 60)) < 0.1f,
+            $"crossing at {result.Position}");
+    }
+
+    [Fact]
+    public void GuidelineCapKeepsNearestGuides()
+    {
+        // 16 parallel roads → 32 nodes × 3 guides = 96 raw guides, over the 48 cap.
+        // The nearest node's continuation guide must survive the cap: a cursor dead on
+        // it still snaps Guideline.
+        var n = Net.New();
+        for (int i = 0; i < 16; i++)
+            Net.Commit(n, Net.Straight(new Vector3(0, 0, i * 20f), new Vector3(60, 0, i * 20f)));
+        var engine = new SnapEngine(n);
+        var result = engine.Resolve(new Vector3(80f, 0, 0.4f), 6f,
+            SnapTypes.Guidelines, SnapContext.Empty);
+        Assert.Equal(SnapKind.Guideline, result.Kind);
+        Assert.Equal(0f, result.Position.Z, 2);
+    }
+
+    [Fact]
     public void PerpendicularFootSnapsToExact90Degrees()
     {
         var (n, snap) = Setup(); // edge (0,0,0)→(100,0,0)
