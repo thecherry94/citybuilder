@@ -78,6 +78,11 @@ public static class RoundaboutPlanner
             var trimmed = Trim(leg, center, radius);
             if (trimmed.Length() < RoadCatalog.Get(leg.Type).MinSegmentLength)
                 return Fail(RoundaboutError.LegTooShort);
+            // defense in depth: whatever the cut, a trimmed leg must never re-enter the
+            // circle (the ring arcs live there) — refuse rather than emit piercing geometry
+            for (int s = 0; s <= 32; s++)
+                if (Vector3.Distance(trimmed.Point(s / 32f), center) < radius - 0.5f)
+                    return Fail(RoundaboutError.LegInsideRing);
             // the approach must meet the ring clear of the ring tangent, or the ring node
             // would carry two legs closer than the junction floor (a sharp leg)
             if (!MeetsRingCleanly(trimmed, leg.EndsAtCenter, bearing))
@@ -162,25 +167,31 @@ public static class RoundaboutPlanner
 
     private static Bezier3 Trim(ApproachLeg leg, Vector3 center, float radius)
     {
-        // distance to center is monotonic along the leg between the outer end (>radius)
-        // and the center end (0); bisect for the crossing parameter.
-        float lo = 0f, hi = 1f;
-        // orient so lo is the outer end (dist > radius) and hi is the center end (dist ~0)
+        // Distance to center is NOT guaranteed monotonic along the leg — a committable
+        // hook can cross the radius three times (out–in–out–in). The correct cut is the
+        // FIRST crossing seen from the outer end: march inward to bracket it, then bisect
+        // inside that bracket only. A whole-span bisection converges to an arbitrary
+        // crossing and can leave the trimmed leg piercing the ring (M7.5 review find).
+        const int marchSteps = 128;
         bool outerAtZero = leg.EndsAtCenter; // Point(0) is outer when the leg ends at center
+        float T(int step) => outerAtZero ? step / (float)marchSteps : 1f - step / (float)marchSteps;
+
+        float lo = T(0), hi = T(marchSteps); // lo = outer end, hi = center end (either order in t)
+        for (int s = 1; s <= marchSteps; s++)
+        {
+            float t = T(s);
+            if (Vector3.Distance(leg.Curve.Point(t), center) <= radius)
+            {
+                lo = T(s - 1);
+                hi = t;
+                break;
+            }
+        }
         for (int it = 0; it < 48; it++)
         {
             float mid = 0.5f * (lo + hi);
-            float d = Vector3.Distance(leg.Curve.Point(mid), center);
-            bool midOutside = d > radius;
-            // we want the parameter where d == radius; keep the [outside, inside] bracket
-            if (outerAtZero)
-            {
-                if (midOutside) lo = mid; else hi = mid;
-            }
-            else
-            {
-                if (midOutside) hi = mid; else lo = mid;
-            }
+            bool midOutside = Vector3.Distance(leg.Curve.Point(mid), center) > radius;
+            if (midOutside) lo = mid; else hi = mid;
         }
         float tCut = 0.5f * (lo + hi);
         var (a, b) = leg.Curve.Split(tCut);

@@ -113,6 +113,39 @@ public class RoundaboutPlannerTests
     }
 
     [Fact]
+    public void HookLegWithMultipleRadiusCrossingsNeverTrimsInsideTheRing()
+    {
+        // A committable hook (MinRadius 10.3 ≥ Street's floor, no self-intersection)
+        // whose distance-to-center crosses r=21.15 three times. A bisection over the
+        // whole span converges to the INNERMOST crossing (measured: tCut≈0.914, trimmed
+        // leg dipping to 6.4 m inside the ring). The contract: a successful plan's
+        // trimmed legs never re-enter the circle — cut at the outermost crossing or
+        // refuse the conversion, never emit ring-piercing geometry.
+        const float r = 21.15f;
+        var hook = new Bezier3(new(88.6f, 0, -39.0f), new(-79.8f, 0, 79.9f), new(-69.2f, 0, -68.6f), Vector3.Zero);
+        var legs = new[]
+        {
+            new ApproachLeg(new EdgeId(1), hook, true, RoadCatalog.Street.Id),
+            new ApproachLeg(new EdgeId(2), Bezier3.Line(RadialPoint(0f, 70f), Vector3.Zero), true, RoadCatalog.Street.Id),
+            new ApproachLeg(new EdgeId(3), Bezier3.Line(RadialPoint(100f, 70f), Vector3.Zero), true, RoadCatalog.Street.Id),
+        };
+        var plan = RoundaboutPlanner.Plan(Vector3.Zero, r, legs);
+        if (plan.Error is not null)
+            return; // refusing the conversion is a legal outcome; piercing geometry is not
+        foreach (var s in plan.Slots)
+            for (float t = 0; t <= 1.0001f; t += 1f / 64f)
+                Assert.True(Vector3.Distance(s.TrimmedLeg.Point(t), Vector3.Zero) >= r - 0.6f,
+                    $"trimmed leg dips inside the ring at t={t:F2} " +
+                    $"(d={Vector3.Distance(s.TrimmedLeg.Point(t), Vector3.Zero):F1})");
+    }
+
+    private static Vector3 RadialPoint(float deg, float r)
+    {
+        float a = deg * MathF.PI / 180f;
+        return new Vector3(r * MathF.Cos(a), 0, r * MathF.Sin(a));
+    }
+
+    [Fact]
     public void LegStartingAtCenterTrimsFromInnerEnd()
     {
         // leg oriented center -> outer (StartsAtCenter): EndsAtCenter = false
