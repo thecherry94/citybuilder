@@ -52,8 +52,57 @@ public static class NetworkInvariants
         }
 
         CheckRoundabouts(n, o);
+        CheckEdgeCrossings(n, o);
 
         return o;
+    }
+
+    /// <summary>No two edges may geometrically cross except at a node they share — the
+    /// commit pipeline turns every crossing into a shared node by splitting, so any other
+    /// intersection is corrupt geometry (raw surgery, a bad conversion, a corrupt save)
+    /// that vehicles would drive straight through. AABB prefilter (Bézier hull property)
+    /// keeps the pairwise scan affordable for the fuzzer's per-action checks; the shared-
+    /// node tolerance covers junction-area contact between legs of the same node.</summary>
+    public static void CheckEdgeCrossings(RoadNetwork n, List<string> o)
+    {
+        const float sharedNodeTolerance = 1.0f;
+        var edges = n.Edges.Values.ToArray();
+        var min = new Vector3[edges.Length];
+        var max = new Vector3[edges.Length];
+        for (int i = 0; i < edges.Length; i++)
+        {
+            var c = edges[i].Curve;
+            min[i] = Vector3.Min(Vector3.Min(c.P0, c.P1), Vector3.Min(c.P2, c.P3));
+            max[i] = Vector3.Max(Vector3.Max(c.P0, c.P1), Vector3.Max(c.P2, c.P3));
+        }
+
+        for (int i = 0; i < edges.Length; i++)
+        for (int j = i + 1; j < edges.Length; j++)
+        {
+            if (min[i].X > max[j].X || min[j].X > max[i].X
+                || min[i].Z > max[j].Z || min[j].Z > max[i].Z)
+                continue;
+            var a = edges[i];
+            var b = edges[j];
+            foreach (var (t1, _) in BezierOps.Intersections(a.Curve, b.Curve))
+            {
+                var p = a.Curve.Point(t1);
+                bool nearShared = false;
+                foreach (var nid in new[] { a.StartNode, a.EndNode })
+                    if ((nid == b.StartNode || nid == b.EndNode)
+                        && n.Nodes.TryGetValue(nid, out var node)
+                        && Vector3.Distance(p, node.Position) <= sharedNodeTolerance)
+                    {
+                        nearShared = true;
+                        break;
+                    }
+                if (!nearShared)
+                {
+                    o.Add($"edges {a.Id.Value}/{b.Id.Value}: cross at ({p.X:F1},{p.Z:F1}) without a shared node");
+                    break; // one report per pair is enough
+                }
+            }
+        }
     }
 
     /// <summary>Structural health of every roundabout: ring nodes/edges consistent with

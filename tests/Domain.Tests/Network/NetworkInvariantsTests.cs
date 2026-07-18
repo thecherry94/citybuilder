@@ -37,6 +37,38 @@ public class NetworkInvariantsTests
     }
 
     [Fact]
+    public void DisjointCrossingEdgesAreFlagged()
+    {
+        // Two straight TwoLane edges crossing at the origin with NO shared node — never
+        // constructible via Validate/Commit (which splits crossings), but reachable through
+        // raw surgery or a corrupt save. ValidateGame doesn't do geometry, so the load
+        // succeeds; the invariant checker must be the layer that sees it.
+        const string corrupt = "{\"FormatVersion\":2," +
+            "\"Nodes\":[" +
+            "{\"Id\":1,\"X\":-50,\"Y\":0,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}," +
+            "{\"Id\":2,\"X\":50,\"Y\":0,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}," +
+            "{\"Id\":3,\"X\":0,\"Y\":0,\"Z\":-50,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}," +
+            "{\"Id\":4,\"X\":0,\"Y\":0,\"Z\":50,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}]," +
+            "\"Edges\":[" +
+            "{\"Id\":1,\"Start\":1,\"End\":2,\"Type\":1,\"Curve\":[-50,0,0,-16.6667,0,0,16.6667,0,0,50,0,0],\"LaneIds\":[1,2]}," +
+            "{\"Id\":2,\"Start\":3,\"End\":4,\"Type\":1,\"Curve\":[0,0,-50,0,0,-16.6667,0,0,16.6667,0,0,50],\"LaneIds\":[3,4]}]," +
+            "\"NextNode\":5,\"NextEdge\":3,\"NextLane\":5}";
+        var n = CityBuilder.Domain.Persistence.SaveLoad.Load(corrupt);
+        Assert.Contains(NetworkInvariants.Check(n), v => v.Contains("without a shared node"));
+    }
+
+    [Fact]
+    public void EdgesMeetingAtASharedNodeAreNotFlaggedAsCrossing()
+    {
+        // proper commits split crossings into shared nodes — the crossing rule must not
+        // fire on the resulting junction geometry
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0)));
+        Net.Commit(n, Net.Straight(new(0, 0, -100), new(0, 0, 100)));
+        Assert.DoesNotContain(NetworkInvariants.Check(n), v => v.Contains("without a shared node"));
+    }
+
+    [Fact]
     public void HealthyMixedNetworkHasNoViolations()
     {
         var n = Net.New();
