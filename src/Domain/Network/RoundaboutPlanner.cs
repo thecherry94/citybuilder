@@ -38,43 +38,19 @@ public static class RoundaboutPlanner
         RoundaboutPlan Fail(RoundaboutError e) => new(center, radius, Array.Empty<RingSlot>(),
             Array.Empty<IReadOnlyList<Bezier3>>(), e);
 
-        // outward bearing per leg (direction leaving the center along the leg)
-        var ordered = legs
-            .Select(leg => (leg, bearing: Bearing(OutwardDir(leg))))
-            .OrderBy(x => x.bearing)
-            .ToList();
-
-        // adjacent (cyclic) bearings too close → cannot form distinct ring slots
-        for (int i = 0; i < ordered.Count; i++)
-        {
-            float next = ordered[(i + 1) % ordered.Count].bearing + (i + 1 == ordered.Count ? MathF.Tau : 0);
-            if (next - ordered[i].bearing < DegenerateGapRad)
-                return Fail(RoundaboutError.DegenerateBearings);
-        }
-
         // every leg must actually reach past the circle to be trimmable to it
-        foreach (var (leg, _) in ordered)
+        foreach (var leg in legs)
             if (Vector3.Distance(OuterEnd(leg), center) <= radius)
                 return Fail(RoundaboutError.LegInsideRing);
 
-        // feasibility: the smallest sub-arc must clear OneWay.MinSegmentLength.
-        // decomposition depends only on the bearings, not the radius.
-        float minSubSpan = float.PositiveInfinity;
-        for (int i = 0; i < ordered.Count; i++)
+        // Trim FIRST, and put each slot at the point where the leg's curve actually
+        // crosses the circle. A curved leg's tangent bearing at the center can differ
+        // from its crossing bearing by several degrees — placing slots at the tangent
+        // bearing bound approaches to nodes their curves missed by metres (drifting
+        // endpoints, ring arcs crossing the dangling curve; M7.5 hardening find).
+        var slots = new List<RingSlot>(legs.Count);
+        foreach (var leg in legs)
         {
-            float span = Gap(ordered, i);
-            int subs = Math.Max(1, (int)MathF.Ceiling(span / QuarterTurn - 1e-4f));
-            minSubSpan = MathF.Min(minSubSpan, span / subs);
-        }
-        float minFeasible = RoadCatalog.OneWay.MinSegmentLength / minSubSpan;
-        if (radius < minFeasible - 1e-3f)
-            return Fail(RoundaboutError.RadiusTooTight);
-
-        // trim each leg to the circle
-        var slots = new List<RingSlot>(ordered.Count);
-        foreach (var (leg, bearing) in ordered)
-        {
-            var pos = center + radius * new Vector3(MathF.Cos(bearing), 0, MathF.Sin(bearing));
             var trimmed = Trim(leg, center, radius);
             if (trimmed.Length() < RoadCatalog.Get(leg.Type).MinSegmentLength)
                 return Fail(RoundaboutError.LegTooShort);
@@ -83,20 +59,44 @@ public static class RoundaboutPlanner
             for (int s = 0; s <= 32; s++)
                 if (Vector3.Distance(trimmed.Point(s / 32f), center) < radius - 0.5f)
                     return Fail(RoundaboutError.LegInsideRing);
+
+            // slot = the cut point projected exactly onto the circle; pin the trimmed
+            // curve's inner endpoint onto it so approach curve and ring node coincide
+            var cut = leg.EndsAtCenter ? trimmed.P3 : trimmed.P0;
+            var dir = cut - center;
+            float bearing = MathF.Atan2(dir.Z, dir.X);
+            var pos = center + radius * new Vector3(MathF.Cos(bearing), 0, MathF.Sin(bearing));
+            trimmed = leg.EndsAtCenter
+                ? new Bezier3(trimmed.P0, trimmed.P1, trimmed.P2, pos)
+                : new Bezier3(pos, trimmed.P1, trimmed.P2, trimmed.P3);
+
             // the approach must meet the ring clear of the ring tangent, or the ring node
             // would carry two legs closer than the junction floor (a sharp leg)
             if (!MeetsRingCleanly(trimmed, leg.EndsAtCenter, bearing))
                 return Fail(RoundaboutError.ApproachTooTangential);
             slots.Add(new RingSlot(bearing, pos, leg, trimmed, leg.EndsAtCenter));
         }
+        slots.Sort((a, b) => a.Bearing.CompareTo(b.Bearing));
+
+        // adjacent (cyclic) crossings too close → cannot form distinct ring slots
+        for (int i = 0; i < slots.Count; i++)
+            if (SlotGap(slots, i) < DegenerateGapRad)
+                return Fail(RoundaboutError.DegenerateBearings);
+
+        // feasibility: the smallest sub-arc must clear OneWay.MinSegmentLength
+        for (int i = 0; i < slots.Count; i++)
+        {
+            float span = SlotGap(slots, i);
+            int subs = Math.Max(1, (int)MathF.Ceiling(span / QuarterTurn - 1e-4f));
+            if (radius * (span / subs) < RoadCatalog.OneWay.MinSegmentLength - 1e-3f)
+                return Fail(RoundaboutError.RadiusTooTight);
+        }
 
         // CCW ring arc chains, gap by gap
         var arcs = new List<IReadOnlyList<Bezier3>>(slots.Count);
         for (int i = 0; i < slots.Count; i++)
         {
-            float a0 = slots[i].Bearing;
-            float span = Gap(ordered, i);
-            var chain = ArcChain(center, radius, a0, span);
+            var chain = ArcChain(center, radius, slots[i].Bearing, SlotGap(slots, i));
             // pin exact endpoints onto the slot positions (kill trig round-trip noise)
             var startPos = slots[i].Position;
             var endPos = slots[(i + 1) % slots.Count].Position;
@@ -106,6 +106,13 @@ public static class RoundaboutPlanner
         }
 
         return new RoundaboutPlan(center, radius, slots, arcs, null);
+    }
+
+    // cyclic gap (radians, always positive) from slots[i] to the next slot CCW
+    private static float SlotGap(List<RingSlot> slots, int i)
+    {
+        float next = slots[(i + 1) % slots.Count].Bearing + (i + 1 == slots.Count ? MathF.Tau : 0);
+        return next - slots[i].Bearing;
     }
 
     /// <summary>Smallest radius at which every ring sub-arc clears OneWay.MinSegmentLength,

@@ -93,6 +93,34 @@ public sealed partial class RoadNetwork
         return false;
     }
 
+    /// <summary>True when any planned ring arc geometrically intersects a live edge that
+    /// the conversion will NOT consume (not a leg being trimmed, not an old ring edge
+    /// being replaced) — committing would stamp overlapping drivable geometry across an
+    /// unrelated road with no junction node (the M7.5 review's top find). Trimmed legs
+    /// need no check: they are sub-curves of already-committed edges, whose only contacts
+    /// with the rest of the network are at shared nodes. Bounding-box prefilter keeps the
+    /// scan cheap; conversion is a rare, user-initiated op.</summary>
+    private bool RingObstructed(RoundaboutPlan plan, HashSet<EdgeId> excluded)
+    {
+        foreach (var e in _edges.Values)
+        {
+            if (excluded.Contains(e.Id))
+                continue;
+            // cheap reject: edge box vs ring circle box
+            var c = e.Curve;
+            var min = Vector3.Min(Vector3.Min(c.P0, c.P1), Vector3.Min(c.P2, c.P3));
+            var max = Vector3.Max(Vector3.Max(c.P0, c.P1), Vector3.Max(c.P2, c.P3));
+            if (min.X > plan.Center.X + plan.Radius || max.X < plan.Center.X - plan.Radius
+                || min.Z > plan.Center.Z + plan.Radius || max.Z < plan.Center.Z - plan.Radius)
+                continue;
+            foreach (var chain in plan.RingArcs)
+            foreach (var arc in chain)
+                if (BezierOps.Intersections(arc, c).Count > 0)
+                    return true;
+        }
+        return false;
+    }
+
     /// <summary>Find the roundabout a node belongs to, if any (ring nodes only).</summary>
     public Roundabout? RoundaboutForNode(NodeId n)
         => _nodes.TryGetValue(n, out var node) && node.Ring is { } id && _roundabouts.TryGetValue(id, out var rb)
@@ -130,6 +158,8 @@ public sealed partial class RoadNetwork
         var plan = RoundaboutPlanner.Plan(centerNode.Position, radius, legs);
         if (plan.Error is { } err)
             return RoundaboutResult.Failed(err);
+        if (RingObstructed(plan, legs.Select(l => l.Edge).ToHashSet()))
+            return RoundaboutResult.Failed(RoundaboutError.Obstructed);
 
         var id = new RoundaboutId(_nextRoundabout);
         var innerNodes = legs.ToDictionary(l => l.Edge, _ => center); // every leg currently meets the center
@@ -187,6 +217,10 @@ public sealed partial class RoadNetwork
         var plan = RoundaboutPlanner.Plan(rb.Center, radius, legs);
         if (plan.Error is { } err)
             return RoundaboutResult.Failed(err);
+        var excluded = legs.Select(l => l.Edge).ToHashSet();
+        excluded.UnionWith(rb.RingEdges); // the old ring is being replaced
+        if (RingObstructed(plan, excluded))
+            return RoundaboutResult.Failed(RoundaboutError.Obstructed);
 
         BeginBatch();
         foreach (var re in rb.RingEdges)

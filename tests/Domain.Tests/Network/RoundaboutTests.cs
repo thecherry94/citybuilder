@@ -145,6 +145,62 @@ public class RoundaboutTests
     }
 
     [Fact]
+    public void CurvedLegConversionKeepsApproachCurvesOnTheirNodes()
+    {
+        // A curved leg's tangent bearing at the center differs from where its curve
+        // actually crosses the ring circle. Slots must sit at the actual crossing —
+        // otherwise the trimmed approach is bound to a node its curve doesn't touch
+        // (fuzz: 1.8-3.9 m endpoint drift, ring arcs crossing the dangling curve).
+        var n = new RoadNetwork();
+        Net.Commit(n, Net.Straight(new(-60, 0, 0), new(60, 0, 0), RoadCatalog.Street.Id));
+        var curved = new CityBuilder.Domain.Geometry.Bezier3(
+            new(40, 0, 80), new(10, 0, 45), new(0, 0, 20), Vector3.Zero);
+        Net.Commit(n, new PlacementProposal(new[]
+        {
+            new ProposedCurve(curved, EndpointBinding.None, EndpointBinding.None)
+        }, RoadCatalog.Street.Id));
+        var center = n.Nodes.Values.Single(x => Vector3.Distance(x.Position, Vector3.Zero) < 0.1f);
+        Assert.Equal(3, center.Edges.Count);
+
+        var res = n.ConvertToRoundabout(center.Id, 15f);
+        Assert.True(res.Success, $"convert failed: {res.Error}");
+        foreach (var e in n.Edges.Values.Where(e => IsApproach(n, e)))
+        {
+            Assert.True(Vector3.Distance(e.Curve.P0, n.Nodes[e.StartNode].Position) < 0.1f,
+                $"approach {e.Id.Value} start drifts {Vector3.Distance(e.Curve.P0, n.Nodes[e.StartNode].Position):F2} m off its node");
+            Assert.True(Vector3.Distance(e.Curve.P3, n.Nodes[e.EndNode].Position) < 0.1f,
+                $"approach {e.Id.Value} end drifts {Vector3.Distance(e.Curve.P3, n.Nodes[e.EndNode].Position):F2} m off its node");
+        }
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
+    public void ConversionRefusedWhenRingWouldCrossABystanderRoad()
+    {
+        var n = FourWayJunction(out var center);
+        // diagonal road threading between the +X and +Z legs, crossing the planned
+        // r=20 circle at ~45° without touching any leg — the ring arcs would cross it
+        Net.Commit(n, Net.Straight(new(5, 0, 5), new(40, 0, 40)));
+        var res = n.ConvertToRoundabout(center, 20f);
+        Assert.Equal(RoundaboutError.Obstructed, res.Error);
+        // no mutation on refusal, and the network is still healthy
+        Assert.Empty(n.Roundabouts);
+        Assert.True(n.Nodes.ContainsKey(center));
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
+    public void ConversionSucceedsOnceTheObstructionIsGone()
+    {
+        var n = FourWayJunction(out var center);
+        var r = Net.Commit(n, Net.Straight(new(5, 0, 5), new(40, 0, 40)));
+        n.RemoveEdge(r.CreatedEdges[0]);
+        var res = n.ConvertToRoundabout(center, 20f);
+        Assert.True(res.Success, $"expected success, got {res.Error}");
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
     public void RingEdgesAreImmutableToRetypeAndFlip()
     {
         var n = FourWayJunction(out var center);

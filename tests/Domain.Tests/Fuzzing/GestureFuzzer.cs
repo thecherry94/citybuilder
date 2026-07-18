@@ -54,9 +54,14 @@ public static class GestureFuzzer
 
     private static readonly int[] GridCells = { 4, 8, 16, 32 };
 
+    /// <summary>Debug/triage hook: the network of the most recent <see cref="Run"/>, so a
+    /// failing seed's terminal state can be inspected by a probe test without re-plumbing.</summary>
+    public static RoadNetwork? LastNetwork;
+
     public static FuzzResult Run(FuzzOptions opts)
     {
         var network = new RoadNetwork();
+        LastNetwork = network;
         var snap = new SnapEngine(network);
         var session = new DraftSession(network, snap);
         var undo = new UndoStack(network);

@@ -84,9 +84,27 @@ public static class NetworkInvariants
                 continue;
             var a = edges[i];
             var b = edges[j];
-            foreach (var (t1, _) in BezierOps.Intersections(a.Curve, b.Curve))
+            foreach (var (t1, t2) in BezierOps.Intersections(a.Curve, b.Curve))
             {
                 var p = a.Curve.Point(t1);
+                // Intersections can report spurious hits with garbage parameters for
+                // near-collinear curves touching at a shared endpoint (chain segments) —
+                // a real intersection has both curves at the same place; anything else
+                // is numerical noise, not geometry (fuzz seed 303 @ 72, flip edge=59)
+                if (Vector3.Distance(p, b.Curve.Point(t2)) > 0.5f)
+                    continue;
+                // Grazing contact is not a transversal crossing: two legs leaving a shared
+                // node within the G1 tangent-continuation exemption legally run near-
+                // parallel and can graze-cross as they diverge (fuzz seed 303 @ 179).
+                // That class belongs to OverlapsExisting's heuristic, not this rule —
+                // only crossings at a genuine angle are the drive-through corruption
+                // this invariant exists to catch.
+                var ta = a.Curve.Tangent(t1);
+                var tb = b.Curve.Tangent(t2);
+                float crossDeg = MathF.Acos(Math.Clamp(MathF.Abs(
+                    Vector3.Dot(Vector3.Normalize(ta), Vector3.Normalize(tb))), 0f, 1f)) * 180f / MathF.PI;
+                if (crossDeg < 5f)
+                    continue;
                 bool nearShared = false;
                 foreach (var nid in new[] { a.StartNode, a.EndNode })
                     if ((nid == b.StartNode || nid == b.EndNode)

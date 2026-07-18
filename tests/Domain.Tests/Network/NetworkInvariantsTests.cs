@@ -58,6 +58,22 @@ public class NetworkInvariantsTests
     }
 
     [Fact]
+    public void CollinearChainSegmentsAreNotFlaggedAsCrossingEvenAfterFlip()
+    {
+        // Two collinear OneWay segments sharing an endpoint: BezierOps.Intersections can
+        // report their touching contact with a garbage parameter pair whose points don't
+        // coincide (fuzz seed 303 @ 72) — the checker must treat that as noise, in either
+        // curve orientation.
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(172.7f, 0, 22.2f), new(239.1f, 0, 44.2f), RoadCatalog.OneWay.Id));
+        Net.Commit(n, Net.Straight(new(239.1f, 0, 44.2f), new(264.0f, 0, 52.5f), RoadCatalog.OneWay.Id));
+        Assert.Empty(NetworkInvariants.Check(n));
+        var first = n.Edges.Values.First(e => e.ArcLength.TotalLength > 50f).Id;
+        Assert.True(n.FlipEdge(first));
+        Assert.DoesNotContain(NetworkInvariants.Check(n), v => v.Contains("without a shared node"));
+    }
+
+    [Fact]
     public void EdgesMeetingAtASharedNodeAreNotFlaggedAsCrossing()
     {
         // proper commits split crossings into shared nodes — the crossing rule must not
