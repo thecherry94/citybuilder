@@ -101,3 +101,39 @@ Hard-won. Read the relevant section before touching that area.
   rebuilt leg falls back to heuristics (documented, accepted).
 - Resize shrink floors at the solved corner requirement (geometry cannot fold); the
   30 % edge-length clamp + `TightCuts` sit on top of authored offsets.
+
+## Invariant checking & fuzz certification (M7.5 hardening lessons)
+- **A fuzz pass only certifies what the invariant checker can see.** The original M7.5
+  roundabout conversion stamped ring arcs across bystander roads for weeks of fuzz
+  actions while 3×10k runs stayed green — `NetworkInvariants` simply had no rule about
+  disjoint edges crossing. When you add a new mutation path, ask *which invariant would
+  catch its failure modes* before trusting fuzz numbers; if the answer is "none", add
+  the invariant first and expect it to light up immediately (ours did, on all three
+  seeds, within 400 actions).
+- **`BezierOps.Intersections` lies at the margins — twice.** (1) For near-collinear
+  curves touching at a shared endpoint (chain segments) it can return hits with garbage
+  parameters: the reported `(t1, t2)` points sit metres apart and metres from the true
+  contact. Always verify `a.Point(t1) ≈ b.Point(t2)` before treating a hit as geometry.
+  (2) Its results are parametrization-direction-sensitive: flipping an edge (same
+  geometry, reversed control points) can move or reveal hits. Never assume
+  `Intersections(a,b)` and `Intersections(a.Reversed(),b)` agree.
+- **Distance-to-center along a committable curve is not monotonic.** A hook-shaped leg
+  clearing every catalog floor (MinRadius ≥ 10, no self-intersection) can cross a circle
+  three times. Any "find the crossing by bisection" code must bracket the *first*
+  crossing by marching from a known-outside end, or it converges to an arbitrary one.
+- **A curve's tangent bearing at a point is not the bearing of where it goes.** Placing
+  roundabout slots at the leg's center-tangent bearing bound approaches to nodes their
+  curves missed by metres. When geometry must meet a node, derive the node's position
+  from the geometry (the actual crossing), never from a direction extrapolation.
+- **Validate's "connection at an endpoint" exemption assumes the endpoint actually
+  connects to the near edge — ResolveBinding may disagree.** A proposal endpoint within
+  0.5 m of an existing edge exempts crossings there, but if an existing NODE also sits
+  in range, ResolveBinding binds to the node and never splits the edge — committing a
+  genuine transversal crossing 0.4 m from the node (fuzz seed 202@8673, a 64° drive-
+  through). The commit-side segment recheck (`SegmentCrossesLiveEdgeOffNode`) therefore
+  exempts near-endpoint contact only for edges *incident to the endpoint's node*; a
+  non-incident edge crossing anywhere is a drop. SubCurve's displacement blending after
+  reuse absorption can likewise drag a segment into re-crossing the edge whose crossing
+  was absorbed (seed 101@8321) — same recheck catches it. These joined the floors and
+  sharp-leg rechecks as the third member of the commit-side "drop, never commit corrupt"
+  family.

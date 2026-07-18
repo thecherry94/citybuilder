@@ -491,8 +491,63 @@ public sealed partial class RoadNetwork
                 droppedSegments++;
                 continue;
             }
+            // Third member of the reuse-absorption recheck family (floors and leg angles
+            // above): SubCurve's displacement blending toward an absorbed stop can drag
+            // the segment far enough sideways that it RE-crosses the very edge whose
+            // crossing was just absorbed into a node — committing an off-node crossing
+            // no later pass would ever split (fuzz seeds 101@8321, 202@8673, visible
+            // once the no-crossing invariant existed). Same policy: drop, never commit
+            // corrupt.
+            if (SegmentCrossesLiveEdgeOffNode(seg, na, nb))
+            {
+                droppedSegments++;
+                continue;
+            }
             createdEdges.Add(AddEdgeInternal(na, nb, seg, type).Id);
         }
+    }
+
+    /// <summary>True when the candidate segment genuinely crosses a live edge away from
+    /// its own junction connections — the same coincidence/grazing filters as
+    /// <see cref="NetworkInvariants.CheckEdgeCrossings"/> (Intersections emits garbage
+    /// parameters for near-collinear contacts; sub-5° grazing between G1 pairs is not a
+    /// transversal crossing). Endpoint contact is exempt ONLY for edges incident to that
+    /// endpoint's node: an edge merely passing near the node (fuzz seed 202@8673: 0.46 m —
+    /// inside Validate's 0.5 m endpoint filter) is a real drive-through crossing, not a
+    /// connection, because ResolveBinding bound the endpoint to the node and never split
+    /// the passing edge.</summary>
+    private bool SegmentCrossesLiveEdgeOffNode(in Bezier3 seg, NodeId na, NodeId nb)
+    {
+        Vector3 aPos = _nodes[na].Position, bPos = _nodes[nb].Position;
+        var segMin = Vector3.Min(Vector3.Min(seg.P0, seg.P1), Vector3.Min(seg.P2, seg.P3));
+        var segMax = Vector3.Max(Vector3.Max(seg.P0, seg.P1), Vector3.Max(seg.P2, seg.P3));
+        foreach (var e in _edges.Values)
+        {
+            var c = e.Curve;
+            var min = Vector3.Min(Vector3.Min(c.P0, c.P1), Vector3.Min(c.P2, c.P3));
+            var max = Vector3.Max(Vector3.Max(c.P0, c.P1), Vector3.Max(c.P2, c.P3));
+            if (min.X > segMax.X || segMin.X > max.X || min.Z > segMax.Z || segMin.Z > max.Z)
+                continue;
+            bool incidentA = e.StartNode == na || e.EndNode == na;
+            bool incidentB = e.StartNode == nb || e.EndNode == nb;
+            foreach (var (t1, t2) in BezierOps.Intersections(seg, c))
+            {
+                var p = seg.Point(t1);
+                if (Vector3.Distance(p, c.Point(t2)) > 0.5f)
+                    continue; // spurious hit, curves not actually at the same place
+                if (incidentA && Vector3.Distance(p, aPos) <= 1f)
+                    continue; // junction contact with an edge sharing the start node
+                if (incidentB && Vector3.Distance(p, bPos) <= 1f)
+                    continue; // junction contact with an edge sharing the end node
+                var ta = seg.Tangent(t1);
+                var tb = c.Tangent(t2);
+                float cos = MathF.Abs(Vector3.Dot(Vector3.Normalize(ta), Vector3.Normalize(tb)));
+                if (MathF.Acos(Math.Clamp(cos, 0f, 1f)) * 180f / MathF.PI < 5f)
+                    continue; // grazing/parallel contact, not a transversal crossing
+                return true;
+            }
+        }
+        return false;
     }
 
     private NodeId ResolveBinding(EndpointBinding binding, Vector3 pos, List<NodeId> createdNodes)

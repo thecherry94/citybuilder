@@ -239,6 +239,30 @@ public class FuzzRegressionTests
         Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
     }
 
+    /// <summary>M7.5-hardening finds (both seeds, same class): in a dense network,
+    /// SubCurve's displacement blending toward a reuse-absorbed stop dragged a committed
+    /// segment far enough sideways that it RE-crossed the very edge whose crossing had
+    /// just been absorbed into a node — an off-node crossing no later pass would split,
+    /// invisible until the no-crossing invariant existed (cars drove straight through).
+    /// Fixed by the third member of the commit-side recheck family: after floors and
+    /// sharp-leg rechecks, a candidate segment that genuinely crosses any live edge away
+    /// from its own endpoints is dropped rather than committed corrupt
+    /// (RoadNetwork.SegmentCrossesLiveEdgeOffNode).</summary>
+    [Fact]
+    public void Seed101AbsorptionDisplacedSegmentNeverCommitsOffNodeCrossing()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(101, 8350));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
+    /// <summary>Second seed of the class above (edges 2664/2581 at action 8673).</summary>
+    [Fact]
+    public void Seed202AbsorptionDisplacedSegmentNeverCommitsOffNodeCrossing()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(202, 8700));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
     private static void Commit(RoadNetwork n, PlacementProposal p)
     {
         var v = n.Validate(p);

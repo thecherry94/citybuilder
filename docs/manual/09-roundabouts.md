@@ -45,29 +45,48 @@ the network.
 
 Its steps, in order (the first failing check wins, no mutation):
 
-1. **Bearings.** Each leg's *outward* direction from the center (`-Tangent(1)` for a leg
-   ending at the center, `Tangent(0)` for one starting there) gives a bearing `atan2(dz, dx)`.
-   Legs are sorted ascending by bearing — which is CCW order in the XZ plane.
-2. **Degenerate bearings.** Any two adjacent bearings within 1° → `DegenerateBearings`
-   (two approaches that can't get distinct ring slots).
-3. **Leg reaches the ring.** A leg whose outer endpoint is within `radius` of the center
+1. **Leg reaches the ring.** A leg whose outer endpoint is within `radius` of the center
    can't be trimmed onto the circle → `LegInsideRing`.
-4. **Feasibility.** Each gap between adjacent bearings becomes one or more ring arcs; the
-   smallest resulting sub-arc must clear `OneWay.MinSegmentLength` (12 m). The decomposition
-   depends only on the bearings, so the minimum feasible radius is
-   `12 / minSubSpanRadians`; a smaller radius → `RadiusTooTight`. (`MinFeasibleRadius` is
-   exposed so the editor can clamp its spinner's minimum.)
-5. **Trim.** Each leg is cut to the circle by bisecting for the parameter where its distance
-   to the center equals `radius`, then `Bezier3.Split`. A trimmed remainder shorter than the
-   leg type's `MinSegmentLength` → `LegTooShort`.
-6. **Clean meeting angle.** The trimmed approach's direction where it meets the ring must
-   clear `MinJunctionAngleDeg` (25°) from *both* ring-tangent directions, or the ring node
-   would carry two legs closer than the junction floor → `ApproachTooTangential`.
+2. **Trim — first crossing from the outer end.** Each leg is cut where its curve first
+   crosses the circle, seen from the outer end: a marching pass brackets the first
+   crossing, then bisection refines it. Distance-to-center is *not* monotonic along a
+   committable leg — a hook shape can cross the radius three times, and a naive
+   whole-span bisection converged to an inner crossing, leaving the trimmed leg piercing
+   the ring (hardening find, counterexample pinned in `RoundaboutPlannerTests`). A
+   trimmed remainder shorter than the leg type's `MinSegmentLength` → `LegTooShort`; a
+   trimmed leg that still re-enters the circle anywhere → `LegInsideRing` (defense in
+   depth).
+3. **Slots sit at the actual crossing.** Each slot's bearing comes from the *cut point*
+   (`atan2` of cut − center), **not** from the leg's tangent at the old center — for a
+   curved leg those differ by degrees, and the tangent-bearing version bound approaches
+   to ring nodes their curves missed by metres (drifting endpoints, ring arcs crossing
+   the dangling curve — the fuzzer's find once the crossing invariant existed). The
+   trimmed curve's inner endpoint is pinned exactly onto the slot position.
+4. **Clean meeting angle.** The trimmed approach's direction where it meets the ring must
+   clear `MinJunctionAngleDeg` (25°) from *both* ring-tangent directions at the slot, or
+   the ring node would carry two legs closer than the junction floor →
+   `ApproachTooTangential`.
+5. **Degenerate crossings.** Slots are sorted CCW by crossing bearing; any two adjacent
+   within 1° → `DegenerateBearings` (two approaches that can't get distinct ring slots).
+6. **Feasibility.** Each gap between adjacent slots becomes one or more ring arcs; the
+   smallest resulting sub-arc must clear `OneWay.MinSegmentLength` (12 m), else
+   `RadiusTooTight`. (`MinFeasibleRadius` — a tangent-bearing *approximation*, since the
+   exact crossings depend on the radius itself — feeds the inspector's spinner clamps via
+   `RoadNetwork.ConversionMinRadius`/`RoundaboutMinRadius`; planner errors are still
+   surfaced when the approximation is off for curved legs.)
 7. **Ring arcs.** Each gap is built directly from its angular span as a chain of circular-arc
    cubics (`k = 4/3·tan(Δ/4)·R` per sub-arc), splitting any gap wider than 90° so no single
    cubic exceeds a quarter turn — a 3-leg ring routinely has a >180° gap, which is why the
    arcs are built from angles rather than via `BezierOps.ArcFromTangent` (that helper caps at
    a 175° sweep). Chain endpoints are pinned exactly onto the slot positions.
+
+The registry adds one more gate the planner can't see: **`Obstructed`** — after a
+successful plan, `ConvertToRoundabout`/`Regenerate` check every planned ring arc for
+intersections with live edges the conversion won't consume (not a leg, not an old ring
+edge) and refuse rather than stamp drivable geometry across a bystander road. This was
+the M7.5 review's top finding: the original conversion bypassed `Validate` entirely and
+`NetworkInvariants` had no crossing rule, so fuzz certification was structurally blind
+to overlapping rings.
 
 ```mermaid
 flowchart TD
@@ -144,15 +163,28 @@ stored-config version that the fuzzer broke within a few hundred actions.
 A roundabout's ring nodes, ring edges, and approach edges are **owned by the roundabout** and
 immutable except through bulldoze and the roundabout API. This is the v1 boundary — editing a
 live ring's approaches (splitting one, drawing a new road into the ring) is a deferred
-feature — and it is enforced at every mutation entry point:
+feature — and it is enforced at every mutation entry point, **at both phases** of the
+Validate/Commit contract (the hardening pass closed the snapshot-vs-live gap):
 
 - `ConfigureJunction` on a ring node is ignored (its control is derived).
 - `RetypeEdge` on a ring edge returns `RetypeError.Locked`; `FlipEdge` returns false.
-- `Validate` adds `PlacementError.TouchesRoundabout` to any proposal that would attach to a
-  ring node, or split/cross a ring **or approach** edge (a split would mint a new approach
-  `EdgeId` the registry never sees).
+  **Approaches stay retypable and flippable** — they're the player's roads; a flip also
+  reverses the roundabout's captured full curve (`OnApproachFlipped`) so regeneration
+  preserves the flip instead of silently reverting a one-way.
+- `Validate` adds `PlacementError.TouchesRoundabout` to any proposal whose endpoints
+  would attach to a ring node or split an owned edge, or whose curve crosses one —
+  detected inside Validate's own intersection loop (no separate scan), with an early-out
+  when no roundabouts exist.
+- **Commit-side**: `CommitCurve` drops any curve whose *live* crossing lands on an owned
+  edge (reuse absorption can relocate endpoints past what Validate's snapshot exempted),
+  and `ResolveBinding` never splits an owned edge or reuses a ring node — the fallback
+  paths create a fresh node instead.
 - `TryHealNode` refuses to merge two edges when either far node is a ring node (the merged
   edge would be a roundabout approach with a fresh, untracked `EdgeId`).
+- The Bulldoze **tool** refuses ring edges outright (a lone ring-edge removal would just
+  regenerate an identical ring while despawning its traffic — a costly no-op); if a ring
+  edge is removed programmatically anyway, the dirty-drain repairs the ring, and a failed
+  re-plan falls back to `Dissolve` so the registry never points at missing geometry.
 
 The upshot: approach `EdgeId`s are stable, so `LegFullCurves` stays valid, so regeneration is
 always trimming from real geometry. The one deliberate consequence a player feels is that you
@@ -198,18 +230,36 @@ roundabout test:
 - **Drawing a new road into an existing ring is not supported (deferred).** The immutability
   model refuses it (`TouchesRoundabout`) rather than corrupting the ring. Change the approach
   set by bulldozing (re-arcs) or remove-and-reconvert. This is the single biggest deferral.
-- **Radius shrink past a fuzzer-split approach can straighten it.** Regeneration synthesizes a
+- **Radius shrink past an untracked approach can straighten it.** Regeneration synthesizes a
   radial full curve for any approach it discovers without a tracked `LegFullCurve` (only
-  reachable when the immutability guards are bypassed); at a different radius that approach
-  re-trims as a straight stub. Not reachable through the normal editor.
-- **`TrimLegInto` orientation bug (fixed, kept as a lesson).** It once inferred the outer end
-  from the trimmed curve's `endsAtCenter` flag, which disagreed with a synthesized curve's
-  orientation and left a ring node bridged to another ring node — an orphaned `Ring` tag the
-  fuzzer caught at seed 101, action 436. It now takes the true current inner node explicitly.
-- **Radius edits re-key ring node/edge ids**, so the inspector selection drops after a radius
-  change or remove (the panel hides; re-select to continue). Cosmetic.
-- **In-flight vehicles are not preserved across conversion** — they resync as after a
-  quickload, consistent with M7 undo. Ambient traffic respawns.
+  reachable if the commit-side ownership guards were somehow bypassed); at a different radius
+  that approach re-trims as a straight stub. Not reachable through the normal editor.
+- **`MinFeasibleRadius` is a tangent-bearing approximation.** The spinner clamps derived from
+  it can still admit a radius the planner refuses for strongly curved legs (slot crossings
+  move with the radius); the panel surfaces the error and reverts. Exact feasibility would
+  require iterating plan attempts.
+- **Radius edits re-key ring node/edge ids.** The inspector now hands its selection to the
+  nearest successor ring node, so the panel survives the edit; external references to old
+  ring ids (if any are ever added) would still go stale.
+- **In-flight vehicles are not preserved across conversion or regeneration** — they resync
+  as after a quickload, consistent with M7 undo. Ambient traffic respawns.
+- **A dissolved roundabout leaves nearby degree-2 nodes unhealed.** `TryHealNode` runs only
+  at removal time; a heal it refused while the ring existed (far node was a ring node) is
+  not retried when the roundabout is later removed — the leftover bend node is cosmetic and
+  heals on the next bulldoze touching it. Same standing behavior as retype/flip refusals.
+
+### Hardening pass (2026-07-18, post-review)
+
+An adversarial review of the original M7.5 ship found the conversion path trusted itself
+instead of the network's gatekeepers. The fixes, all regression-pinned: the **no-crossing
+invariant** (`CheckEdgeCrossings` — the checker was structurally blind to overlapping
+geometry, which is how a broken conversion passed 3×10k fuzz), the **`Obstructed`** gate,
+**first-crossing trim**, **slots at actual crossings**, **commit-side ownership guards**,
+**flip capture**, save-format **membership uniqueness** validation, and the panel
+**selection-successor** flow. The crossing invariant itself needed two refinements the
+fuzzer taught it: coincidence-check `Intersections` hits (it emits garbage parameters for
+near-collinear chain contacts) and exempt sub-5° grazing contact between legal G1
+tangent-continuation pairs.
 
 ## How to verify
 

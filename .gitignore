@@ -8,3 +8,4 @@ obj/
 *.user
 tests/visual/shots/
 *.cs.uid
+*.csproj.old

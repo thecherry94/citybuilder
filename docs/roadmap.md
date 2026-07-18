@@ -171,11 +171,29 @@ verified build.
   The fuzzer drove out the robustness model — **roundabouts are immutable except via bulldoze
   and the roundabout API**: ring/approach edges reject retype/flip/split/cross, ring nodes
   reject config edits, heal won't merge onto a ring node.
+  **Hardening pass (2026-07-18)** after an adversarial review (10 verified findings): the
+  original conversion bypassed `Validate` and no invariant checked edge crossings, so fuzz
+  was structurally blind to rings stamped across bystander roads. Shipped: a **no-crossing
+  invariant** (`CheckEdgeCrossings`, audited on every fuzz action — it immediately exposed
+  and then policed the fixes), an **`Obstructed`** conversion gate, **first-crossing trim**
+  (a committable hook leg could pierce the ring), **slots at the leg's actual circle
+  crossing** (curved legs drifted 1.8–3.9 m off their ring nodes), **commit-side ownership
+  guards** (Validate-snapshot-vs-Commit-live bypass), **flip capture** (flips survived
+  regeneration), save-format **membership uniqueness**, panel **selection successor** +
+  feasibility-clamped spinners (`MinFeasibleRadius` finally wired), a **ring-edge bulldoze
+  guard**, and hover hot-path de-duplication. The crossing invariant then went on to expose
+  **two pre-existing commit-path bugs unrelated to roundabouts** deep in dense fuzz runs
+  (seeds 101@8321, 202@8673): reuse-absorption displacement re-crossing the absorbed edge,
+  and an endpoint bound to a node while a *non-incident* edge passed within Validate's
+  0.5 m endpoint exemption — both now dropped by a commit-side segment recheck
+  (`SegmentCrossesLiveEdgeOffNode`, joining the floors + sharp-leg recheck family;
+  seed-pinned in `FuzzRegressionTests`). Re-certified: 3×10k fuzz with the crossing rule
+  live, full suite, smoke, UITEST, KPI.
   Known limits (deferred): **drawing a new road into an existing ring** (the biggest deferral
   — refused via `PlacementError.TouchesRoundabout` rather than corrupting the ring; change
   approaches by bulldoze or reconvert); dedicated multi-lane / turbo ring cross-sections;
-  in-flight vehicles not preserved across conversion (resync as after quickload); radius
-  edits re-key ring ids so the inspector selection drops (cosmetic).
+  in-flight vehicles not preserved across conversion (resync as after quickload); a dissolved
+  roundabout leaves adjacent degree-2 bend nodes unhealed (cosmetic, heals on next edit).
 
 ## Next up (roughly in order — each is one milestone)
 

@@ -37,13 +37,22 @@ edits `_nodes`/`_edges` directly.
 - **Depends on:** `Bezier3`/`BezierOps`/`ArcLengthTable` ([ch. 01](01-geometry.md)) for curve math,
   `RoadCatalog` (this chapter) for per-type floors, `JunctionBuilder`/`ConnectorBuilder`
   ([ch. 03](03-junctions-control.md)/[04](04-lane-graph-connectors.md), invoked from `RebuildDerived`, `RoadNetwork.cs:715-721`).
-- **Last verified against commit:** M7.5, 2026-07-17.
+- **Last verified against commit:** M7.5 hardening, 2026-07-18.
 - **Roundabouts (M7.5):** ring nodes/edges are ordinary graph entities layered on this
-  module — see [ch. 09](09-roundabouts.md). Three hooks live here: `TryHealNode` skips a
+  module — see [ch. 09](09-roundabouts.md). Hooks here: `TryHealNode` skips a
   ring node (and skips when either merge target is a ring node); `RetypeEdge`/`FlipEdge`
-  refuse ring edges (`RetypeError.Locked`); and `Validate` rejects proposals touching a
-  roundabout-owned node/edge (`PlacementError.TouchesRoundabout`). `RebuildDerived` derives
-  a ring node's yield-on-entry control instead of pruning stored overrides.
+  refuse ring edges (`RetypeError.Locked`; a flipped *approach* also updates the
+  roundabout's captured curve); `Validate` rejects proposals touching a roundabout-owned
+  node/edge (`PlacementError.TouchesRoundabout`, crossing detection folded into its own
+  intersection loop); and — because reuse absorption can move commit geometry past what
+  Validate's snapshot saw — `CommitCurve` drops curves whose live crossings land on owned
+  edges and `ResolveBinding` never splits one. `RebuildDerived` derives a ring node's
+  yield-on-entry control instead of pruning stored overrides.
+- **No-crossing invariant (M7.5 hardening):** `NetworkInvariants.CheckEdgeCrossings`
+  closes a long-standing blind spot — no two edges may geometrically intersect except
+  within 1 m of a node they share (AABB-prefiltered; spurious `Intersections` hits whose
+  parameter points don't coincide are ignored, as is sub-5° grazing contact between G1
+  continuation pairs). Every fuzz action now audits this.
 
 ## The road-type catalog
 
