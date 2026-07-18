@@ -129,12 +129,17 @@ public static class NetworkInvariants
     /// a roundabout that lists them (no orphan tags).</summary>
     public static void CheckRoundabouts(RoadNetwork n, List<string> o)
     {
+        // membership sets up front — the fuzzer runs this after every action, so the
+        // orphan-tag sweep must not be O(ringNodes²) List.Contains scans
+        var ringNodeSets = n.Roundabouts.Values
+            .ToDictionary(rb => rb.Id, rb => rb.RingNodes.ToHashSet());
+
         foreach (var node in n.Nodes.Values)
             if (node.Ring is { } rid)
             {
-                if (!n.Roundabouts.TryGetValue(rid, out var owner))
+                if (!ringNodeSets.TryGetValue(rid, out var members))
                     o.Add($"node {node.Id.Value}: Ring={rid.Value} not in registry");
-                else if (!owner.RingNodes.Contains(node.Id))
+                else if (!members.Contains(node.Id))
                     o.Add($"node {node.Id.Value}: Ring={rid.Value} but absent from its RingNodes");
             }
 
@@ -171,20 +176,24 @@ public static class NetworkInvariants
                 if (rn.Ring != rb.Id)
                     o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} not tagged to it");
 
-                int ringLegs = rn.Edges.Count(e => ringEdgeSet.Contains(e));
+                // single pass, no allocation — this runs per ring node on every fuzz action
+                int ringLegs = 0, approachCount = 0;
+                EdgeId firstApproach = default;
+                foreach (var e in rn.Edges)
+                {
+                    if (ringEdgeSet.Contains(e))
+                        ringLegs++;
+                    else if (approachCount++ == 0)
+                        firstApproach = e;
+                }
                 if (ringLegs != 2)
                     o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} has {ringLegs} ring legs (expected 2)");
-
-                var approaches = rn.Edges.Where(e => !ringEdgeSet.Contains(e)).ToList();
-                if (approaches.Count > 1)
-                    o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} has {approaches.Count} approaches (expected 0 or 1)");
-                if (approaches.Count == 1)
-                {
-                    var appr = approaches[0];
-                    if (rn.Config.Mode != JunctionControlMode.PrioritySigns
-                        || !rn.Config.RoleOverrides.TryGetValue(appr, out var role) || role != LegRole.Yield)
-                        o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} approach {appr.Value} does not yield");
-                }
+                if (approachCount > 1)
+                    o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} has {approachCount} approaches (expected 0 or 1)");
+                if (approachCount == 1
+                    && (rn.Config.Mode != JunctionControlMode.PrioritySigns
+                        || !rn.Config.RoleOverrides.TryGetValue(firstApproach, out var role) || role != LegRole.Yield))
+                    o.Add($"roundabout {rb.Id.Value}: ring node {rnId.Value} approach {firstApproach.Value} does not yield");
             }
         }
     }

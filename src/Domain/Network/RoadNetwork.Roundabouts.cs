@@ -40,37 +40,44 @@ public sealed partial class RoadNetwork
 
     /// <summary>A ring edge (both endpoints are ring nodes) — owned by a roundabout and
     /// not directly editable. Approach edges (one plain end) are ordinary roads.</summary>
-    internal bool IsRingEdge(EdgeId id)
-        => _edges.TryGetValue(id, out var e)
-           && _nodes.TryGetValue(e.StartNode, out var s) && s.Ring != null
-           && _nodes.TryGetValue(e.EndNode, out var t) && t.Ring != null;
+    internal bool IsRingEdge(EdgeId id) => _edges.TryGetValue(id, out var e) && Classify(e).ring;
 
     internal bool IsRingNode(NodeId id) => _nodes.TryGetValue(id, out var n) && n.Ring != null;
 
     /// <summary>An approach edge: exactly one end is a ring node. Roundabout-owned like
     /// ring edges — not split/crossed/redrawn in v1, only bulldozed (→ re-arc) or reached
     /// via the roundabout API.</summary>
-    internal bool IsApproachEdge(EdgeId id)
+    internal bool IsApproachEdge(EdgeId id) => _edges.TryGetValue(id, out var e) && Classify(e).approach;
+
+    private bool IsRoundaboutEdge(EdgeId id) => _edges.TryGetValue(id, out var e) && IsRoundaboutEdge(e);
+
+    private bool IsRoundaboutEdge(RoadEdge e)
     {
-        if (!_edges.TryGetValue(id, out var e))
-            return false;
-        bool s = _nodes.TryGetValue(e.StartNode, out var sn) && sn.Ring != null;
-        bool t = _nodes.TryGetValue(e.EndNode, out var tn) && tn.Ring != null;
-        return s ^ t;
+        var (ring, approach) = Classify(e);
+        return ring || approach;
     }
 
-    private bool IsRoundaboutEdge(EdgeId id) => IsRingEdge(id) || IsApproachEdge(id);
-
-    /// <summary>True if this proposed curve would attach to, split, or cross any roundabout
-    /// ring node or roundabout-owned edge — blocked in v1 (editing a live ring's approaches
-    /// / drawing into a ring is a deferred feature). Mirrors ResolveBinding: a Free endpoint
-    /// reuses a nearby node or splits a nearby edge.</summary>
-    private bool TouchesRoundabout(ProposedCurve pc)
+    // both classifications from a single pair of node lookups — this runs per edge in
+    // Validate's per-hover crossing loop, so lookup count matters
+    private (bool ring, bool approach) Classify(RoadEdge e)
     {
-        return BindingTouches(pc.Start, pc.Curve.Point(0)) || BindingTouches(pc.End, pc.Curve.Point(1))
-            || CrossesRoundaboutEdge(pc.Curve);
+        bool s = _nodes.TryGetValue(e.StartNode, out var sn) && sn.Ring != null;
+        bool t = _nodes.TryGetValue(e.EndNode, out var tn) && tn.Ring != null;
+        return (s && t, s ^ t);
+    }
 
-        bool BindingTouches(EndpointBinding b, Vector3 pos) => b switch
+    /// <summary>True if this proposed curve's endpoints would attach to a ring node or
+    /// split a roundabout-owned edge — blocked in v1 (editing a live ring's approaches /
+    /// drawing into a ring is a deferred feature). Mirrors ResolveBinding: a Free endpoint
+    /// reuses a nearby node or splits a nearby edge. Crossings against owned edges are
+    /// detected inside Validate's own intersection loop, not here (no duplicate scan).</summary>
+    private bool BindingTouchesRoundabout(ProposedCurve pc)
+    {
+        if (_roundabouts.Count == 0)
+            return false;
+        return Touches(pc.Start, pc.Curve.Point(0)) || Touches(pc.End, pc.Curve.Point(1));
+
+        bool Touches(EndpointBinding b, Vector3 pos) => b switch
         {
             EndpointBinding.AtNode(var nid) => IsRingNode(nid),
             EndpointBinding.OnEdge(var eid, _) => IsRoundaboutEdge(eid),
@@ -79,24 +86,6 @@ public sealed partial class RoadNetwork
                 || (FindClosestEdge(pos, NodeReuseRadius) is { } hit && IsRoundaboutEdge(hit.id)),
             _ => false,
         };
-    }
-
-    private bool CrossesRoundaboutEdge(in Bezier3 curve)
-    {
-        var a = curve.Point(0);
-        var b = curve.Point(1);
-        foreach (var e in _edges.Values)
-        {
-            if (!IsRoundaboutEdge(e.Id))
-                continue;
-            foreach (var (t1, _) in BezierOps.Intersections(curve, e.Curve))
-            {
-                var p = curve.Point(t1);
-                if (Vector3.Distance(p, a) > NodeReuseRadius && Vector3.Distance(p, b) > NodeReuseRadius)
-                    return true;
-            }
-        }
-        return false;
     }
 
     /// <summary>True when any planned ring arc geometrically intersects a live edge that

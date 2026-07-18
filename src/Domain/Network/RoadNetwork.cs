@@ -91,11 +91,11 @@ public sealed partial class RoadNetwork
             if (OverlapsExisting(pc, proposal.Type))
                 errors.Add(PlacementError.Overlapping);
 
-            if (TouchesRoundabout(pc))
+            if (BindingTouchesRoundabout(pc))
                 errors.Add(PlacementError.TouchesRoundabout);
 
             Vector3 a = pc.Curve.Point(0), b = pc.Curve.Point(1);
-            bool shallow = false, sliver = false;
+            bool shallow = false, sliver = false, touchesOwned = false;
             var crossParams = new List<float>();
             foreach (var e in _edges.Values)
             foreach (var (t1, t2) in BezierOps.Intersections(pc.Curve, e.Curve))
@@ -103,6 +103,10 @@ public sealed partial class RoadNetwork
                 var p = pc.Curve.Point(t1);
                 if (Vector3.Distance(p, a) <= NodeReuseRadius || Vector3.Distance(p, b) <= NodeReuseRadius)
                     continue; // connection at an endpoint, not a crossing
+                // crossing a roundabout-owned edge is blocked in v1 — checked here, on
+                // the intersection this loop already computed (no second scan)
+                if (_roundabouts.Count > 0 && IsRoundaboutEdge(e))
+                    touchesOwned = true;
                 crossings.Add(p);
                 crossParams.Add(t1);
                 if (CrossingAngleDeg(pc.Curve.Tangent(t1), e.Curve.Tangent(t2)) < MinJunctionAngleDeg)
@@ -124,6 +128,8 @@ public sealed partial class RoadNetwork
             }
             if (shallow)
                 errors.Add(PlacementError.CrossingTooShallow);
+            if (touchesOwned)
+                errors.Add(PlacementError.TouchesRoundabout);
 
             // consecutive stops along the new curve (ends + crossings) must be ≥ min apart
             if (crossParams.Count > 0)
