@@ -75,7 +75,9 @@ public sealed partial class RoadNetwork
         }
 
         // Roundabouts: rebuild the registry and re-tag ring nodes (ring nodes/edges
-        // themselves were already restored as ordinary nodes/edges above).
+        // themselves were already restored as ordinary nodes/edges above). Pending
+        // re-arc marks refer to pre-restore state and must not survive the snapshot.
+        _dirtyRoundabouts.Clear();
         _roundabouts.Clear();
         foreach (var rd in game.Roundabouts ?? Array.Empty<Persistence.RoundaboutDto>())
         {
@@ -176,7 +178,12 @@ public sealed partial class RoadNetwork
         }
 
         // Roundabouts (format v2+). Absent in v1 saves → nothing to validate.
+        // Ring node/edge membership must be unique globally: RestoreInto's Ring tagging
+        // is one-tag-per-node, so a node claimed twice (within one roundabout or across
+        // two) would load last-write-wins into an invariant-violating network.
         var roundaboutIds = new HashSet<int>();
+        var allRingNodes = new HashSet<int>();
+        var allRingEdges = new HashSet<int>();
         foreach (var rd in game.Roundabouts ?? Array.Empty<Persistence.RoundaboutDto>())
         {
             if (rd is null)
@@ -192,11 +199,20 @@ public sealed partial class RoadNetwork
             if (rd.RingEdgeIds.Length != rd.RingNodeIds.Length)
                 throw new SaveFormatException($"roundabout {rd.Id} has {rd.RingEdgeIds.Length} ring edges vs {rd.RingNodeIds.Length} ring nodes");
             foreach (var rn in rd.RingNodeIds)
+            {
                 if (!nodeIds.Contains(rn))
                     throw new SaveFormatException($"roundabout {rd.Id} references unknown ring node {rn}");
+                if (!allRingNodes.Add(rn))
+                    throw new SaveFormatException($"ring node {rn} belongs to more than one roundabout entry");
+            }
             foreach (var re in rd.RingEdgeIds)
+            {
                 if (!edgeIds.Contains(re))
                     throw new SaveFormatException($"roundabout {rd.Id} references unknown ring edge {re}");
+                if (!allRingEdges.Add(re))
+                    throw new SaveFormatException($"ring edge {re} belongs to more than one roundabout entry");
+            }
+            var legKeys = new HashSet<int>();
             foreach (var lc in rd.LegCurves)
             {
                 if (lc is null || lc.Curve is null)
@@ -205,6 +221,8 @@ public sealed partial class RoadNetwork
                     throw new SaveFormatException($"roundabout {rd.Id} leg {lc.Edge} curve must have 12 floats, got {lc.Curve.Length}");
                 if (!edgeIds.Contains(lc.Edge))
                     throw new SaveFormatException($"roundabout {rd.Id} leg curve references unknown edge {lc.Edge}");
+                if (!legKeys.Add(lc.Edge))
+                    throw new SaveFormatException($"roundabout {rd.Id} has a duplicate leg curve for edge {lc.Edge}");
             }
         }
     }

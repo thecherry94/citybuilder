@@ -77,6 +77,60 @@ public class SaveLoadTests
         Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
     }
 
+    private static (string Json, int FirstRingNode, int FirstLegEdge) SavedRoundabout()
+    {
+        var n = RoundaboutTests.FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 22f).Id!.Value;
+        return (SaveLoad.Save(n), n.Roundabouts[id].RingNodes[0].Value,
+            n.Roundabouts[id].LegFullCurves.Keys.Min(k => k.Value));
+    }
+
+    [Fact]
+    public void DuplicateLegCurveKeysAreRejectedAsSaveFormat()
+    {
+        // duplicate LegCurveDto.Edge keys must throw the TYPED exception from
+        // ValidateGame — never ArgumentException from ToDictionary mid-restore,
+        // after the old network was already torn down
+        var (json, _, legEdge) = SavedRoundabout();
+        string dup = json.Replace($"\"LegCurves\":[{{\"Edge\":{legEdge},",
+            $"\"LegCurves\":[{{\"Edge\":{legEdge},\"Curve\":[0,0,0,0,0,0,0,0,0,0,0,0]}},{{\"Edge\":{legEdge},");
+        Assert.Throws<SaveFormatException>(() => SaveLoad.Load(dup));
+    }
+
+    [Fact]
+    public void DuplicateRingNodeIdsAreRejected()
+    {
+        // same-length substitution (second ring node replaced by the first) — must be
+        // caught by a uniqueness check, not merely the node/edge count comparison
+        var (json, _, _) = SavedRoundabout();
+        var m = System.Text.RegularExpressions.Regex.Match(json, "\"RingNodeIds\":\\[(\\d+),(\\d+)");
+        Assert.True(m.Success);
+        string dup = json.Replace(m.Value, $"\"RingNodeIds\":[{m.Groups[1].Value},{m.Groups[1].Value}");
+        Assert.Throws<SaveFormatException>(() => SaveLoad.Load(dup));
+    }
+
+    [Fact]
+    public void RingNodeSharedAcrossRoundaboutsIsRejected()
+    {
+        // two junctions far apart, both converted; then corrupt the second roundabout
+        // to also claim the first one's ring node — last-write-wins tagging would load
+        // this into an invariant-violating network, so ValidateGame must refuse it
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-60, 0, 0), new(60, 0, 0)));
+        Net.Commit(n, Net.Straight(new(0, 0, -60), new(0, 0, 60)));
+        Net.Commit(n, Net.Straight(new(440, 0, 0), new(560, 0, 0)));
+        Net.Commit(n, Net.Straight(new(500, 0, -60), new(500, 0, 60)));
+        var c1 = n.Nodes.Values.Single(x => System.Numerics.Vector3.Distance(x.Position, new(0, 0, 0)) < 0.1f);
+        var c2 = n.Nodes.Values.Single(x => System.Numerics.Vector3.Distance(x.Position, new(500, 0, 0)) < 0.1f);
+        var id1 = n.ConvertToRoundabout(c1.Id, 20f).Id!.Value;
+        var id2 = n.ConvertToRoundabout(c2.Id, 20f).Id!.Value;
+        int stolen = n.Roundabouts[id1].RingNodes[0].Value;
+        int victim = n.Roundabouts[id2].RingNodes[0].Value;
+        string json = SaveLoad.Save(n)
+            .Replace($"\"RingNodeIds\":[{victim},", $"\"RingNodeIds\":[{stolen},");
+        Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
+    }
+
     [Fact]
     public void LoadIntoReplacesInPlaceWithOneChangedEvent()
     {
