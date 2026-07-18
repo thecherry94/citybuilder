@@ -402,6 +402,16 @@ public sealed partial class RoadNetwork
                 if (Vector3.Distance(p, startPos) <= NodeReuseRadius
                     || Vector3.Distance(p, endPos) <= NodeReuseRadius)
                     continue; // connection at an endpoint, not a crossing
+                // Validate blocks proposals touching roundabout-owned edges against its
+                // snapshot, but reuse absorption can relocate endpoints far enough that a
+                // crossing it exempted lands here against the live network. Splitting an
+                // owned edge would mint an approach EdgeId the registry never learns
+                // about — drop the whole curve instead, same policy as the floor guards.
+                if (IsRoundaboutEdge(e.Id))
+                {
+                    droppedSegments++;
+                    return;
+                }
                 if (!hitsByEdge.TryGetValue(e.Id, out var list))
                     hitsByEdge[e.Id] = list = new List<(float, float)>();
                 list.Add(hit);
@@ -496,16 +506,24 @@ public sealed partial class RoadNetwork
                         break;
                     (edgeId, t) = (hit.Value.id, hit.Value.t);
                 }
-                var (node, _) = SplitEdgeWithReuse(edgeId, t, createdNodes);
-                return node;
+                // never split a roundabout-owned edge (Validate blocks this against its
+                // snapshot; the stale-binding fallback above could dodge that) — fall
+                // through to the free-endpoint path, which is ownership-guarded too
+                if (!IsRoundaboutEdge(edgeId))
+                {
+                    var (node, _) = SplitEdgeWithReuse(edgeId, t, createdNodes);
+                    return node;
+                }
+                break;
             }
         }
 
         // free endpoint (or unresolvable binding): reuse a nearby node, else connect
-        // to an edge passing through this point, else create a fresh node
-        if (FindNodeNear(pos, NodeReuseRadius) is { } near)
+        // to an edge passing through this point, else create a fresh node.
+        // Ring nodes and roundabout-owned edges are never attachment targets.
+        if (FindNodeNear(pos, NodeReuseRadius) is { } near && !IsRingNode(near))
             return near;
-        if (FindClosestEdge(pos, NodeReuseRadius) is { } onEdge)
+        if (FindClosestEdge(pos, NodeReuseRadius) is { } onEdge && !IsRoundaboutEdge(onEdge.id))
         {
             var (node, _) = SplitEdgeWithReuse(onEdge.id, onEdge.t, createdNodes);
             return node;
@@ -769,6 +787,9 @@ public sealed partial class RoadNetwork
         if (IsRingEdge(id))
             return false; // ring edges are owned by the roundabout
         ReplaceEdgeInPlace(edge, edge.EndNode, edge.StartNode, edge.Curve.Reversed(), edge.Type);
+        // an approach's captured full curve must track the flip, or regeneration would
+        // re-trim from the pre-flip orientation and silently reverse the road back
+        OnApproachFlipped(id);
         return true;
     }
 

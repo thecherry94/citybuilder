@@ -25,8 +25,14 @@ public sealed partial class RoadNetwork
             {
                 var id = _dirtyRoundabouts.First();
                 _dirtyRoundabouts.Remove(id);
-                if (_roundabouts.TryGetValue(id, out var rb))
-                    Regenerate(id, rb.Radius);
+                if (_roundabouts.TryGetValue(id, out var rb)
+                    && !Regenerate(id, rb.Radius).Success && _roundabouts.ContainsKey(id))
+                {
+                    // the edit already changed geometry, so a failed re-plan must not
+                    // leave a registry pointing at missing/stale ring pieces — dissolve
+                    // to a consistent (ring-less) state instead
+                    Dissolve(id);
+                }
             }
         }
         finally { _draining = false; }
@@ -119,6 +125,19 @@ public sealed partial class RoadNetwork
                     return true;
         }
         return false;
+    }
+
+    /// <summary>Keep a flipped approach's captured full curve in the same orientation as
+    /// the live edge, so regeneration re-trims the road the way the player left it.</summary>
+    private void OnApproachFlipped(EdgeId id)
+    {
+        foreach (var rb in _roundabouts.Values)
+            if (rb.LegFullCurves.TryGetValue(id, out var full))
+            {
+                var updated = new Dictionary<EdgeId, Bezier3>(rb.LegFullCurves) { [id] = full.Reversed() };
+                _roundabouts[rb.Id] = rb with { LegFullCurves = updated };
+                return;
+            }
     }
 
     /// <summary>Find the roundabout a node belongs to, if any (ring nodes only).</summary>

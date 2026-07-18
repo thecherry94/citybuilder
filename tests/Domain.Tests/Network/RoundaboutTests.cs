@@ -212,6 +212,22 @@ public class RoundaboutTests
     }
 
     [Fact]
+    public void FlippedApproachKeepsItsDirectionAcrossRegenerate()
+    {
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        var leg = n.Edges.Values.First(e => IsApproach(n, e));
+        bool startWasRing = n.Nodes[leg.StartNode].Ring != null;
+        Assert.True(n.FlipEdge(leg.Id));
+        Assert.NotEqual(startWasRing, n.Nodes[n.Edges[leg.Id].StartNode].Ring != null);
+
+        // regeneration must preserve the flip, not silently revert it
+        Assert.True(n.SetRoundaboutRadius(id, 28f).Success);
+        Assert.NotEqual(startWasRing, n.Nodes[n.Edges[leg.Id].StartNode].Ring != null);
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
     public void ConfiguringARingNodeIsIgnored()
     {
         var n = FourWayJunction(out var center);
