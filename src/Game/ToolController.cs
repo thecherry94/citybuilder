@@ -104,6 +104,10 @@ public partial class ToolController : Node
         NodeSelected?.Invoke(id);
     }
 
+    /// <summary>Re-target the selection after an operation replaced the selected node
+    /// with a successor (roundabout regeneration re-keys its ring nodes).</summary>
+    public void ReselectNode(NodeId id) => SelectNode(id);
+
     public void SetRoadType(RoadTypeId type) => _session.RoadType = type;
 
     public void SetSnapType(SnapTypes flag, bool enabled)
@@ -256,6 +260,14 @@ public partial class ToolController : Node
             HandleHoverAt(world); // refresh target under the cursor
             if (_bulldozeTarget is { } target)
             {
+                // a ring edge alone can't be demolished — regeneration would rebuild an
+                // identical ring while despawning its traffic (a costly visual no-op)
+                if (_network.RoundaboutForEdge(target) is not null)
+                {
+                    _audio?.Play(Sfx.Reject);
+                    StatusFlashed?.Invoke("part of a roundabout — remove it from its junction inspector");
+                    return;
+                }
                 _undoStack?.Checkpoint();
                 _network.RemoveEdge(target);
                 _audio?.Play(Sfx.Bulldoze);

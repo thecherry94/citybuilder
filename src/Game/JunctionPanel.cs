@@ -35,6 +35,10 @@ public partial class JunctionPanel : PanelContainer
 
     private Action? _beforeMutate;
 
+    /// <summary>Raised when an operation replaced the selected node and the panel wants
+    /// the selection handed to a successor (roundabout regeneration re-keys ring nodes).</summary>
+    public event Action<NodeId>? ReselectRequested;
+
     public void Bind(RoadNetwork network, Action? beforeMutate = null)
     {
         _network = network;
@@ -202,17 +206,36 @@ public partial class JunctionPanel : PanelContainer
             var row = new HBoxContainer();
             _roundaboutBox.AddChild(row);
             row.AddChild(new Label { Text = "Radius " });
+            double minRadius = Math.Ceiling(_network.RoundaboutMinRadius(rid) ?? 8f);
             var radius = new SpinBox
             {
-                MinValue = 8, MaxValue = 60, Step = 1, Value = rb.Radius,
+                MinValue = minRadius, MaxValue = 60, Step = 1, Value = rb.Radius,
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             };
             radius.ValueChanged += v =>
             {
                 if (_updating) return;
+                var oldPos = _network.Nodes.TryGetValue(_node!.Value, out var cur) ? cur.Position : rb.Center;
                 _beforeMutate?.Invoke();
                 var res = _network.SetRoundaboutRadius(rid, (float)v);
-                if (!res.Success) { status.Text = $"radius: {res.Error}"; status.Visible = true; }
+                if (!res.Success)
+                {
+                    status.Text = $"radius: {res.Error}";
+                    status.Visible = true;
+                    Refresh(); // revert the spinner to the radius the network kept
+                    return;
+                }
+                // regeneration re-keys ring nodes — hand the selection to the successor
+                // nearest the previously selected one so the panel stays open
+                var successor = _network.Roundabouts.TryGetValue(rid, out var newRb)
+                    ? newRb.RingNodes
+                        .Where(_network.Nodes.ContainsKey)
+                        .OrderBy(x => System.Numerics.Vector3.DistanceSquared(_network.Nodes[x].Position, oldPos))
+                        .Cast<NodeId?>()
+                        .FirstOrDefault()
+                    : null;
+                if (successor is { } s)
+                    ReselectRequested?.Invoke(s);
             };
             row.AddChild(radius);
 
@@ -233,7 +256,12 @@ public partial class JunctionPanel : PanelContainer
                 Text = "Convert to roundabout",
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             };
-            var radius = new SpinBox { MinValue = 8, MaxValue = 60, Step = 1, Value = DefaultRoundaboutRadius };
+            double minRadius = Math.Ceiling(_network.ConversionMinRadius(node.Id) ?? 8f);
+            var radius = new SpinBox
+            {
+                MinValue = minRadius, MaxValue = 60, Step = 1,
+                Value = Math.Max(DefaultRoundaboutRadius, minRadius),
+            };
             convert.Pressed += () =>
             {
                 if (_node is not { } id) return;

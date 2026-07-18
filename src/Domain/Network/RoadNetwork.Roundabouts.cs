@@ -140,6 +140,39 @@ public sealed partial class RoadNetwork
             }
     }
 
+    /// <summary>Approximate smallest workable ring radius for converting this junction —
+    /// the inspector's spinner clamp. Based on tangent bearings (the planner's exact
+    /// feasibility uses actual circle crossings, which depend on the radius itself), so a
+    /// clamped value can still be refused for curved legs; callers must surface planner
+    /// errors regardless. Null when the node isn't convertible at any radius.</summary>
+    public float? ConversionMinRadius(NodeId center)
+    {
+        if (!_nodes.TryGetValue(center, out var node) || node.EdgeSet.Count < 3 || node.Ring != null)
+            return null;
+        var legs = new List<ApproachLeg>();
+        foreach (var eid in node.EdgeSet)
+        {
+            var e = _edges[eid];
+            if (_nodes[e.OtherNode(center)].Ring != null)
+                return null; // foreign leg — not convertible
+            legs.Add(new ApproachLeg(eid, e.Curve, e.EndNode == center, e.Type));
+        }
+        float r = RoundaboutPlanner.MinFeasibleRadius(legs, node.Position);
+        return float.IsInfinity(r) ? null : r;
+    }
+
+    /// <summary>Same clamp for an existing roundabout's radius spinner.</summary>
+    public float? RoundaboutMinRadius(RoundaboutId id)
+    {
+        if (!_roundabouts.TryGetValue(id, out var rb))
+            return null;
+        var legs = SurvivingLegs(rb, out _, out _);
+        if (legs.Count < 3)
+            return null;
+        float r = RoundaboutPlanner.MinFeasibleRadius(legs, rb.Center);
+        return float.IsInfinity(r) ? null : r;
+    }
+
     /// <summary>Find the roundabout a node belongs to, if any (ring nodes only).</summary>
     public Roundabout? RoundaboutForNode(NodeId n)
         => _nodes.TryGetValue(n, out var node) && node.Ring is { } id && _roundabouts.TryGetValue(id, out var rb)

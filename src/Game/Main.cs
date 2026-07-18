@@ -131,6 +131,8 @@ public partial class Main : Node3D
             else
                 junctionPanel.HideNode();
         };
+        // roundabout regeneration re-keys ring nodes; keep selection on the successor
+        junctionPanel.ReselectRequested += id => _controller.ReselectNode(id);
 
         if (!fromEditor && OS.GetEnvironment("CITYBUILDER_SMOKE") == "1")
             CallDeferred(MethodName.RunSmoke);
