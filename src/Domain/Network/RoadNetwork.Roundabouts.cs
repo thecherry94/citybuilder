@@ -124,8 +124,15 @@ public sealed partial class RoadNetwork
                 continue;
             foreach (var chain in plan.RingArcs)
             foreach (var arc in chain)
-                if (BezierOps.Intersections(arc, c).Count > 0)
+            foreach (var (t1, t2) in BezierOps.Intersections(arc, c))
+            {
+                // vertical classification (M8): a bystander passing over/under the
+                // ring with full clearance does not obstruct; coplanar or clash-band
+                // contact does
+                if (VerticalRules.ClassifyCrossing(arc.Point(t1).Y, c.Point(t2).Y)
+                    != CrossingKind.GradeSeparated)
                     return true;
+            }
         }
         return false;
     }

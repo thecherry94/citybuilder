@@ -805,6 +805,10 @@ public sealed partial class RoadNetwork
         var (merged, maxError) = CurveFit.FitComposite(edges[0], edges[1], node.Id, _nodes);
         if (maxError > GeoConstants.MergeTolerance)
             return;
+        // the fit constrains shape, not slope: a composite over a crest could exceed
+        // the type's gradient — refuse the merge rather than heal corrupt (M8)
+        if (VerticalRules.MaxGradient(merged) > RoadCatalog.Get(edges[0].Type).MaxGradient + 0.005f)
+            return;
 
         var farA = edges[0].OtherNode(node.Id);
         var farB = edges[1].OtherNode(node.Id);
