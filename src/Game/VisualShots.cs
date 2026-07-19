@@ -649,6 +649,49 @@ public partial class VisualShots : Node3D
         });
 
         yield return SnapGallery();
+        yield return ElevatedGhostGallery();
+    }
+
+    /// <summary>Two live elevated drafts: a legal 8% ramp bridging a ground road
+    /// (blue, with previewed pillars + footprint shadow + ⬆ badge) and a ~20%
+    /// TooSteep one (same visuals, red). Guards the M8.5 ghost feedback.</summary>
+    private static Scenario ElevatedGhostGallery()
+    {
+        return new Scenario("elevated_ghost", n =>
+        {
+            // a ground road under station 1 so the footprint shadow reads against it
+            Commit(n, Straight(new(-40, 0, 20), new(40, 0, 20)));
+        }, new[]
+        {
+            new Shot("valid", new NVec(0, 6, 15), 90, -28f, 18f),
+            new Shot("steep", new NVec(198, 6, 50), 75, -28f, 18f),
+        }, Extra: n =>
+        {
+            var root = new Node3D { Name = "elevated_ghost" };
+
+            void Station(NVec from, NVec to, float elevation)
+            {
+                var session = new DraftSession(n, new SnapEngine(n));
+                session.SetMode(DraftMode.Straight);
+                var ghost = new GhostView();
+                root.AddChild(ghost);
+                ghost.Ready += () =>
+                {
+                    session.Click(from, 6f);
+                    session.CurrentElevation = elevation;
+                    session.PointerMoved(to, 6f);
+                    ghost.Show(session.Ghost, session.LastSnap);
+                };
+            }
+
+            // 1: +12 m over 150 m (8%, legal on TwoLane 15%), grade-separated over
+            //    the ground road: pillars + fascia, shadow footprint, ⬆ 12 m badge
+            Station(new NVec(-60, 0, 60), new NVec(60, 0, -30), 12f);
+            // 2: +12 m over ~58 m (≈21% > 15%): same visuals but red (TooSteep)
+            Station(new NVec(170, 0, 60), new NVec(225, 0, 40), 12f);
+
+            return root;
+        });
     }
 
     private static Scenario SnapGallery()
