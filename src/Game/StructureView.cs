@@ -74,20 +74,25 @@ public partial class StructureView : Node3D
         _instances[edge.Id] = inst;
     }
 
-    /// <summary>One ArrayMesh: surface 0 = earth embankment skirts, surface 1 =
-    /// concrete fascia + pillars. Null when the edge never leaves the ground.</summary>
     private static ArrayMesh? BuildStructures(RoadEdge edge)
+        => BuildStructures(edge.Curve, edge.ArcLength, RoadCatalog.Get(edge.Type).Width);
+
+    /// <summary>One ArrayMesh: surface 0 = earth embankment skirts, surface 1 =
+    /// concrete fascia + pillars. Null when the curve never leaves the ground.
+    /// Public and curve-based so GhostView previews the exact structures a commit
+    /// would produce (same thresholds, same code).</summary>
+    public static ArrayMesh? BuildStructures(in Bezier3 curve, ArcLengthTable arc, float width)
     {
-        float len = edge.ArcLength.TotalLength;
+        float len = arc.TotalLength;
         int n = Mathf.Max(2, (int)(len / SampleStep));
         var pts = new Vector3[n + 1];
         var side = new Vector3[n + 1];
         bool anyElevated = false;
         for (int i = 0; i <= n; i++)
         {
-            float t = edge.ArcLength.TAtDistance(len * i / n);
-            var p = edge.Curve.Point(t);
-            var tan = edge.Curve.Tangent(t);
+            float t = arc.TAtDistance(len * i / n);
+            var p = curve.Point(t);
+            var tan = curve.Tangent(t);
             pts[i] = p.ToGodot();
             var s = new Vector3(tan.Z, 0, -tan.X);
             side[i] = s.LengthSquared() > 1e-9f ? s.Normalized() : Vector3.Right;
@@ -97,7 +102,7 @@ public partial class StructureView : Node3D
         if (!anyElevated)
             return null;
 
-        float half = RoadCatalog.Get(edge.Type).Width / 2f;
+        float half = width / 2f;
         var earth = new SurfaceTool();
         earth.Begin(Mesh.PrimitiveType.Triangles);
         var concrete = new SurfaceTool();
