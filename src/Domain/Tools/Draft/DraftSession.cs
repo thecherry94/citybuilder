@@ -30,6 +30,17 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
     public GridConfig Grid { get; set; } = GridConfig.Default;
     public bool AdjustMode { get; set; }
 
+    /// <summary>Elevation applied to FREE draft endpoints (M8); snapped endpoints adopt
+    /// their target's Y instead. Persists across gestures until changed (CS2 behavior).
+    /// Clamped to the editor range [0, MaxElevation] — the domain itself is signed, the
+    /// negative half unlocks with M8.5 trenches.</summary>
+    public float CurrentElevation
+    {
+        get => _currentElevation;
+        set { _currentElevation = Math.Clamp(value, 0f, GeoConstants.MaxElevation); Revalidate(); }
+    }
+    private float _currentElevation;
+
     public RoadDraft? Draft { get; private set; }
     public ValidatedPlacement? Ghost { get; private set; }
     public SnapResult LastSnap { get; private set; } = SnapResult.Free(default);
@@ -52,6 +63,36 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         Mode = mode;
         Cancel();
     }
+
+    // ---------------------------------------------------------------- elevation (M8)
+
+    /// <summary>Lift a built proposal onto its elevation profile: snapped endpoints
+    /// adopt their target's Y, free endpoints take <see cref="CurrentElevation"/>, and
+    /// control points interpolate linearly so the gradient is uniform along the curve.
+    /// Draft shapes stay planar — elevation is applied to every proposal exactly here,
+    /// so ghost validation and commit always see the same lifted geometry.</summary>
+    private PlacementProposal? ApplyElevation(PlacementProposal? p)
+        => p is null ? null : new PlacementProposal(p.Curves.Select(Elevate).ToArray(), p.Type);
+
+    private ProposedCurve Elevate(ProposedCurve pc)
+    {
+        float y0 = ResolveY(pc.Start, pc.Curve.P0);
+        float y3 = ResolveY(pc.End, pc.Curve.P3);
+        var c = pc.Curve;
+        var lifted = new Bezier3(
+            new Vector3(c.P0.X, y0, c.P0.Z),
+            new Vector3(c.P1.X, y0 + (y3 - y0) / 3f, c.P1.Z),
+            new Vector3(c.P2.X, y0 + (y3 - y0) * 2f / 3f, c.P2.Z),
+            new Vector3(c.P3.X, y3, c.P3.Z));
+        return pc with { Curve = lifted };
+    }
+
+    private float ResolveY(EndpointBinding b, Vector3 pos) => b switch
+    {
+        EndpointBinding.AtNode(var id) when network.Nodes.TryGetValue(id, out var nd) => nd.Position.Y,
+        EndpointBinding.OnEdge(var eid, var t) when network.Edges.TryGetValue(eid, out var e) => e.Curve.Point(t).Y,
+        _ => CurrentElevation,
+    };
 
     public void Cancel()
     {
@@ -100,7 +141,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         }
         if (State != SessionState.Placing)
             return;
-        var proposal = d.Preview(s);
+        var proposal = ApplyElevation(d.Preview(s));
         Ghost = proposal is null ? null : network.Validate(proposal);
         UpdateReadout(d, s);
     }
@@ -185,7 +226,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
 
     private void CompleteDraft(RoadDraft d)
     {
-        var proposal = d.BuildProposal();
+        var proposal = ApplyElevation(d.BuildProposal());
         var validated = proposal is null ? null : network.Validate(proposal);
         Ghost = validated;
         if (validated is null || !validated.IsValid || AdjustMode)
@@ -204,7 +245,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
 
     private void TryCommit(RoadDraft d)
     {
-        var proposal = d.BuildProposal();
+        var proposal = ApplyElevation(d.BuildProposal());
         var validated = proposal is null ? null : network.Validate(proposal);
         Ghost = validated;
         if (validated is null || !validated.IsValid)
@@ -253,7 +294,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
     {
         if (Draft is not { } d)
             return;
-        var proposal = d.BuildProposal();
+        var proposal = ApplyElevation(d.BuildProposal());
         Ghost = proposal is null ? null : network.Validate(proposal);
         if (Ghost is not null && d.Handles.Count > 0)
             UpdateReadout(d, d.Handles[^1].Snap);
