@@ -13,6 +13,9 @@ namespace CityBuilder.Game;
 public partial class GhostView : Node3D
 {
     private readonly List<MeshInstance3D> _strips = new();
+    private readonly List<MeshInstance3D> _structures = new();
+    private readonly List<MeshInstance3D> _shadows = new();
+    private readonly List<Label3D> _elevLabels = new();
     private readonly List<MeshInstance3D> _handles = new();
     private MeshInstance3D _lines = null!;
     private ImmediateMesh _linesMesh = null!;
@@ -92,6 +95,9 @@ public partial class GhostView : Node3D
     public void Clear()
     {
         HideFrom(_strips, 0);
+        HideFrom(_structures, 0);
+        HideFrom(_shadows, 0);
+        HideLabelsFrom(_elevLabels, 0);
         HideFrom(_handles, 0);
         HideFrom(_crossDots, 0);
         _linesMesh.ClearSurfaces();
@@ -108,6 +114,32 @@ public partial class GhostView : Node3D
     {
         for (int i = from; i < pool.Count; i++)
             pool[i].Visible = false;
+    }
+
+    private static void HideLabelsFrom(List<Label3D> pool, int from)
+    {
+        for (int i = from; i < pool.Count; i++)
+            pool[i].Visible = false;
+    }
+
+    private Label3D PooledLabel(ref int used)
+    {
+        if (used == _elevLabels.Count)
+        {
+            var l = new Label3D
+            {
+                FontSize = 56,
+                PixelSize = 0.05f,
+                Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+                Modulate = new Color(0.55f, 0.85f, 1f),
+                OutlineSize = 12,
+            };
+            AddChild(l);
+            _elevLabels.Add(l);
+        }
+        var node = _elevLabels[used++];
+        node.Visible = true;
+        return node;
     }
 
     private MeshInstance3D Pooled(List<MeshInstance3D> pool, ref int used)
@@ -188,18 +220,52 @@ public partial class GhostView : Node3D
             if (!ReferenceEquals(placement, _lastPlacement))
             {
                 int used = 0;
+                int usedStructures = 0, usedShadows = 0, usedLabels = 0;
                 var material = placement.IsValid ? Materials.GhostValid : Materials.GhostInvalid;
+                float width = RoadCatalog.Get(placement.Proposal.Type).Width;
+                var labelled = new List<Vector3>();
                 foreach (var pc in placement.Proposal.Curves)
                 {
-                    float width = RoadCatalog.Get(placement.Proposal.Type).Width;
                     var mesh = MeshBuilders.BuildGhostStrip(pc.Curve, width);
                     if (mesh is null)
                         continue;
                     var inst = Pooled(_strips, ref used);
                     inst.Mesh = mesh;
                     inst.MaterialOverride = material;
+
+                    bool elevated = pc.Curve.P0.Y > 0.5f || pc.Curve.P1.Y > 0.5f
+                        || pc.Curve.P2.Y > 0.5f || pc.Curve.P3.Y > 0.5f;
+                    if (elevated)
+                    {
+                        // the exact structures a commit would produce (same mesher)
+                        var arc = new CityBuilder.Domain.Geometry.ArcLengthTable(pc.Curve);
+                        if (StructureView.BuildStructures(pc.Curve, arc, width) is { } structMesh)
+                        {
+                            var s = Pooled(_structures, ref usedStructures);
+                            s.Mesh = structMesh;
+                            s.MaterialOverride = material;
+                        }
+
+                        // ground footprint: the curve flattened to Y=0 (a cubic's Y
+                        // is bounded by its control net, so this is the exact XZ shadow)
+                        var flat = new CityBuilder.Domain.Geometry.Bezier3(
+                            pc.Curve.P0 with { Y = 0 }, pc.Curve.P1 with { Y = 0 },
+                            pc.Curve.P2 with { Y = 0 }, pc.Curve.P3 with { Y = 0 });
+                        if (MeshBuilders.BuildGhostStrip(flat, width) is { } shadowMesh)
+                        {
+                            var sh = Pooled(_shadows, ref usedShadows);
+                            sh.Mesh = shadowMesh;
+                            sh.MaterialOverride = Materials.GhostShadow;
+                        }
+
+                        AddElevationLabel(pc.Curve.P0, labelled, ref usedLabels);
+                        AddElevationLabel(pc.Curve.P3, labelled, ref usedLabels);
+                    }
                 }
                 HideFrom(_strips, used);
+                HideFrom(_structures, usedStructures);
+                HideFrom(_shadows, usedShadows);
+                HideLabelsFrom(_elevLabels, usedLabels);
             }
 
             // direction arrows: drawing an asymmetric type, show which way it will flow
@@ -241,6 +307,9 @@ public partial class GhostView : Node3D
         else
         {
             HideFrom(_strips, 0);
+            HideFrom(_structures, 0);
+            HideFrom(_shadows, 0);
+            HideLabelsFrom(_elevLabels, 0);
         }
         _lastPlacement = placement;
 
@@ -297,6 +366,22 @@ public partial class GhostView : Node3D
                 ShowSnapDot(pos);
                 break;
         }
+    }
+
+    /// <summary>"⬆ N m" badge over an elevated ghost endpoint. Dedupes shared joints
+    /// of chained curves by proximity (1 m).</summary>
+    private void AddElevationLabel(System.Numerics.Vector3 p, List<Vector3> labelled, ref int used)
+    {
+        if (p.Y <= 0.5f)
+            return;
+        var pos = p.ToGodot();
+        foreach (var seen in labelled)
+            if (pos.DistanceTo(seen) < 1f)
+                return;
+        labelled.Add(pos);
+        var l = PooledLabel(ref used);
+        l.Position = pos + Vector3.Up * 4f;
+        l.Text = $"⬆ {p.Y:0} m";
     }
 
     private void ShowSnapDot(Vector3 pos)

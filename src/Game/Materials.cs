@@ -60,6 +60,18 @@ public static class Materials
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 
+    /// <summary>Ground projection under an elevated ghost — a shadow, not a road:
+    /// dark, faint, and never occluding (no depth write).</summary>
+    public static readonly StandardMaterial3D GhostShadow = new()
+    {
+        AlbedoColor = new Color(0.05f, 0.08f, 0.15f, 0.25f),
+        Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        DisableReceiveShadows = true,
+        RenderPriority = -1,
+    };
+
     public static readonly StandardMaterial3D BulldozeHighlight = new()
     {
         AlbedoColor = new Color(1f, 0.2f, 0.15f, 0.55f),
