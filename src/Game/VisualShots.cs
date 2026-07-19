@@ -190,6 +190,28 @@ public partial class VisualShots : Node3D
             Commit(n, Straight(new(0, 0, -80), new(0, 0, 80)));
         }, Standard(new(0, 0, 0), 60));
 
+        yield return new Scenario("bridge", n =>
+        {
+            // ramp up – level deck over the ground road – ramp down (M8); the ground
+            // road is NOT split (grade-separated crossing, no junction)
+            Commit(n, Straight(new(-90, 0, 0), new(90, 0, 0)));
+            Commit(n, Straight(new(0, 0, -140), new(0, 6, -50)));
+            Commit(n, Straight(new(0, 6, -50), new(0, 6, 50)));
+            Commit(n, Straight(new(0, 6, 50), new(0, 0, 140)));
+        }, new[]
+        {
+            Top(new(0, 0, 0), 85),
+            Oblique(new(0, 2, 0), 70),
+            new Shot("low", new(0, 3, 12), 38, -10f, 55f), // under-deck hero: pillars + fascia
+        },
+        Extra: n =>
+        {
+            var sv = new StructureView();
+            sv.Bind(n);
+            sv.RebuildAll(); // the network pre-exists this view: no deltas will come
+            return sv;
+        });
+
         yield return new Scenario("cross_4lane", n =>
         {
             Commit(n, Straight(new(-90, 0, 0), new(90, 0, 0), RoadCatalog.FourLane.Id));

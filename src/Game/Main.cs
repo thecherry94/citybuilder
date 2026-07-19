@@ -16,6 +16,7 @@ public partial class Main : Node3D
     private RoadNetwork _network = null!;
     private ToolController _controller = null!;
     private RoadNetworkView _view = null!;
+    private StructureView _structures = null!;
     private LaneDebugOverlay _lanes = null!;
     private CityBuilder.Domain.Traffic.TrafficSim _traffic = null!;
     private AudioFx _audio = null!;
@@ -73,6 +74,10 @@ public partial class Main : Node3D
             AddChild(shots);
             return; // screenshot mode: no interactive tooling
         }
+
+        _structures = new StructureView { Name = "StructureView" };
+        _structures.Bind(_network);
+        AddChild(_structures);
 
         _view = new RoadNetworkView { Name = "RoadNetworkView" };
         _view.Bind(_network);
@@ -583,6 +588,31 @@ public partial class Main : Node3D
             TryUndo(); // undo convert
             Expect(_network.Roundabouts.Count == 0, "undo did not remove the roundabout");
             _view.FlushDirty();
+
+            // M8: a real bridge — ramp up, deck over the E-W road far from the cross,
+            // ramp down; the ground road must NOT split, structures must mesh cleanly,
+            // and traffic must flow on both levels
+            int edgesBeforeBridge = _network.Edges.Count;
+            _controller.SetMode(ToolMode.Straight);
+            _controller.StepElevation(+5f); // deck height 5 m ≥ MinClearance 4.7
+            _controller.HandleClickAt(V(900, -160));   // start at ground? no: free ends take current elevation
+            _controller.HandleClickAt(V(900, 160));    // deck spanning z=-160..160 over nothing yet
+            var deck = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), new System.Numerics.Vector3(900, 5, 0)) < 6f);
+            Expect(MathF.Abs(deck.Curve.P0.Y - 5f) < 0.5f, $"deck at Y={deck.Curve.P0.Y:F1}, wanted 5");
+            _controller.StepElevation(-5f);
+            // ground road passing under the deck: no junction may form
+            _controller.HandleClickAt(V(820, 0));
+            _controller.HandleClickAt(V(980, 0));
+            if (_network.Edges.Count != edgesBeforeBridge + 2)
+                foreach (var e in _network.Edges.Values.Where(e => e.Curve.Point(0.5f).X > 780f))
+                    GD.Print($"SMOKE-DUMP bridge-area edge {e.Id.Value} type={e.Type.Value} " +
+                        $"({e.Curve.P0.X:F1},{e.Curve.P0.Y:F1},{e.Curve.P0.Z:F1})->({e.Curve.P3.X:F1},{e.Curve.P3.Y:F1},{e.Curve.P3.Z:F1})");
+            Expect(_network.Edges.Count == edgesBeforeBridge + 2,
+                $"grade separation split something: {_network.Edges.Count} vs {edgesBeforeBridge}+2");
+            _view.FlushDirty();
+            _structures.FlushDirty(); // bridge fascia/pillars must build without throwing
+            Expect(_structures.GetChildCount() > 0, "no structure mesh built for the deck");
 
             GD.Print("SMOKE OK");
             GetTree().Quit(0);

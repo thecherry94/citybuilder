@@ -20,6 +20,14 @@ public static class Materials
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 
+    /// <summary>Embankment fill under low elevated roads (M8 structures).</summary>
+    public static readonly StandardMaterial3D Earth = new()
+    {
+        AlbedoColor = new Color(0.42f, 0.36f, 0.28f),
+        Roughness = 1f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
     public static readonly StandardMaterial3D Concrete = new()
     {
         // clearly lighter and warmer than the grass so sidewalks read at any angle
