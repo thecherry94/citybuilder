@@ -18,7 +18,8 @@
 - **Elevation (M8):** ground is the flat Y=0 plane; elevation is structural height.
   Crossing bands: coplanar within `JunctionYTolerance` 0.6 m → junction; ≥ `MinClearance`
   4.7 m → grade-separated (no junction); between → illegal (`VerticalClash`). Per-type
-  `MaxGradient`: 10% Street/OneWay, 8% TwoLane/Asymmetric, 6% FourLane/Avenue. Editor
+  `MaxGradient`: 20% Street/OneWay, 15% TwoLane/Asymmetric, 12% FourLane/Avenue
+  (CS2-style game-feel caps, retuned post-M8 from realistic 10/8/6%). Editor
   steps ±5 m (Ctrl ±1 m), clamped [0, 50 m] until M8.5 unlocks negative. One classifier
   (`VerticalRules`) feeds every crossing decision — never re-derive the thresholds.
 

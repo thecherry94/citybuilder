@@ -231,6 +231,18 @@ verified build.
   inside the "minutes not hours" gate, but a profiling pass is queued for M8.5; a
   Y-band prefilter already exempts level decks from per-action re-intersection).
 
+- **Post-M8 — Elevated-building feel pass** (2026-07-20): play-testing M8 surfaced two
+  UX misses. **Gradient caps retuned** from realistic 10/8/6% to CS2-style game-feel
+  **20/15/12%** (Street/OneWay, TwoLane/Asymmetric, FourLane/Avenue) — at 6% a +6 m
+  bridge needed a 100 m approach, which played as "the game won't let me build a
+  bridge"; all four enforcement altitudes follow the catalog value automatically.
+  **Elevated ghost now shows height, not just validity**: the exact structures a commit
+  would produce (pillars/fascia/skirts via the shared `StructureView.BuildStructures`,
+  now public and curve-based), a ground-footprint shadow (curve flattened to Y0,
+  `Materials.GhostShadow`), and pooled `⬆ N m` badges at elevated endpoints — all on
+  the existing placement-changed dirty flag. Gallery `elevated_ghost_{valid,steep}`
+  shots as evidence. Spec/plan: `2026-07-20-elevated-ghost-feedback*`.
+
 ## Next up (roughly in order — each is one milestone)
 
 1. **M8.5 — Trenches & tunnels.** The negative half of the vertical axis the M8 domain

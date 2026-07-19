@@ -58,9 +58,11 @@ silently discards every vertically-separated pair — including the illegal clas
 
 ## Gradients
 
-`RoadType.MaxGradient`: Street/OneWay **10%**, TwoLane/Asymmetric **8%**,
-FourLane/Avenue **6%**. Enforced at four altitudes, mirroring the length/radius floor
-discipline of ch. 02:
+`RoadType.MaxGradient`: Street/OneWay **20%**, TwoLane/Asymmetric **15%**,
+FourLane/Avenue **12%**. (M8 shipped realistic 10/8/6% engineering values; post-M8
+they were roughly doubled to CS2-style game-feel caps — at 6% a +6 m bridge needed a
+100 m approach, which played as "the game won't let me build a bridge.") Enforced at
+four altitudes, mirroring the length/radius floor discipline of ch. 02:
 
 1. **Validate** — `TooSteep` on any proposed curve above its type limit (+0.001 slack).
 2. **Commit floor guard** — a stop relocated by reuse absorption onto a node at a
@@ -83,7 +85,14 @@ curve and ghost validation always sees the same lifted geometry the commit will.
 
 Game-side: PgUp/PgDn steps ±5 m, Ctrl+PgUp/PgDn ±1 m (`ToolController.StepElevation`);
 the readout shows `⬆ Nm` and the live ghost gradient as a percentage. Elevation
-persists across gestures until changed (CS2 behavior). Junction coplanarity is enforced
+persists across gestures until changed (CS2 behavior). The elevated ghost shows its
+height, not just its validity (post-M8 feedback pass, `GhostView`): the **exact
+structures a commit would produce** — pillars, girder fascia, embankment skirts, via
+the same `StructureView.BuildStructures` mesher, tinted ghost-blue/red — plus a dark
+**ground-footprint shadow** (the curve flattened to Y=0, `Materials.GhostShadow`) and a
+pooled `⬆ N m` `Label3D` badge over each elevated endpoint (deduped at chained joints).
+All of it rebuilds only when the validated placement instance changes, the same
+reference-identity dirty flag the strips use. Junction coplanarity is enforced
 at Validate (`BindingElevationClash`): an endpoint binding to a node/edge must arrive
 within `JunctionYTolerance` of its Y — the snap-adoption path makes the common case
 never trip it.
@@ -147,8 +156,8 @@ shot is the reference for fascia + pillars. Note for harnesses that bind a
 - **Pillars ignore what's beneath them** — purely visual, they can stand in a ground
   road's carriageway under the deck. Cosmetic; a placement-aware pillar pass is
   M8.5-adjacent polish.
-- **`MinRadius` stays XZ-projected** — at ≤10% grades the 3D-vs-XZ arc difference is
-  <0.5%, far inside the floors' 0.1 m slack.
+- **`MinRadius` stays XZ-projected** — even at the steepest 20% cap the 3D-vs-XZ arc
+  difference is ~2%, inside the floors' 0.1 m slack at the radii involved.
 
 ## How to verify
 
