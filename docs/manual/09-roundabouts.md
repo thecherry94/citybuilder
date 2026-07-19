@@ -168,17 +168,19 @@ Validate/Commit contract (the hardening pass closed the snapshot-vs-live gap):
 
 - `ConfigureJunction` on a ring node is ignored (its control is derived).
 - `RetypeEdge` on a ring edge returns `RetypeError.Locked`; `FlipEdge` returns false.
-  **Approaches stay retypable and flippable** — they're the player's roads; a flip also
-  reverses the roundabout's captured full curve (`OnApproachFlipped`) so regeneration
-  preserves the flip instead of silently reverting a one-way.
+  **Approaches stay retypable, flippable, crossable, and splittable** — they're the
+  player's roads. A flip reverses the roundabout's captured full curve
+  (`OnApproachFlipped`); a split re-keys it onto the child still attached to the ring,
+  cut to the split→center sub-curve (`OnApproachSplit`) — both keep regeneration
+  lossless. Only the ring itself and direct ring-node attachment are locked.
 - `Validate` adds `PlacementError.TouchesRoundabout` to any proposal whose endpoints
-  would attach to a ring node or split an owned edge, or whose curve crosses one —
-  detected inside Validate's own intersection loop (no separate scan), with an early-out
-  when no roundabouts exist.
-- **Commit-side**: `CommitCurve` drops any curve whose *live* crossing lands on an owned
-  edge (reuse absorption can relocate endpoints past what Validate's snapshot exempted),
-  and `ResolveBinding` never splits an owned edge or reuses a ring node — the fallback
-  paths create a fresh node instead.
+  would attach to a ring node or split a ring edge, or whose curve crosses a ring edge
+  or would absorb into a ring node — detected inside Validate's own intersection loop
+  (no separate scan), with an early-out when no roundabouts exist.
+- **Commit-side**: `CommitCurve` drops any curve whose *live* crossing lands on a ring
+  edge or would absorb into a ring node, and drops a curve whose endpoint resolution
+  landed on a ring node; `ResolveBinding` never splits a ring edge or reuses a ring
+  node — the fallback paths create a fresh node instead.
 - `TryHealNode` refuses to merge two edges when either far node is a ring node (the merged
   edge would be a roundabout approach with a fresh, untracked `EdgeId`).
 - The Bulldoze **tool** refuses ring edges outright (a lone ring-edge removal would just
@@ -227,9 +229,12 @@ roundabout test:
 
 ## Known limits
 
-- **Drawing a new road into an existing ring is not supported (deferred).** The immutability
-  model refuses it (`TouchesRoundabout`) rather than corrupting the ring. Change the approach
-  set by bulldozing (re-arcs) or remove-and-reconvert. This is the single biggest deferral.
+- **Attaching a new leg directly to the ring is not supported (deferred).** Binding to a
+  ring node, splitting a ring edge, or a crossing that would absorb into a ring node is
+  refused (`TouchesRoundabout`). Change the leg set by bulldozing an approach (re-arcs) or
+  remove-and-reconvert. **Crossing an approach away from the ring is ordinary editing**
+  (2026-07-18 fix, after a user hit the over-broad v1 lock): the split re-keys the captured
+  leg curve onto the inner child (`OnApproachSplit`), so regeneration stays lossless.
 - **Radius shrink past an untracked approach can straighten it.** Regeneration synthesizes a
   radial full curve for any approach it discovers without a tracked `LegFullCurve` (only
   reachable if the commit-side ownership guards were somehow bypassed); at a different radius

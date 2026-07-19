@@ -103,10 +103,20 @@ public sealed partial class RoadNetwork
                 var p = pc.Curve.Point(t1);
                 if (Vector3.Distance(p, a) <= NodeReuseRadius || Vector3.Distance(p, b) <= NodeReuseRadius)
                     continue; // connection at an endpoint, not a crossing
-                // crossing a roundabout-owned edge is blocked in v1 — checked here, on
-                // the intersection this loop already computed (no second scan)
-                if (_roundabouts.Count > 0 && IsRoundaboutEdge(e))
-                    touchesOwned = true;
+                // crossing a RING edge is blocked in v1, as is a crossing that would
+                // attach directly to a ring node (a new leg on the ring is deferred).
+                // Approaches elsewhere are ordinary roads: crossings split them, with
+                // the captured leg curve re-keyed onto the inner child (OnApproachSplit).
+                if (_roundabouts.Count > 0)
+                {
+                    if (IsRingEdge(e.Id))
+                        touchesOwned = true;
+                    else if ((_nodes[e.StartNode].Ring != null
+                              && Vector3.Distance(p, _nodes[e.StartNode].Position) <= NodeReuseRadius)
+                          || (_nodes[e.EndNode].Ring != null
+                              && Vector3.Distance(p, _nodes[e.EndNode].Position) <= NodeReuseRadius))
+                        touchesOwned = true;
+                }
                 crossings.Add(p);
                 crossParams.Add(t1);
                 if (CrossingAngleDeg(pc.Curve.Tangent(t1), e.Curve.Tangent(t2)) < MinJunctionAngleDeg)
@@ -394,6 +404,13 @@ public sealed partial class RoadNetwork
         var curve = pc.Curve;
         var startNode = ResolveBinding(pc.Start, curve.Point(0), createdNodes);
         var endNode = ResolveBinding(pc.End, curve.Point(1), createdNodes);
+        // no resolution path may attach a new leg directly to a ring node (deferred) —
+        // relocation can land here even when Validate's snapshot said otherwise
+        if (IsRingNode(startNode) || IsRingNode(endNode))
+        {
+            droppedSegments++;
+            return;
+        }
 
         // --- find crossings against every current edge, splitting them as we go
         var crossings = new List<(float tNew, NodeId node)>();
@@ -408,12 +425,12 @@ public sealed partial class RoadNetwork
                 if (Vector3.Distance(p, startPos) <= NodeReuseRadius
                     || Vector3.Distance(p, endPos) <= NodeReuseRadius)
                     continue; // connection at an endpoint, not a crossing
-                // Validate blocks proposals touching roundabout-owned edges against its
-                // snapshot, but reuse absorption can relocate endpoints far enough that a
-                // crossing it exempted lands here against the live network. Splitting an
-                // owned edge would mint an approach EdgeId the registry never learns
-                // about — drop the whole curve instead, same policy as the floor guards.
-                if (IsRoundaboutEdge(e.Id))
+                // Validate blocks ring-edge crossings against its snapshot, but reuse
+                // absorption can relocate endpoints far enough that a crossing it
+                // exempted lands here against the live network — drop the whole curve
+                // instead, same policy as the floor guards. (Approach crossings are
+                // legal: the split re-keys the captured leg curve via OnApproachSplit.)
+                if (IsRingEdge(e.Id))
                 {
                     droppedSegments++;
                     return;
@@ -421,6 +438,27 @@ public sealed partial class RoadNetwork
                 if (!hitsByEdge.TryGetValue(e.Id, out var list))
                     hitsByEdge[e.Id] = list = new List<(float, float)>();
                 list.Add(hit);
+            }
+        }
+
+        // a crossing on an approach whose split point would ABSORB into the ring node
+        // (within the edge type's MinSegmentLength of that end) must not proceed —
+        // absorption would attach this curve's stop directly to the ring. Checked
+        // before any surgery so the whole curve drops cleanly.
+        foreach (var (edgeId, hits) in hitsByEdge)
+        {
+            if (_roundabouts.Count == 0 || !_edges.TryGetValue(edgeId, out var he))
+                continue;
+            float eMin = RoadCatalog.Get(he.Type).MinSegmentLength;
+            foreach (var (_, t2) in hits)
+            {
+                float dAlong = he.ArcLength.DistanceAtT(t2);
+                if ((_nodes[he.StartNode].Ring != null && dAlong < eMin)
+                    || (_nodes[he.EndNode].Ring != null && he.ArcLength.TotalLength - dAlong < eMin))
+                {
+                    droppedSegments++;
+                    return;
+                }
             }
         }
 
@@ -567,10 +605,12 @@ public sealed partial class RoadNetwork
                         break;
                     (edgeId, t) = (hit.Value.id, hit.Value.t);
                 }
-                // never split a roundabout-owned edge (Validate blocks this against its
-                // snapshot; the stale-binding fallback above could dodge that) — fall
-                // through to the free-endpoint path, which is ownership-guarded too
-                if (!IsRoundaboutEdge(edgeId))
+                // never split a RING edge (Validate blocks this against its snapshot;
+                // the stale-binding fallback above could dodge that) — fall through to
+                // the free-endpoint path, which is ownership-guarded too. Approaches
+                // split like ordinary roads (a resolution landing ON the ring node is
+                // caught by CommitCurve's post-resolve guard).
+                if (!IsRingEdge(edgeId))
                 {
                     var (node, _) = SplitEdgeWithReuse(edgeId, t, createdNodes);
                     return node;
@@ -581,10 +621,10 @@ public sealed partial class RoadNetwork
 
         // free endpoint (or unresolvable binding): reuse a nearby node, else connect
         // to an edge passing through this point, else create a fresh node.
-        // Ring nodes and roundabout-owned edges are never attachment targets.
+        // Ring nodes and ring edges are never attachment targets.
         if (FindNodeNear(pos, NodeReuseRadius) is { } near && !IsRingNode(near))
             return near;
-        if (FindClosestEdge(pos, NodeReuseRadius) is { } onEdge && !IsRoundaboutEdge(onEdge.id))
+        if (FindClosestEdge(pos, NodeReuseRadius) is { } onEdge && !IsRingEdge(onEdge.id))
         {
             var (node, _) = SplitEdgeWithReuse(onEdge.id, onEdge.t, createdNodes);
             return node;
@@ -614,8 +654,12 @@ public sealed partial class RoadNetwork
         createdNodes?.Add(mid.Id);
 
         RemoveEdgeInternal(edge);
-        AddEdgeInternal(edge.StartNode, mid.Id, a, edge.Type);
+        var ea = AddEdgeInternal(edge.StartNode, mid.Id, a, edge.Type);
         var eb = AddEdgeInternal(mid.Id, edge.EndNode, b, edge.Type);
+        // splitting a tracked roundabout approach re-keys its captured full curve onto
+        // the child still attached to the ring, so regeneration stays lossless
+        if (_roundabouts.Count > 0)
+            OnApproachSplit(edge.Id, ea, eb, mid.Position);
         return (mid.Id, eb.Id);
     }
 

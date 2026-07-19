@@ -201,6 +201,61 @@ public class RoundaboutTests
     }
 
     [Fact]
+    public void CrossingAnApproachMidwaySplitsItLikeANormalRoad()
+    {
+        // user find (M8 kickoff): a road crossing an approach far from the ring was
+        // refused with TouchesRoundabout — approaches must be crossable/splittable
+        // everywhere except the ring itself and its immediate absorption zone
+        var n = FourWayJunction(out var center);
+        var id = n.ConvertToRoundabout(center, 20f).Id!.Value;
+        // the +Z approach runs from the ring (z=20) out to z=60; cross it at z=40
+        var v = n.Validate(Net.Straight(new(-50, 0, 40), new(50, 0, 40)));
+        Assert.True(v.IsValid, $"expected valid, errors: {string.Join(",", v.Errors)}");
+        Assert.True(n.Commit(v).Success);
+        Assert.Empty(NetworkInvariants.Check(n));
+        // the crossing became a real junction on the approach corridor
+        Assert.Contains(n.Nodes.Values, x =>
+            Vector3.Distance(x.Position, new(0, 0, 40)) < 1f && x.Edges.Count == 4);
+        // and the roundabout is still live: radius edits keep working
+        Assert.True(n.Roundabouts.ContainsKey(id));
+        Assert.True(n.SetRoundaboutRadius(id, 26f).Success);
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
+    public void SplitCurvedApproachKeepsItsShapeAcrossRegenerate()
+    {
+        // splitting a CURVED approach must re-key the captured full curve onto the
+        // inner child — otherwise regeneration falls back to a synthesized straight
+        // radial and silently destroys the player's geometry
+        var n = new RoadNetwork();
+        Net.Commit(n, Net.Straight(new(-60, 0, 0), new(60, 0, 0), RoadCatalog.Street.Id));
+        var curved = new CityBuilder.Domain.Geometry.Bezier3(
+            new(40, 0, 80), new(10, 0, 45), new(0, 0, 20), Vector3.Zero);
+        Net.Commit(n, new PlacementProposal(new[]
+        {
+            new ProposedCurve(curved, EndpointBinding.None, EndpointBinding.None)
+        }, RoadCatalog.Street.Id));
+        var center = n.Nodes.Values.Single(x => Vector3.Distance(x.Position, Vector3.Zero) < 0.1f);
+        var id = n.ConvertToRoundabout(center.Id, 15f).Id!.Value;
+
+        // cross the curved approach midway (it spans the ring at r=15 out to (40,80))
+        Net.Commit(n, Net.Straight(new(-40, 0, 55), new(60, 0, 55), RoadCatalog.Street.Id));
+        Assert.Empty(NetworkInvariants.Check(n));
+
+        Assert.True(n.SetRoundaboutRadius(id, 18f).Success);
+        Assert.Empty(NetworkInvariants.Check(n));
+        // the inner approach is still visibly curved, not a straightened radial:
+        // its midpoint must deviate from the endpoint chord. (Three approaches exist;
+        // the curved one is the only one heading +Z.)
+        var inner = n.Edges.Values.Single(e => IsApproach(n, e) && e.Curve.Point(0.5f).Z > 10f);
+        var mid = inner.Curve.Point(0.5f);
+        var chordMid = (inner.Curve.P0 + inner.Curve.P3) * 0.5f;
+        Assert.True(Vector3.Distance(mid, chordMid) > 0.5f,
+            $"approach was straightened (mid deviation {Vector3.Distance(mid, chordMid):F2} m)");
+    }
+
+    [Fact]
     public void RingEdgesAreImmutableToRetypeAndFlip()
     {
         var n = FourWayJunction(out var center);

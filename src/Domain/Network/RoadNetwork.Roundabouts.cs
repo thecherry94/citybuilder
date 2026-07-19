@@ -67,10 +67,11 @@ public sealed partial class RoadNetwork
     }
 
     /// <summary>True if this proposed curve's endpoints would attach to a ring node or
-    /// split a roundabout-owned edge — blocked in v1 (editing a live ring's approaches /
-    /// drawing into a ring is a deferred feature). Mirrors ResolveBinding: a Free endpoint
-    /// reuses a nearby node or splits a nearby edge. Crossings against owned edges are
-    /// detected inside Validate's own intersection loop, not here (no duplicate scan).</summary>
+    /// split a ring edge — blocked in v1 (adding a new leg directly to the ring is a
+    /// deferred feature). Approach edges are bindable like ordinary roads, EXCEPT within
+    /// node-reuse range of their ring end (that resolves to the ring node). Mirrors
+    /// ResolveBinding: a Free endpoint reuses a nearby node or splits a nearby edge.
+    /// Crossings are detected inside Validate's own intersection loop, not here.</summary>
     private bool BindingTouchesRoundabout(ProposedCurve pc)
     {
         if (_roundabouts.Count == 0)
@@ -80,12 +81,25 @@ public sealed partial class RoadNetwork
         bool Touches(EndpointBinding b, Vector3 pos) => b switch
         {
             EndpointBinding.AtNode(var nid) => IsRingNode(nid),
-            EndpointBinding.OnEdge(var eid, _) => IsRoundaboutEdge(eid),
+            EndpointBinding.OnEdge(var eid, var t) => IsRingEdge(eid) || ResolvesToRingNode(eid, t),
             EndpointBinding.Free =>
                 (FindNodeNear(pos, NodeReuseRadius) is { } near && IsRingNode(near))
-                || (FindClosestEdge(pos, NodeReuseRadius) is { } hit && IsRoundaboutEdge(hit.id)),
+                || (FindClosestEdge(pos, NodeReuseRadius) is { } hit && IsRingEdge(hit.id)),
             _ => false,
         };
+    }
+
+    /// <summary>An OnEdge binding whose point sits within node-reuse range of the edge's
+    /// ring-node end would resolve onto the ring node itself — a new ring leg, deferred.</summary>
+    private bool ResolvesToRingNode(EdgeId eid, float t)
+    {
+        if (!_edges.TryGetValue(eid, out var e))
+            return false;
+        var p = e.Curve.Point(t);
+        return (_nodes[e.StartNode].Ring != null
+                && Vector3.Distance(p, _nodes[e.StartNode].Position) <= NodeReuseRadius)
+            || (_nodes[e.EndNode].Ring != null
+                && Vector3.Distance(p, _nodes[e.EndNode].Position) <= NodeReuseRadius);
     }
 
     /// <summary>True when any planned ring arc geometrically intersects a live edge that
@@ -114,6 +128,37 @@ public sealed partial class RoadNetwork
                     return true;
         }
         return false;
+    }
+
+    /// <summary>After a tracked approach is split, re-key its captured full curve onto the
+    /// child still attached to the ring, cut down to the sub-curve from the split point to
+    /// the center — regeneration then re-trims exactly the geometry that remains, instead
+    /// of falling back to a synthesized straight radial (silent shape loss). The outer
+    /// child becomes an ordinary road and is simply untracked.</summary>
+    private void OnApproachSplit(EdgeId original, RoadEdge childA, RoadEdge childB, Vector3 splitPos)
+    {
+        foreach (var rb in _roundabouts.Values)
+        {
+            if (!rb.LegFullCurves.TryGetValue(original, out var full))
+                continue;
+            RoadEdge? inner = null;
+            foreach (var ch in new[] { childA, childB })
+                if (_nodes[ch.StartNode].Ring == rb.Id || _nodes[ch.EndNode].Ring == rb.Id)
+                    inner = ch;
+
+            var updated = new Dictionary<EdgeId, Bezier3>(rb.LegFullCurves);
+            updated.Remove(original);
+            if (inner is not null)
+            {
+                var (t, _) = BezierOps.ClosestPoint(full, splitPos);
+                bool endsAtCenter = Vector3.Distance(full.Point(1), rb.Center)
+                                  < Vector3.Distance(full.Point(0), rb.Center);
+                var (a, b) = full.Split(t);
+                updated[inner.Id] = endsAtCenter ? b : a; // the piece running split → center
+            }
+            _roundabouts[rb.Id] = rb with { LegFullCurves = updated };
+            return;
+        }
     }
 
     /// <summary>Keep a flipped approach's captured full curve in the same orientation as

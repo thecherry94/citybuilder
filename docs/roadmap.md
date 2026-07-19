@@ -189,11 +189,18 @@ verified build.
   (`SegmentCrossesLiveEdgeOffNode`, joining the floors + sharp-leg recheck family;
   seed-pinned in `FuzzRegressionTests`). Re-certified: 3×10k fuzz with the crossing rule
   live, full suite, smoke, UITEST, KPI.
-  Known limits (deferred): **drawing a new road into an existing ring** (the biggest deferral
-  — refused via `PlacementError.TouchesRoundabout` rather than corrupting the ring; change
-  approaches by bulldoze or reconvert); dedicated multi-lane / turbo ring cross-sections;
-  in-flight vehicles not preserved across conversion (resync as after quickload); a dissolved
-  roundabout leaves adjacent degree-2 bend nodes unhealed (cosmetic, heals on next edit).
+  **Approach-crossing fix (2026-07-18, user find at M8 kickoff):** the v1 lock was
+  over-broad — it refused roads crossing an *approach* anywhere along its length. Now only
+  the ring itself (ring edges/nodes + the absorption zone at the ring end) is locked;
+  crossing an approach splits it like any road, with the captured leg curve re-keyed onto
+  the inner child (`OnApproachSplit`) so radius edits stay lossless even for curved
+  approaches. Regression-pinned; fuzz now exercises approach splits organically.
+  Known limits (deferred): **attaching a new leg directly to the ring** (refused via
+  `PlacementError.TouchesRoundabout` rather than corrupting the ring; add legs by building
+  the road first and reconverting, or bulldoze to re-arc); dedicated multi-lane / turbo ring
+  cross-sections; in-flight vehicles not preserved across conversion (resync as after
+  quickload); a dissolved roundabout leaves adjacent degree-2 bend nodes unhealed (cosmetic,
+  heals on next edit).
 
 ## Next up (roughly in order — each is one milestone)
 
