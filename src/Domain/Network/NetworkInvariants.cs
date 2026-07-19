@@ -87,12 +87,18 @@ public static class NetworkInvariants
             foreach (var (t1, t2) in BezierOps.Intersections(a.Curve, b.Curve))
             {
                 var p = a.Curve.Point(t1);
+                var q = b.Curve.Point(t2);
                 // Intersections can report spurious hits with garbage parameters for
                 // near-collinear curves touching at a shared endpoint (chain segments) —
                 // a real intersection has both curves at the same place; anything else
-                // is numerical noise, not geometry (fuzz seed 303 @ 72, flip edge=59)
-                if (Vector3.Distance(p, b.Curve.Point(t2)) > 0.5f)
+                // is numerical noise, not geometry (fuzz seed 303 @ 72, flip edge=59).
+                // Coincidence is measured in XZ because Intersections is XZ-projected:
+                // the Y difference is the CLASSIFICATION, not noise (M8) — a 3D check
+                // here would silently exempt clash-band crossings.
+                if (new Vector2(p.X - q.X, p.Z - q.Z).Length() > 0.5f)
                     continue;
+                if (VerticalRules.ClassifyCrossing(p.Y, q.Y) == CrossingKind.GradeSeparated)
+                    continue; // cleared over/under pass: legal, no junction expected
                 // Grazing contact is not a transversal crossing: two legs leaving a shared
                 // node within the G1 tangent-continuation exemption legally run near-
                 // parallel and can graze-cross as they diverge (fuzz seed 303 @ 179).
@@ -211,6 +217,10 @@ public static class NetworkInvariants
         float minRadius = type.MinRadius - 0.1f;
         if (radius < minRadius)
             outViolations.Add($"edge {e.Id.Value}: radius {radius:F1} < min {minRadius:F1}");
+
+        float grad = VerticalRules.MaxGradient(e.Curve);
+        if (grad > type.MaxGradient + 0.005f)
+            outViolations.Add($"edge {e.Id.Value}: gradient {grad:P1} > max {type.MaxGradient:P0}");
     }
 
     /// <summary>No two legs meeting at a node may be closer than

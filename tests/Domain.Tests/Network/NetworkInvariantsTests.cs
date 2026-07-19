@@ -85,6 +85,51 @@ public class NetworkInvariantsTests
     }
 
     [Fact]
+    public void GradeSeparatedCrossingIsNotFlagged()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0)));
+        var bridge = new Bezier3(new(0, 6, -80), new(0, 6, -26.7f), new(0, 6, 26.7f), new(0, 6, 80));
+        Net.Commit(n, new CityBuilder.Domain.Tools.PlacementProposal(
+            new[] { new CityBuilder.Domain.Tools.ProposedCurve(bridge,
+                CityBuilder.Domain.Tools.EndpointBinding.None, CityBuilder.Domain.Tools.EndpointBinding.None) },
+            RoadCatalog.TwoLane.Id));
+        Assert.DoesNotContain(NetworkInvariants.Check(n), v => v.Contains("without a shared node"));
+    }
+
+    [Fact]
+    public void ClashBandCrossingInACorruptSaveIsFlagged()
+    {
+        // hand-crafted save: ground road + a +2 m road crossing it (never committable)
+        const string corrupt = "{\"FormatVersion\":2," +
+            "\"Nodes\":[" +
+            "{\"Id\":1,\"X\":-50,\"Y\":0,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}," +
+            "{\"Id\":2,\"X\":50,\"Y\":0,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}," +
+            "{\"Id\":3,\"X\":0,\"Y\":2,\"Z\":-50,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}," +
+            "{\"Id\":4,\"X\":0,\"Y\":2,\"Z\":50,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}]," +
+            "\"Edges\":[" +
+            "{\"Id\":1,\"Start\":1,\"End\":2,\"Type\":1,\"Curve\":[-50,0,0,-16.6667,0,0,16.6667,0,0,50,0,0],\"LaneIds\":[1,2]}," +
+            "{\"Id\":2,\"Start\":3,\"End\":4,\"Type\":1,\"Curve\":[0,2,-50,0,2,-16.6667,0,2,16.6667,0,2,50],\"LaneIds\":[3,4]}]," +
+            "\"NextNode\":5,\"NextEdge\":3,\"NextLane\":5}";
+        var n = CityBuilder.Domain.Persistence.SaveLoad.Load(corrupt);
+        Assert.Contains(NetworkInvariants.Check(n), v => v.Contains("without a shared node"));
+    }
+
+    [Fact]
+    public void OverSteepEdgeInACorruptSaveIsFlagged()
+    {
+        const string corrupt = "{\"FormatVersion\":2," +
+            "\"Nodes\":[" +
+            "{\"Id\":1,\"X\":0,\"Y\":0,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}," +
+            "{\"Id\":2,\"X\":60,\"Y\":12,\"Z\":0,\"Config\":{\"Mode\":0,\"SizeOffset\":0,\"Roles\":[],\"LegOffsets\":[]}}]," +
+            "\"Edges\":[" +
+            "{\"Id\":1,\"Start\":1,\"End\":2,\"Type\":1,\"Curve\":[0,0,0,20,4,0,40,8,0,60,12,0],\"LaneIds\":[1,2]}]," +
+            "\"NextNode\":3,\"NextEdge\":2,\"NextLane\":3}";
+        var n = CityBuilder.Domain.Persistence.SaveLoad.Load(corrupt); // 20% on a TwoLane
+        Assert.Contains(NetworkInvariants.Check(n), v => v.Contains("gradient"));
+    }
+
+    [Fact]
     public void HealthyMixedNetworkHasNoViolations()
     {
         var n = Net.New();
