@@ -218,7 +218,7 @@ public static class NetworkInvariants
         if (radius < minRadius)
             outViolations.Add($"edge {e.Id.Value}: radius {radius:F1} < min {minRadius:F1}");
 
-        float grad = VerticalRules.MaxGradient(e.Curve);
+        float grad = VerticalRules.MaxGradient(e.Curve, e.ArcLength.TotalLength);
         if (grad > type.MaxGradient + 0.005f)
             outViolations.Add($"edge {e.Id.Value}: gradient {grad:P1} > max {type.MaxGradient:P0}");
     }

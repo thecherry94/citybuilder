@@ -22,9 +22,22 @@ public static class VerticalRules
     /// <summary>Max |dY/ds| sampled along the curve (s = horizontal run); sample count
     /// scales with arc length (~one per 8 m, floor 32) like BezierOps.MinRadius, so
     /// short and long ramps get equal resolution.</summary>
-    public static float MaxGradient(in Bezier3 c)
+    public static float MaxGradient(in Bezier3 c) => MaxGradient(c, c.Length());
+
+    /// <summary>Overload for hot paths that already know the arc length (the invariant
+    /// checker runs per edge per fuzz action — <c>Curve.Length()</c> is adaptive
+    /// subdivision and must not be recomputed there). Flat curves (the common case)
+    /// short-circuit to 0 from the control points alone: a cubic's Y is bounded by its
+    /// control net, so equal-Y control points ⇒ constant Y.</summary>
+    public static float MaxGradient(in Bezier3 c, float arcLength)
     {
-        int samples = Math.Max(32, (int)(c.Length() / 8f));
+        float y0 = c.P0.Y;
+        if (MathF.Abs(c.P1.Y - y0) < GeoConstants.Eps
+            && MathF.Abs(c.P2.Y - y0) < GeoConstants.Eps
+            && MathF.Abs(c.P3.Y - y0) < GeoConstants.Eps)
+            return 0f;
+
+        int samples = Math.Max(32, (int)(arcLength / 8f));
         float worst = 0f;
         var prev = c.Point(0);
         for (int i = 1; i <= samples; i++)

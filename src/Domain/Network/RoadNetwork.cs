@@ -941,6 +941,10 @@ public sealed partial class RoadNetwork
             return RetypeError.TooShort;
         if (BezierOps.MinRadius(edge.Curve) < type.MinRadius)
             return RetypeError.TooTight;
+        // the gradient floor family's fourth member (M8, fuzz 303@3987): a ramp legal
+        // on an 8% type must not retype onto a 6% one
+        if (VerticalRules.MaxGradient(edge.Curve, edge.ArcLength.TotalLength) > type.MaxGradient + 0.001f)
+            return RetypeError.TooSteep;
 
         ReplaceEdgeInPlace(edge, edge.StartNode, edge.EndNode, edge.Curve, newType);
         return null;
