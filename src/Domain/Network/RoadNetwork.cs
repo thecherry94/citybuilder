@@ -85,6 +85,9 @@ public sealed partial class RoadNetwork
             if (BezierOps.MinRadius(pc.Curve) < type.MinRadius)
                 errors.Add(PlacementError.RadiusTooTight);
 
+            if (VerticalRules.MaxGradient(pc.Curve) > type.MaxGradient + 0.001f)
+                errors.Add(PlacementError.TooSteep);
+
             if (BezierOps.SelfIntersects(pc.Curve))
                 errors.Add(PlacementError.SelfIntersecting);
 
@@ -95,7 +98,7 @@ public sealed partial class RoadNetwork
                 errors.Add(PlacementError.TouchesRoundabout);
 
             Vector3 a = pc.Curve.Point(0), b = pc.Curve.Point(1);
-            bool shallow = false, sliver = false, touchesOwned = false;
+            bool shallow = false, sliver = false, touchesOwned = false, clash = false;
             var crossParams = new List<float>();
             foreach (var e in _edges.Values)
             foreach (var (t1, t2) in BezierOps.Intersections(pc.Curve, e.Curve))
@@ -103,6 +106,16 @@ public sealed partial class RoadNetwork
                 var p = pc.Curve.Point(t1);
                 if (Vector3.Distance(p, a) <= NodeReuseRadius || Vector3.Distance(p, b) <= NodeReuseRadius)
                     continue; // connection at an endpoint, not a crossing
+                // Intersections is XZ-projected: classify the crossing by vertical
+                // separation before any junction math (M8)
+                switch (VerticalRules.ClassifyCrossing(p.Y, e.Curve.Point(t2).Y))
+                {
+                    case CrossingKind.GradeSeparated:
+                        continue; // passes over/under: not a crossing in any sense
+                    case CrossingKind.VerticalClash:
+                        clash = true;
+                        continue; // illegal band — no junction math either
+                }
                 // crossing a RING edge is blocked in v1, as is a crossing that would
                 // attach directly to a ring node (a new leg on the ring is deferred).
                 // Approaches elsewhere are ordinary roads: crossings split them, with
@@ -140,6 +153,8 @@ public sealed partial class RoadNetwork
                 errors.Add(PlacementError.CrossingTooShallow);
             if (touchesOwned)
                 errors.Add(PlacementError.TouchesRoundabout);
+            if (clash)
+                errors.Add(PlacementError.VerticalClash);
 
             // consecutive stops along the new curve (ends + crossings) must be ≥ min apart
             if (crossParams.Count > 0)
@@ -166,6 +181,11 @@ public sealed partial class RoadNetwork
             if (HasSharpLeg(pc.Start, a, pc.Curve.Tangent(0))
                 || HasSharpLeg(pc.End, b, -pc.Curve.Tangent(1)))
                 errors.Add(PlacementError.SharpAngle);
+
+            // junction legs are coplanar: an endpoint connecting to existing geometry
+            // must arrive at its elevation (M8)
+            if (BindingElevationClash(pc.Start, a) || BindingElevationClash(pc.End, b))
+                errors.Add(PlacementError.VerticalClash);
         }
 
         // consecutive crossings landing on the SAME existing edge (one curve crossing
@@ -210,6 +230,26 @@ public sealed partial class RoadNetwork
             default:
                 return false;
         }
+    }
+
+    /// <summary>An endpoint that will connect to an existing node/edge must arrive at
+    /// its elevation (within JunctionYTolerance) — legs of a junction are coplanar (M8).
+    /// Free endpoints resolve like ResolveBinding would (3D proximity, so a genuinely
+    /// stacked endpoint finds nothing and is clean); explicit bindings carry the check.</summary>
+    private bool BindingElevationClash(EndpointBinding binding, Vector3 pos)
+    {
+        float? targetY = binding switch
+        {
+            EndpointBinding.AtNode(var id) when _nodes.TryGetValue(id, out var node) => node.Position.Y,
+            EndpointBinding.OnEdge(var eid, var t) when _edges.TryGetValue(eid, out var e) => e.Curve.Point(t).Y,
+            EndpointBinding.Free => FindNodeNear(pos, NodeReuseRadius) is { } near
+                ? _nodes[near].Position.Y
+                : FindClosestEdge(pos, NodeReuseRadius) is { } hit
+                    ? _edges[hit.id].Curve.Point(hit.t).Y
+                    : null,
+            _ => null,
+        };
+        return targetY is { } y && MathF.Abs(pos.Y - y) > GeoConstants.JunctionYTolerance;
     }
 
     private static bool SplitLeavesSliver(RoadEdge e, float t)
