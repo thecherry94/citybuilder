@@ -39,8 +39,9 @@ public static class RoundaboutPlanner
             Array.Empty<IReadOnlyList<Bezier3>>(), e);
 
         // every leg must actually reach past the circle to be trimmable to it
+        // (the ring circle lives in XZ at the center's plane — M8)
         foreach (var leg in legs)
-            if (Vector3.Distance(OuterEnd(leg), center) <= radius)
+            if (DistXZ(OuterEnd(leg), center) <= radius)
                 return Fail(RoundaboutError.LegInsideRing);
 
         // Trim FIRST, and put each slot at the point where the leg's curve actually
@@ -57,7 +58,7 @@ public static class RoundaboutPlanner
             // defense in depth: whatever the cut, a trimmed leg must never re-enter the
             // circle (the ring arcs live there) — refuse rather than emit piercing geometry
             for (int s = 0; s <= 32; s++)
-                if (Vector3.Distance(trimmed.Point(s / 32f), center) < radius - 0.5f)
+                if (DistXZ(trimmed.Point(s / 32f), center) < radius - 0.5f)
                     return Fail(RoundaboutError.LegInsideRing);
 
             // slot = the cut point projected exactly onto the circle; pin the trimmed
@@ -66,9 +67,18 @@ public static class RoundaboutPlanner
             var dir = cut - center;
             float bearing = MathF.Atan2(dir.Z, dir.X);
             var pos = center + radius * new Vector3(MathF.Cos(bearing), 0, MathF.Sin(bearing));
+
+            // The ring is planar at the center's Y, but a ramping leg meets the circle
+            // ABOVE/BELOW that plane — re-profile the trimmed leg's Y linearly from its
+            // outer end down onto the ring plane (pinning only the endpoint kinks the
+            // tail steep: fuzz 303@241 committed 10.2% on an 8% type), and refuse the
+            // conversion when even that uniform descent exceeds the leg's gradient.
+            float yOuter = (leg.EndsAtCenter ? trimmed.P0 : trimmed.P3).Y;
             trimmed = leg.EndsAtCenter
-                ? new Bezier3(trimmed.P0, trimmed.P1, trimmed.P2, pos)
-                : new Bezier3(pos, trimmed.P1, trimmed.P2, trimmed.P3);
+                ? Reprofile(new Bezier3(trimmed.P0, trimmed.P1, trimmed.P2, pos), yOuter, pos.Y)
+                : Reprofile(new Bezier3(pos, trimmed.P1, trimmed.P2, trimmed.P3), pos.Y, yOuter);
+            if (VerticalRules.MaxGradient(trimmed) > RoadCatalog.Get(leg.Type).MaxGradient + 0.001f)
+                return Fail(RoundaboutError.LegTooSteep);
 
             // the approach must meet the ring clear of the ring tangent, or the ring node
             // would carry two legs closer than the junction floor (a sharp leg)
@@ -157,6 +167,18 @@ public static class RoundaboutPlanner
         return MathF.Acos(cos) * 180f / MathF.PI;
     }
 
+    private static float DistXZ(Vector3 a, Vector3 b)
+        => new Vector2(a.X - b.X, a.Z - b.Z).Length();
+
+    /// <summary>Replace a curve's Y profile with a linear interpolation from
+    /// <paramref name="yStart"/> (at P0) to <paramref name="yEnd"/> (at P3).</summary>
+    private static Bezier3 Reprofile(in Bezier3 c, float yStart, float yEnd)
+        => new(
+            new Vector3(c.P0.X, yStart, c.P0.Z),
+            new Vector3(c.P1.X, yStart + (yEnd - yStart) / 3f, c.P1.Z),
+            new Vector3(c.P2.X, yStart + (yEnd - yStart) * 2f / 3f, c.P2.Z),
+            new Vector3(c.P3.X, yEnd, c.P3.Z));
+
     private static Vector3 OutwardDir(ApproachLeg leg)
         => leg.EndsAtCenter ? -leg.Curve.Tangent(1) : leg.Curve.Tangent(0);
 
@@ -187,7 +209,7 @@ public static class RoundaboutPlanner
         for (int s = 1; s <= marchSteps; s++)
         {
             float t = T(s);
-            if (Vector3.Distance(leg.Curve.Point(t), center) <= radius)
+            if (DistXZ(leg.Curve.Point(t), center) <= radius)
             {
                 lo = T(s - 1);
                 hi = t;
@@ -197,7 +219,7 @@ public static class RoundaboutPlanner
         for (int it = 0; it < 48; it++)
         {
             float mid = 0.5f * (lo + hi);
-            bool midOutside = Vector3.Distance(leg.Curve.Point(mid), center) > radius;
+            bool midOutside = DistXZ(leg.Curve.Point(mid), center) > radius;
             if (midOutside) lo = mid; else hi = mid;
         }
         float tCut = 0.5f * (lo + hi);

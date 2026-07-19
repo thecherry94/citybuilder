@@ -263,6 +263,18 @@ public class FuzzRegressionTests
         Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
     }
 
+    /// <summary>M8 find: the commit-side floor guard rechecked length and radius after
+    /// reuse-absorption relocation but not GRADIENT — a stop relocated onto a node at a
+    /// different Y drags the displacement-blended segment steep (10.2% on an 8% type at
+    /// seed 303@241, within minutes of elevation entering the fuzz alphabet). Gradient
+    /// joined the commit-side floor family: recheck live, drop rather than commit.</summary>
+    [Fact]
+    public void Seed303RelocatedStopNeverCommitsOverGradientSegment()
+    {
+        var result = GestureFuzzer.Run(new FuzzOptions(303, 300));
+        Assert.True(result.Ok, result.Failure + "\n" + string.Join("\n", result.ActionTail));
+    }
+
     private static void Commit(RoadNetwork n, PlacementProposal p)
     {
         var v = n.Validate(p);

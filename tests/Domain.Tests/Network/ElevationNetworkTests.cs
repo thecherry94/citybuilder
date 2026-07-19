@@ -49,6 +49,38 @@ public class ElevationNetworkTests
     }
 
     [Fact]
+    public void ConvertingAJunctionWithGentleRampLegsStaysWithinGradients()
+    {
+        // Street legs at 4%: the trimmed approaches must descend to the ring plane
+        // without exceeding the type gradient, and end exactly ON the plane
+        var n = Net.New();
+        Net.Commit(n, One(Ramp(new(-60, 2.4f, 0), new(0, 0, 0)), RoadCatalog.Street.Id));
+        Net.Commit(n, One(Ramp(new(60, 2.4f, 0), new(0, 0, 0)), RoadCatalog.Street.Id));
+        Net.Commit(n, One(Ramp(new(0, 2.4f, -60), new(0, 0, 0)), RoadCatalog.Street.Id));
+        var center = n.Nodes.Values.Single(x => Vector3.Distance(x.Position, Vector3.Zero) < 0.1f);
+        var res = n.ConvertToRoundabout(center.Id, 15f);
+        Assert.True(res.Success, $"convert failed: {res.Error}");
+        Assert.Empty(NetworkInvariants.Check(n)); // includes the gradient rule
+    }
+
+    [Fact]
+    public void ConvertingAJunctionWithSteepRampLegsIsRefusedNotCorrupted()
+    {
+        // TwoLane legs at their full 8%: descending from the cut height to the ring
+        // plane over the trimmed remainder needs >8% — refuse, never commit corrupt
+        var n = Net.New();
+        Net.Commit(n, One(Ramp(new(-60, 4.8f, 0), new(0, 0, 0))));
+        Net.Commit(n, One(Ramp(new(60, 4.8f, 0), new(0, 0, 0))));
+        Net.Commit(n, One(Ramp(new(0, 4.8f, -60), new(0, 0, 0))));
+        var center = n.Nodes.Values.Single(x => Vector3.Distance(x.Position, Vector3.Zero) < 0.1f);
+        var res = n.ConvertToRoundabout(center.Id, 20f);
+        Assert.False(res.Success);
+        Assert.Equal(RoundaboutError.LegTooSteep, res.Error);
+        Assert.Empty(NetworkInvariants.Check(n)); // and nothing was mutated
+        Assert.True(n.Nodes.ContainsKey(center.Id));
+    }
+
+    [Fact]
     public void GroundRoundaboutIsNotObstructedByABridgeAbove()
     {
         var n = RoundaboutTests.FourWayJunction(out var center);

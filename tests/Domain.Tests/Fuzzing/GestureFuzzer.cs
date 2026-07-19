@@ -191,6 +191,9 @@ public static class GestureFuzzer
         var type = RoadCatalog.All[rng.Next(RoadCatalog.All.Count)];
         session.SetMode(mode);
         session.RoadType = type.Id;
+        // elevation (M8): mostly ground (70%), else a step multiple in [5, 50] — grade
+        // separation, clash refusals, and steep-ramp refusals all get organic coverage
+        session.CurrentElevation = rng.Next(100) < 70 ? 0f : 5f * rng.Next(1, 11);
 
         var points = new List<Vector3>();
         int clicks = rng.Next(2, 5); // 2..4 inclusive
@@ -223,7 +226,7 @@ public static class GestureFuzzer
             session.Cancel();
         }
 
-        log($"draw {mode} type={type.Id.Value} clicks=" + FormatPoints(points));
+        log($"draw {mode} type={type.Id.Value} elev={session.CurrentElevation:F0} clicks=" + FormatPoints(points));
     }
 
     private static readonly RoadTypeId[] AllTypes =

@@ -8,7 +8,7 @@ public enum RoundaboutError
 {
     RadiusTooTight, LegTooShort, LegInsideRing, DegenerateBearings,
     NotAJunction, AlreadyRoundabout, ForeignLeg, UnknownRoundabout,
-    ApproachTooTangential, Obstructed,
+    ApproachTooTangential, Obstructed, LegTooSteep,
 }
 
 /// <summary>A live roundabout: a CCW one-way ring owning its ring nodes and edges.

@@ -557,7 +557,10 @@ public sealed partial class RoadNetwork
             // not built at all rather than committed corrupt. Thresholds mirror
             // NetworkInvariants.CheckEdgeGeometry's 0.1 slack.
             if (seg.Length() < floors.MinSegmentLength - 0.1f
-                || BezierOps.MinRadius(seg) < floors.MinRadius - 0.1f)
+                || BezierOps.MinRadius(seg) < floors.MinRadius - 0.1f
+                // gradient joined the floor family in M8: a stop relocated onto a node
+                // at a different Y drags the blended segment steep (fuzz 303@241)
+                || VerticalRules.MaxGradient(seg) > floors.MaxGradient + 0.005f)
             {
                 droppedSegments++;
                 continue;
