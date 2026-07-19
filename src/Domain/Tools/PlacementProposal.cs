@@ -32,6 +32,7 @@ public enum PlacementError
 {
     TooShort, SelfIntersecting, Overlapping, CrossingTooShallow,
     RadiusTooTight, SharpAngle, Kinked, TouchesRoundabout,
+    TooSteep, VerticalClash,
 }
 
 /// <summary>Result of dry-running a proposal against the network. Only a valid,

@@ -13,7 +13,8 @@ public sealed record RoadType(
     float Width,
     IReadOnlyList<LaneSpec> Lanes,
     float DesignSpeedKmh,
-    float MinRadius)
+    float MinRadius,
+    float MaxGradient)
 {
     /// <summary>Shortest committable edge of this type; junction spacing floor.</summary>
     public float MinSegmentLength => MathF.Max(8f, Width);
@@ -63,7 +64,7 @@ public static class RoadCatalog
             new(+1.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
             new(-1.75f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
         },
-        80f, 20f);
+        80f, 20f, 0.08f);
 
     public static readonly RoadType FourLane = new(
         new RoadTypeId(2), "Four-Lane Road", 16f,
@@ -74,7 +75,7 @@ public static class RoadCatalog
             new(-1.75f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
             new(-5.25f, LaneDirection.Backward, LaneWidth, LaneKind.Driving),
         },
-        100f, 35f);
+        100f, 35f, 0.06f);
 
     /// <summary>Urban two-lane street: driving lanes flanked by raised sidewalks.</summary>
     public static readonly RoadType Street = new(
@@ -86,7 +87,7 @@ public static class RoadCatalog
             new(+4.75f, LaneDirection.Forward, 2.5f, LaneKind.Sidewalk),
             new(-4.75f, LaneDirection.Backward, 2.5f, LaneKind.Sidewalk),
         },
-        50f, 10f);
+        50f, 10f, 0.10f);
 
     /// <summary>Urban four-lane avenue with bicycle lanes and sidewalks.</summary>
     public static readonly RoadType Avenue = new(
@@ -102,7 +103,7 @@ public static class RoadCatalog
             new(+9.5f, LaneDirection.Forward, 2f, LaneKind.Sidewalk),
             new(-9.5f, LaneDirection.Backward, 2f, LaneKind.Sidewalk),
         },
-        60f, 25f);
+        60f, 25f, 0.06f);
 
     /// <summary>Directional street: two same-way lanes between sidewalks. Drawing
     /// direction = travel direction.</summary>
@@ -115,7 +116,7 @@ public static class RoadCatalog
             new(+4.75f, LaneDirection.Forward, 2.5f, LaneKind.Sidewalk),
             new(-4.75f, LaneDirection.Backward, 2.5f, LaneKind.Sidewalk),
         },
-        50f, 10f);
+        50f, 10f, 0.10f);
 
     /// <summary>2+1 road: two forward lanes, one backward. The opposing separation
     /// line sits off the geometric centerline (at −2.5 m), on purpose.</summary>
@@ -127,7 +128,7 @@ public static class RoadCatalog
             new(-0.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
             new(+2.75f, LaneDirection.Forward, LaneWidth, LaneKind.Driving),
         },
-        60f, 20f);
+        60f, 20f, 0.08f);
 
     public static readonly IReadOnlyList<RoadType> All = new[] { TwoLane, FourLane, Street, Avenue, OneWay, Asymmetric };
 

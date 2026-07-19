@@ -10,4 +10,16 @@ public static class GeoConstants
 
     /// <summary>Max deviation allowed when merging two edges back into one.</summary>
     public const float MergeTolerance = 0.05f;
+
+    /// <summary>Crossings/legs within this ΔY are coplanar: they junction (M8).</summary>
+    public const float JunctionYTolerance = 0.6f;
+
+    /// <summary>ΔY at an XZ crossing at or above this is grade-separated: legal, no junction (M8).</summary>
+    public const float MinClearance = 4.7f;
+
+    /// <summary>Deck height above ground below which a road renders as embankment, above as bridge (M8).</summary>
+    public const float EmbankmentMax = 1.0f;
+
+    /// <summary>Editor elevation clamp (domain itself is unclamped/signed) (M8).</summary>
+    public const float MaxElevation = 50f;
 }
