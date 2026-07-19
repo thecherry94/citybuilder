@@ -465,6 +465,17 @@ public sealed partial class RoadNetwork
                 if (Vector3.Distance(p, startPos) <= NodeReuseRadius
                     || Vector3.Distance(p, endPos) <= NodeReuseRadius)
                     continue; // connection at an endpoint, not a crossing
+                // vertical classification against the LIVE geometry (M8): cleared
+                // crossings pass over/under with no split; the illegal band never
+                // commits — drop, the standing policy for live-divergence
+                switch (VerticalRules.ClassifyCrossing(p.Y, e.Curve.Point(hit.t2).Y))
+                {
+                    case CrossingKind.GradeSeparated:
+                        continue;
+                    case CrossingKind.VerticalClash:
+                        droppedSegments++;
+                        return;
+                }
                 // Validate blocks ring-edge crossings against its snapshot, but reuse
                 // absorption can relocate endpoints far enough that a crossing it
                 // exempted lands here against the live network — drop the whole curve
@@ -611,8 +622,14 @@ public sealed partial class RoadNetwork
             foreach (var (t1, t2) in BezierOps.Intersections(seg, c))
             {
                 var p = seg.Point(t1);
-                if (Vector3.Distance(p, c.Point(t2)) > 0.5f)
-                    continue; // spurious hit, curves not actually at the same place
+                var q = c.Point(t2);
+                // Intersections is XZ-projected: coincidence must be measured in XZ,
+                // with the Y difference feeding the vertical classification (M8) —
+                // a 3D distance here would silently exempt every clash-band crossing
+                if (new Vector2(p.X - q.X, p.Z - q.Z).Length() > 0.5f)
+                    continue; // spurious hit, curves not actually at the same XZ place
+                if (VerticalRules.ClassifyCrossing(p.Y, q.Y) == CrossingKind.GradeSeparated)
+                    continue; // legal over/under pass, not a drive-through crossing
                 if (incidentA && Vector3.Distance(p, aPos) <= 1f)
                     continue; // junction contact with an edge sharing the start node
                 if (incidentB && Vector3.Distance(p, bPos) <= 1f)
