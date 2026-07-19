@@ -49,6 +49,25 @@ public class DraftElevationTests
     }
 
     [Fact]
+    public void SteppingBetweenClicksBuildsAnInclinedRoad()
+    {
+        // user find (2026-07-19): elevation applied at proposal-build time lifted BOTH
+        // free endpoints to the current value — the elevation at each endpoint's CLICK
+        // must stick to that endpoint, or inclined roads can't be drawn at all
+        var (n, s) = NewSession();
+        s.CurrentElevation = 0f;
+        s.Click(new Vector3(0, 0, 0), 6f);     // start placed at ground
+        s.CurrentElevation = 8f;               // PgUp x N mid-draft
+        s.Click(new Vector3(120, 0, 0), 6f);   // end placed at +8
+        Assert.Single(n.Edges);
+        var e = n.Edges.Values.Single();
+        float yStart = MathF.Min(e.Curve.P0.Y, e.Curve.P3.Y);
+        float yEnd = MathF.Max(e.Curve.P0.Y, e.Curve.P3.Y);
+        Assert.Equal(0f, yStart, 1);
+        Assert.Equal(8f, yEnd, 1);
+    }
+
+    [Fact]
     public void ElevationSetterClampsToEditorRange()
     {
         var (_, s) = NewSession();

@@ -212,6 +212,26 @@ public partial class VisualShots : Node3D
             return sv;
         });
 
+        yield return new Scenario("elevated_junction", n =>
+        {
+            // two Street decks crossing at +10: elevated junction surface, corner
+            // sidewalk zones, dead-end caps — all must sit on the node plane, with no
+            // curtain geometry dropping to the ground (M8 mesh fix reference scene)
+            Commit(n, Straight(new(-70, 10, 0), new(70, 10, 0), RoadCatalog.Street.Id));
+            Commit(n, Straight(new(0, 10, -70), new(0, 10, 70), RoadCatalog.Street.Id));
+        }, new[]
+        {
+            Oblique(new(0, 10, 0), 60),
+            new Shot("low", new(20, 8, 8), 45, -8f, 40f),
+        },
+        Extra: n =>
+        {
+            var sv = new StructureView();
+            sv.Bind(n);
+            sv.RebuildAll();
+            return sv;
+        });
+
         yield return new Scenario("cross_4lane", n =>
         {
             Commit(n, Straight(new(-90, 0, 0), new(90, 0, 0), RoadCatalog.FourLane.Id));

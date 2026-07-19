@@ -74,7 +74,7 @@ public static class JunctionProps
             float tCut = node.Junction.CutT.TryGetValue(edgeId, out var t) ? t : (startsHere ? 0f : 1f);
             float sideDist = type.HasSidewalks ? type.OuterHalf - 0.5f : type.CarriagewayHalf + 0.4f;
             var basePos = edge.Curve.OffsetPoint(tCut, startsHere ? -sideDist : sideDist).ToGodot();
-            basePos.Y = MeshBuilders.SurfaceY + (type.HasSidewalks ? MeshBuilders.SidewalkRise : 0f);
+            basePos.Y += MeshBuilders.SurfaceY + (type.HasSidewalks ? MeshBuilders.SidewalkRise : 0f); // relative (M8)
 
             var tangent = edge.Curve.Tangent(tCut).ToGodot();
             var facing = (startsHere ? tangent : -tangent).Normalized();

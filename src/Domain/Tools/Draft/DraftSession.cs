@@ -67,17 +67,26 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
     // ---------------------------------------------------------------- elevation (M8)
 
     /// <summary>Lift a built proposal onto its elevation profile: snapped endpoints
-    /// adopt their target's Y, free endpoints take <see cref="CurrentElevation"/>, and
-    /// control points interpolate linearly so the gradient is uniform along the curve.
-    /// Draft shapes stay planar — elevation is applied to every proposal exactly here,
-    /// so ghost validation and commit always see the same lifted geometry.</summary>
+    /// adopt their target's Y; a free START keeps the elevation captured when its
+    /// handle was clicked (<see cref="_draftStartElevation"/> — stepping PgUp/PgDn
+    /// mid-draft is how inclined roads are drawn); a free END takes
+    /// <see cref="CurrentElevation"/>. Control points interpolate linearly so the
+    /// gradient is uniform. Draft shapes stay planar — elevation is applied to every
+    /// proposal exactly here, so ghost validation and commit always see the same
+    /// lifted geometry. GridStamp is the exception: a stamp is one flat plate at the
+    /// current elevation (its curves' Start/End orientation is arbitrary — a per-end
+    /// rule would tilt cells randomly).</summary>
     private PlacementProposal? ApplyElevation(PlacementProposal? p)
         => p is null ? null : new PlacementProposal(p.Curves.Select(Elevate).ToArray(), p.Type);
 
+    // elevation captured when the current draft's FIRST handle was placed
+    private float? _draftStartElevation;
+
     private ProposedCurve Elevate(ProposedCurve pc)
     {
-        float y0 = ResolveY(pc.Start, pc.Curve.P0);
-        float y3 = ResolveY(pc.End, pc.Curve.P3);
+        bool flat = Mode == DraftMode.GridStamp;
+        float y0 = ResolveY(pc.Start, flat ? null : _draftStartElevation);
+        float y3 = ResolveY(pc.End, null);
         var c = pc.Curve;
         var lifted = new Bezier3(
             new Vector3(c.P0.X, y0, c.P0.Z),
@@ -87,11 +96,11 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         return pc with { Curve = lifted };
     }
 
-    private float ResolveY(EndpointBinding b, Vector3 pos) => b switch
+    private float ResolveY(EndpointBinding b, float? freeElevation) => b switch
     {
         EndpointBinding.AtNode(var id) when network.Nodes.TryGetValue(id, out var nd) => nd.Position.Y,
         EndpointBinding.OnEdge(var eid, var t) when network.Edges.TryGetValue(eid, out var e) => e.Curve.Point(t).Y,
-        _ => CurrentElevation,
+        _ => freeElevation ?? CurrentElevation,
     };
 
     public void Cancel()
@@ -101,6 +110,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         Readout = null;
         DraggingHandle = -1;
         _chainTangent = null;
+        _draftStartElevation = null;
         State = SessionState.Idle;
     }
 
@@ -156,6 +166,7 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         if (d is null)
         {
             d = Draft = new RoadDraft(ShapeOf(Mode), RoadType);
+            _draftStartElevation = CurrentElevation; // the start keeps its click-time height
             if (_chainTangent is { } inherited)
             {
                 d.LockStartTangent(inherited);

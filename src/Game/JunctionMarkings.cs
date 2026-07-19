@@ -201,7 +201,7 @@ public static class JunctionMarkings
         forward = forward.Normalized();
         var right = forward.Cross(Vector3.Up); // driver's right (heading +X → +Z)
         var origin = edge.Curve.OffsetPoint(edge.ArcLength.TAtDistance(dBase), lane.Offset).ToGodot();
-        origin.Y = MeshBuilders.MarkingY;
+        origin.Y += MeshBuilders.MarkingY; // relative: the deck carries the node's Y (M8)
 
         foreach (var tri in ArrowGlyph.Triangles(moves))
             AddTriangle(st,
@@ -356,7 +356,7 @@ public static class JunctionMarkings
             return;
         toNode = toNode.Normalized();
         var right = toNode.Cross(Vector3.Up);
-        basePt.Y = MeshBuilders.MarkingY;
+        basePt.Y += MeshBuilders.MarkingY; // relative: the deck carries the node's Y (M8)
 
         float x = -cwHalf + CrosswalkMargin + CrosswalkBar / 2;
         for (; x + CrosswalkBar / 2 <= cwHalf - CrosswalkMargin; x += CrosswalkBar + CrosswalkGap)

@@ -374,18 +374,20 @@ public static class MeshBuilders
         var mesh = st.Commit();
 
         if (node.Junction.Corners.Count > 0)
-            BuildCornerZones(node.Junction.Corners).Commit(mesh);
+            BuildCornerZones(node.Junction.Corners, node.Position.Y).Commit(mesh);
         return mesh;
     }
 
     /// <summary>Raised concrete corner sidewalks: flat top, curb faces along the
-    /// inner boundary (toward the asphalt), ground skirt along the outer boundary.</summary>
-    private static SurfaceTool BuildCornerZones(IReadOnlyList<CornerZone> zones)
+    /// inner boundary (toward the asphalt), skirt along the outer boundary. All Y
+    /// values are relative to the node's plane (<paramref name="baseY"/>) — absolute
+    /// values flattened elevated junctions' corners onto the ground (M8 find).</summary>
+    private static SurfaceTool BuildCornerZones(IReadOnlyList<CornerZone> zones, float baseY)
     {
         var st = new SurfaceTool();
         st.Begin(Mesh.PrimitiveType.Triangles);
         st.SetMaterial(Materials.Concrete);
-        float topY = SurfaceY + SidewalkRise;
+        float topY = baseY + SurfaceY + SidewalkRise;
 
         foreach (var zone in zones)
         {
@@ -415,14 +417,14 @@ public static class MeshBuilders
             for (int i = 0; i + 1 < zone.InnerCount; i++)
                 AddWallQuad(st,
                     ring[i].ToGodot(), ring[i + 1].ToGodot(),
-                    SurfaceY, topY, centroidG);
+                    baseY + SurfaceY, topY, centroidG);
 
-            // vertical walls along the outer boundary — straight down, so adjacent
-            // segments share corner vertices and can never open gaps
+            // vertical walls along the outer boundary — straight down to the node's
+            // plane, so adjacent segments share corner vertices and can never open gaps
             // (the two side edges — ring[InnerCount-1]→ring[InnerCount] and the
             // closing segment — stay open, flush against the approach sidewalks)
             for (int i = zone.InnerCount; i + 1 < ring.Count; i++)
-                AddWallQuad(st, ring[i].ToGodot(), ring[i + 1].ToGodot(), 0f, topY, centroidG);
+                AddWallQuad(st, ring[i].ToGodot(), ring[i + 1].ToGodot(), baseY, topY, centroidG);
         }
         return st;
     }
@@ -490,8 +492,11 @@ public static class MeshBuilders
         if (outward.Dot(toMid) < 0)
             outward = -outward;
 
-        var aOut = new Vector3(a.X, 0, a.Z) + outward * SkirtWidth;
-        var bOut = new Vector3(b.X, 0, b.Z) + outward * SkirtWidth;
+        // skirt bottom sits on the NODE's plane, not absolute ground — at an elevated
+        // junction/cap a Y=0 bottom draped curtain walls from deck to ground (M8 find);
+        // structures below the deck are StructureView's job
+        var aOut = new Vector3(a.X, nodePos.Y, a.Z) + outward * SkirtWidth;
+        var bOut = new Vector3(b.X, nodePos.Y, b.Z) + outward * SkirtWidth;
         var n = (outward + Vector3.Up).Normalized();
 
         // orient the front face outward/up (Godot fronts are clockwise)

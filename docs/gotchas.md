@@ -137,3 +137,10 @@ Hard-won. Read the relevant section before touching that area.
   was absorbed (seed 101@8321) — same recheck catches it. These joined the floors and
   sharp-leg rechecks as the third member of the commit-side "drop, never commit corrupt"
   family.
+- **Node-attached meshes must be node-plane-relative, never absolute-Y.** Junction
+  boundary skirts dropped their outer vertices to `Y=0`, corner zones flattened to
+  `topY = SurfaceY + rise`, and markings/props OVERWROTE curve-derived Y with constants
+  — all invisible at ground level, all catastrophically wrong at +10 m (curtain walls
+  from deck to ground, signals standing under the bridge). Pattern: `pos.Y += offset`
+  against the geometry's own Y, or pass the node's `Position.Y` as the base; grep for
+  `\.Y = ` in `src/Game` when adding node-attached visuals.
