@@ -349,11 +349,37 @@ public partial class ToolController : Node
                 _probeCount = 0;
             }
         }
-        ReadoutChanged?.Invoke(_session.Readout is { } r
+        ReadoutChanged?.Invoke(BuildReadout());
+    }
+
+    private string BuildReadout()
+    {
+        string s = _session.Readout is { } r
             ? r.RadiusM is { } rad && rad < 10000f
                 ? $"{r.LengthM:0.#} m   {NormalizeDeg(r.AngleDeg):0.#}°   R {rad:0} m"
                 : $"{r.LengthM:0.#} m   {NormalizeDeg(r.AngleDeg):0.#}°"
-            : "");
+            : "";
+        if (_session.CurrentElevation > 0.01f)
+        {
+            s = s.Length > 0 ? $"{s}   ⬆ {_session.CurrentElevation:0} m" : $"⬆ {_session.CurrentElevation:0} m";
+            // live gradient of the active ghost's first curve (ramps read as e.g. 6.7%)
+            if (_session.Ghost?.Proposal.Curves is { Count: > 0 } curves)
+            {
+                float g = CityBuilder.Domain.Geometry.VerticalRules.MaxGradient(curves[0].Curve);
+                if (g > 0.001f)
+                    s += $"   {g:P1}";
+            }
+        }
+        return s;
+    }
+
+    /// <summary>PgUp/PgDn elevation stepping (M8). The domain clamps to [0, MaxElevation].</summary>
+    public void StepElevation(float delta)
+    {
+        _session.CurrentElevation += delta;
+        ReadoutChanged?.Invoke(BuildReadout().Length > 0
+            ? BuildReadout()
+            : _session.CurrentElevation > 0.01f ? $"⬆ {_session.CurrentElevation:0} m" : "elevation: ground");
     }
 
     /// <summary>Two-click vehicle spawn: origin road (travel direction from the

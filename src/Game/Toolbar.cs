@@ -153,7 +153,7 @@ public partial class Toolbar : Control
 
         var hint = new Label
         {
-            Text = "LMB place/drag handle · RMB step back · Enter confirm · Esc cancel · T release tangent lock · Ctrl+Z undo · Ctrl+Y redo · WASD pan · wheel zoom · Q/E rotate",
+            Text = "LMB place/drag handle · RMB step back · Enter confirm · Esc cancel · T release tangent lock · PgUp/PgDn elevation (Ctrl fine) · Ctrl+Z undo · Ctrl+Y redo · WASD pan · wheel zoom · Q/E rotate",
             Modulate = new Color(1, 1, 1, 0.6f),
         };
         box.AddChild(hint);

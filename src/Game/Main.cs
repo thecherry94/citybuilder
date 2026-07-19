@@ -150,6 +150,12 @@ public partial class Main : Node3D
             case InputEventKey { Keycode: Key.F9, Pressed: true }:
                 QuickLoad();
                 break;
+            case InputEventKey { Keycode: Key.Pageup, Pressed: true } pgUp:
+                _controller.StepElevation(pgUp.CtrlPressed ? 1f : 5f);
+                break;
+            case InputEventKey { Keycode: Key.Pagedown, Pressed: true } pgDn:
+                _controller.StepElevation(pgDn.CtrlPressed ? -1f : -5f);
+                break;
             case InputEventKey { Keycode: Key.Z, Pressed: true, CtrlPressed: true }:
                 TryUndo();
                 break;
@@ -365,6 +371,19 @@ public partial class Main : Node3D
             for (int i = 0; i < 900; i++)
                 _controller.HandleHoverAt(V(-80 + i * 0.15f, -60 + (i % 7) * 0.3f));
             _controller.CancelGesture();
+
+            // M8: elevated draw via the elevation-step surface — a +10 m road far from
+            // everything, committed and verified, then elevation reset for later steps
+            _controller.SetMode(ToolMode.Straight);
+            _controller.StepElevation(+5f);
+            _controller.StepElevation(+5f);
+            _controller.HandleClickAt(V(-300, -300));
+            _controller.HandleClickAt(V(-180, -300));
+            var elevated = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), new System.Numerics.Vector3(-240, 10, -300)) < 6f);
+            Expect(MathF.Abs(elevated.Curve.P0.Y - 10f) < 0.5f,
+                $"elevated draw committed at Y={elevated.Curve.P0.Y:F1}, wanted ~10");
+            _controller.StepElevation(-10f);
 
             // M7: upgrade via the tool surface + Ctrl+Z path (calls, not raw keys)
             _controller.SetMode(ToolMode.Upgrade);
