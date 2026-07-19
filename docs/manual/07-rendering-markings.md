@@ -40,7 +40,12 @@ bind once, subscribe to `Changed`, never hold a stale mesh.
 - **Depends on:** `RoadNetwork.Changed`/`NetworkDelta` (ch. 02), `RoadType`/`LaneSpec`,
   `JunctionGeometry`/`Corners`/`SurfacePolygon` ([ch. 03](03-junctions-control.md)), `Bezier3`/`ArcLengthTable`
   ([ch. 01](01-geometry.md)), `TrafficSim.Pose`/`PhaseFor` ([ch. 05](05-traffic-sim.md)).
-- **Last verified against commit:** `f0542d7` on 2026-07-16.
+- **Last verified against commit:** M8, 2026-07-19.
+- **Elevation (M8):** road/marking meshes follow curve Y verbatim (no changes
+  needed); `StructureView` (new) derives embankment skirts, girder fascia and
+  pillars per edge from height above ground on the same dirty-edge flow this
+  chapter describes. Vehicle pitch comes free from `Pose`'s 3D tangent. See
+  [ch. 10](10-elevation.md).
 
 ## The view resync model
 

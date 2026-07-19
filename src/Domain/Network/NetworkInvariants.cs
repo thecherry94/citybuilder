@@ -82,6 +82,14 @@ public static class NetworkInvariants
             if (min[i].X > max[j].X || min[j].X > max[i].X
                 || min[i].Z > max[j].Z || min[j].Z > max[i].Z)
                 continue;
+            // Y-band prefilter (M8): a bridge standing over a road is a PERMANENT
+            // XZ-overlap pair — without this, every fuzz action re-intersects it. If
+            // the curves' Y-ranges (control-net bounds, conservative) are separated by
+            // MinClearance, every crossing between them is grade-separated by
+            // definition and the expensive Intersections call can be skipped.
+            if (min[i].Y - max[j].Y >= GeoConstants.MinClearance
+                || min[j].Y - max[i].Y >= GeoConstants.MinClearance)
+                continue;
             var a = edges[i];
             var b = edges[j];
             foreach (var (t1, t2) in BezierOps.Intersections(a.Curve, b.Curve))

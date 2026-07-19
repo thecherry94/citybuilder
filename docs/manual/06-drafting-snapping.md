@@ -42,7 +42,11 @@ explained.
   (`Bezier3.FromQuadratic`, `BezierOps.ArcFromTangent`) and `MinRadius` for the live
   readout; `RoadCatalog`/`RoadType` (ch. 02) for per-type floors and `OuterHalf`
   (parallel-guide offset).
-- **Last verified against commit:** `dfae6af`, 2026-07-17 (M6.75).
+- **Last verified against commit:** M8, 2026-07-19.
+- **Elevation (M8):** `DraftSession.CurrentElevation` lifts every proposal in one
+  place (`ApplyElevation`): snapped endpoints adopt the target's Y, free endpoints
+  take the current elevation, control points interpolate. Snapping itself stays
+  XZ-planar. See [ch. 10](10-elevation.md).
 
 ## The session state machine
 

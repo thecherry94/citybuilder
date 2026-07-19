@@ -202,12 +202,41 @@ verified build.
   quickload); a dissolved roundabout leaves adjacent degree-2 bend nodes unhealed (cosmetic,
   heals on next edit).
 
+- **M8 — Elevation & bridges** (2026-07-19): signed Y gains meaning; the flat world
+  assumption is now explicit (ground = Y0 plane; rules phrased against "ground" so
+  terrain can slot in later). **The three-band crossing rule** (`VerticalRules`, ONE
+  classifier for Validate/Commit/segment-recheck/invariant/roundabout-obstruction):
+  coplanar within 0.6 m → junction as before; ≥ 4.7 m clearance → **grade-separated, no
+  junction at all**; between → `VerticalClash`, never legal. **Per-type gradients**
+  (10/8/6% by class) enforced at four altitudes — Validate `TooSteep`, the commit-side
+  relocation drop guard (fuzz find 303@241: absorption onto a different-Y node steepened
+  blended segments), `TryHealNode` refusal, invariant audit. **CS2-style authoring**:
+  PgUp/PgDn ±5 m (Ctrl ±1 m) on `DraftSession.CurrentElevation`; snapped ends adopt the
+  target's Y so ramps fall out of drawing away from a ground road; elevation+gradient
+  readout. **Zero traffic-sim changes** (third milestone running): no junction → nothing
+  to arbitrate; 3D lanes/tangents gave climbing and vehicle pitch for free. **Derived
+  structures** (`StructureView`): embankment skirts ≤ 1 m, girder fascia + pillars
+  (24 m/≥2 m clearance) above — no stored bridge state, gallery `bridge_*` shots as
+  evidence. Roundabouts convert at elevation; ramping legs re-profile onto the ring
+  plane or refuse (`LegTooSteep`, fuzzer-taught). KPI headline (`gradesep`): identical
+  demand over crossing arterials — **294 trips bridged vs 146 at-grade** (the junction
+  spawn-starves half the traffic). Certified: 3×10k fuzz with elevation in the alphabet,
+  full suite, smoke bridge scenario, UITEST elevated draw, manual ch10 + drift.
+  The 10k certification depth caught a fourth gradient-floor gap — `RetypeEdge`
+  accepted an 8% ramp onto a 6% type (303@3987, now `RetypeError.TooSteep`, pinned).
+  Known limits: editor-clamped ≥ 0 (M8.5 unlocks trenches/tunnels); no vertical
+  retrofit of committed roads (redraw, CS2-like); grade doesn't affect vehicle speed;
+  pillars are visual only (can stand in an underpass carriageway — cosmetic);
+  **fuzz wall-clock grew ~4× with elevation in the alphabet** (10k×3 ≈ 45 min — still
+  inside the "minutes not hours" gate, but a profiling pass is queued for M8.5; a
+  Y-band prefilter already exempts level decks from per-action re-intersection).
+
 ## Next up (roughly in order — each is one milestone)
 
-1. **Elevation & bridges.** The domain carries Y everywhere but is flat: gradient
-   limits, ramps, pillars, over/underpasses (crossing rule changes: grade-separated
-   crossings don't create junctions), retaining-wall/bridge meshes. Big win for network
-   expressiveness; prerequisite for highways.
+1. **M8.5 — Trenches & tunnels.** The negative half of the vertical axis the M8 domain
+   already accepts: unlock the editor clamp, retaining-wall meshes for open cuts,
+   covered tunnels with portals, an underground/x-ray view mode, and pillar placement
+   awareness (avoid standing in carriageways). The classification rules need no change.
 2. **Zoning & buildings.** Zone strips along edges (the offset machinery generalizes),
    demand-free procedural growth first: lots, simple building shells, despawn on
    bulldoze. Purely visual city-ness; no economy yet.

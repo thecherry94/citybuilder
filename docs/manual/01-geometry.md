@@ -44,7 +44,14 @@ algorithm namespace), `ArcLengthTable` (per-curve cache object), `GeoConstants`
   `Traffic/TrafficSim.cs:28,508` build cheap 24-sample tables per junction
   connector; `Game/JunctionMarkings.cs:264,378` (24/32 samples, dash placement).
 
-**Last verified against commit `f0542d7`, 2026-07-16.**
+**Last verified against commit `f0542d7`, 2026-07-16; M8 drift note 2026-07-19.**
+
+> **M8 drift:** Y is no longer inert. `VerticalRules` (this layer) classifies
+> XZ-projected crossings by vertical separation and samples max |dY/ds| gradients.
+> Everything in this chapter that says "XZ-projected" (`Intersections`,
+> `SelfIntersects`, `MinRadius`) still is — but coincidence checks built on those
+> results must compare XZ distance and classify the Y difference, never use 3D
+> distance (see ch. 10, the three-band rule).
 
 ## How it works
 

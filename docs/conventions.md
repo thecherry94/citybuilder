@@ -15,6 +15,12 @@
 - **Roundabouts circulate counter-clockwise** in XZ (the consequence of right-hand traffic).
   Ring edges are `OneWay`, directed CCW; a ring node yields its approach to circulating
   traffic (M7.5, see manual ch. 09).
+- **Elevation (M8):** ground is the flat Y=0 plane; elevation is structural height.
+  Crossing bands: coplanar within `JunctionYTolerance` 0.6 m → junction; ≥ `MinClearance`
+  4.7 m → grade-separated (no junction); between → illegal (`VerticalClash`). Per-type
+  `MaxGradient`: 10% Street/OneWay, 8% TwoLane/Asymmetric, 6% FourLane/Avenue. Editor
+  steps ±5 m (Ctrl ±1 m), clamped [0, 50 m] until M8.5 unlocks negative. One classifier
+  (`VerticalRules`) feeds every crossing decision — never re-derive the thresholds.
 
 ## Key constants
 | What | Value |
