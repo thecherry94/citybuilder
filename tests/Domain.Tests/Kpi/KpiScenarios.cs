@@ -1,5 +1,7 @@
 using System.Numerics;
 using CityBuilder.Domain.Catalog;
+using CityBuilder.Domain.Geometry;
+using CityBuilder.Domain.Tools;
 using CityBuilder.Domain.Network;
 using CityBuilder.Domain.Tests.Network;
 using CityBuilder.Domain.Traffic;
@@ -288,6 +290,89 @@ public static class KpiScenarios
             ["roundabout.delay_index"] = ratios.Length > 0 ? ratios.Average() : 0f,
             ["roundabout.stops_per_trip"] = stops.Length > 0 ? stops.Average() : 0f,
             ["roundabout.completed"] = trips.Count,
+        };
+    }
+
+    // ------------------------------------------------------------------- gradesep
+
+    /// <summary>Two crossing TwoLane arterials under identical pulse demand, twice:
+    /// variant A meets at an at-grade junction (Auto control), variant B carries the
+    /// N-S arterial over on a +6 m deck (grade-separated, no junction). Mean per-trip
+    /// delay on each documents elevation's payoff — the bridged variant should sit
+    /// near zero. This is the KPI face of M8's crossing-classification rule.</summary>
+    public static Dictionary<string, float> GradeSeparation()
+    {
+        (float Delay, int Completed) RunVariant(bool bridged)
+        {
+            var n = Net.New();
+            Net.Commit(n, Net.Straight(new Vector3(-150, 0, 0), new Vector3(150, 0, 0)));
+            if (bridged)
+            {
+                var deck = new Bezier3(new(0, 6, -150), new(0, 6, -50), new(0, 6, 50), new(0, 6, 150));
+                Net.Commit(n, new PlacementProposal(
+                    new[] { new ProposedCurve(deck, EndpointBinding.None, EndpointBinding.None) },
+                    RoadCatalog.TwoLane.Id));
+            }
+            else
+            {
+                Net.Commit(n, Net.Straight(new Vector3(0, 0, -150), new Vector3(0, 0, 150)));
+            }
+
+            var sim = new TrafficSim(n, seed: 17) { TripLog = new List<TrafficSim.TripRecord>() };
+            var ew = DirectedAxis(n, horizontal: true);
+            var ns = DirectedAxis(n, horizontal: false);
+            int pulse = 0;
+            for (int i = 0; i < 60 * 120; i++)
+            {
+                if (i % 30 == 0) // one vehicle each way every 0.5 s: saturates the at-grade yield
+                {
+                    var (e1, f1, g1) = ew[pulse % ew.Count];
+                    sim.Spawn(e1, f1, g1);
+                    var (e2, f2, g2) = ns[pulse % ns.Count];
+                    sim.Spawn(e2, f2, g2);
+                    pulse++;
+                }
+                sim.Tick(Dt);
+            }
+            var delays = sim.TripLog!
+                .Select(t => MathF.Max(0f, t.ArrivalTime - t.SpawnTime - t.FreeFlowTime))
+                .ToArray();
+            return (delays.Length > 0 ? delays.Average() : 0f, sim.TripLog!.Count);
+        }
+
+        // Throughput is the honest headline: the congested at-grade junction backs its
+        // queues up to the spawn points, REFUSING spawns — mean delay alone would
+        // compare only the survivors and hide most of the junction's cost.
+        var (atGradeDelay, atGradeDone) = RunVariant(bridged: false);
+        var (bridgedDelay, bridgedDone) = RunVariant(bridged: true);
+        return new Dictionary<string, float>
+        {
+            ["gradesep.at_grade_delay_s"] = atGradeDelay,
+            ["gradesep.bridged_delay_s"] = bridgedDelay,
+            ["gradesep.at_grade_completed"] = atGradeDone,
+            ["gradesep.bridged_completed"] = bridgedDone,
+        };
+    }
+
+    /// <summary>Both directed runs of the axis (E→W/W→E or N→S/S→N): edge to spawn on,
+    /// travel direction, and the goal edge at the far side. Works for both the split
+    /// at-grade axis (two edges) and the unsplit bridged axis (one edge).</summary>
+    private static List<(EdgeId Edge, bool Forward, EdgeId Goal)> DirectedAxis(RoadNetwork n, bool horizontal)
+    {
+        bool OnAxis(RoadEdge e) => horizontal
+            ? MathF.Abs(e.Curve.Point(0.5f).Z) < 20f && MathF.Abs(e.Curve.P0.Z - e.Curve.P3.Z) < 20f
+            : MathF.Abs(e.Curve.Point(0.5f).X) < 20f && MathF.Abs(e.Curve.P0.X - e.Curve.P3.X) < 20f;
+        var axis = n.Edges.Values.Where(OnAxis).OrderBy(e =>
+            horizontal ? e.Curve.Point(0.5f).X : e.Curve.Point(0.5f).Z).ToList();
+        var first = axis[0];
+        var last = axis[^1];
+        // forward along the edge whose curve runs toward positive axis direction
+        bool fwdFirst = horizontal ? first.Curve.P3.X > first.Curve.P0.X : first.Curve.P3.Z > first.Curve.P0.Z;
+        bool fwdLast = horizontal ? last.Curve.P3.X > last.Curve.P0.X : last.Curve.P3.Z > last.Curve.P0.Z;
+        return new List<(EdgeId, bool, EdgeId)>
+        {
+            (first.Id, fwdFirst, last.Id),   // near end → far end
+            (last.Id, !fwdLast, first.Id),   // far end → near end
         };
     }
 

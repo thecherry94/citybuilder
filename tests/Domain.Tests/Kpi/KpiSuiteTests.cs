@@ -18,7 +18,7 @@ public class KpiSuiteTests
     /// <summary>Controls the report filename: docs/health/{Milestone}.md. Bump this
     /// when a milestone's KPI pass starts; earlier milestone reports stay in git
     /// history under their own filename (never deleted).</summary>
-    private const string Milestone = "M7.5";
+    private const string Milestone = "M8";
 
     private const float BandPct = 0.25f;
     private const float ValidateCeilingMs = 150f;
@@ -38,6 +38,8 @@ public class KpiSuiteTests
         "yield4.minor_delay_mean_s", "yield4.minor_delay_p95_s", "yield4.completed",
         "grid.delay_index", "grid.stops_per_trip",
         "roundabout.delay_index", "roundabout.stops_per_trip", "roundabout.completed",
+        "gradesep.at_grade_delay_s", "gradesep.bridged_delay_s",
+        "gradesep.at_grade_completed", "gradesep.bridged_completed",
         "perf.validate500_ms", "perf.tick300_ms",
     };
 
@@ -74,6 +76,7 @@ public class KpiSuiteTests
         foreach (var (k, v) in KpiScenarios.Yield4Way()) metrics[k] = v;
         foreach (var (k, v) in KpiScenarios.GridCommute()) metrics[k] = v;
         foreach (var (k, v) in KpiScenarios.RoundaboutThroughput()) metrics[k] = v;
+        foreach (var (k, v) in KpiScenarios.GradeSeparation()) metrics[k] = v;
         foreach (var (k, v) in KpiScenarios.Perf()) metrics[k] = v;
 
         foreach (var key in ExpectedKeys)

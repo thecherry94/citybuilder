@@ -1,4 +1,8 @@
 {
+  "gradesep.at_grade_completed": 146,
+  "gradesep.at_grade_delay_s": 4.2688336,
+  "gradesep.bridged_completed": 294,
+  "gradesep.bridged_delay_s": 4.2174582,
   "grid.delay_index": 2.4822757,
   "grid.stops_per_trip": 1.6442953,
   "perf.tick300_ms": 0.28480002,
