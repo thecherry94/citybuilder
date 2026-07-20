@@ -777,6 +777,19 @@ public partial class Main : Node3D
             _view.FlushDirty();
             _structures.FlushDirty();
 
+            // M8.75: optional end-state geometry dump — the whole smoke scenario
+            // (grid, roundabout, bridge, tunnel) as an agent-readable SVG+JSON
+            var dumpDir = OS.GetEnvironment("CITYBUILDER_SMOKE_DUMP");
+            if (!string.IsNullOrEmpty(dumpDir))
+            {
+                System.IO.Directory.CreateDirectory(dumpDir);
+                var svgPath = System.IO.Path.Combine(dumpDir, "smoke_network.svg");
+                CityBuilder.Domain.Diagnostics.GeometryDump.SvgToFile(_network, svgPath);
+                CityBuilder.Domain.Diagnostics.GeometryDump.JsonToFile(
+                    _network, System.IO.Path.Combine(dumpDir, "smoke_network.json"));
+                GD.Print($"SMOKE DUMP {svgPath}");
+            }
+
             GD.Print("SMOKE OK");
             GetTree().Quit(0);
         }
