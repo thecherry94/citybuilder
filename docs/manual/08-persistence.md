@@ -62,11 +62,13 @@ accidentally leak into `RoadNetwork`'s actual object graph:
 
 ```csharp
 public sealed record SaveGame(int FormatVersion, NodeDto[] Nodes, EdgeDto[] Edges,
-    int NextNode, int NextEdge, int NextLane);
+    int NextNode, int NextEdge, int NextLane,
+    RoundaboutDto[]? Roundabouts = null, int NextRoundabout = 0);   // v2 (M7.5)
 public sealed record NodeDto(int Id, float X, float Y, float Z, ConfigDto Config);
 public sealed record ConfigDto(int Mode, float SizeOffset, RoleDto[] Roles, LegOffsetDto[] LegOffsets);
 public sealed record EdgeDto(int Id, int Start, int End, int Type,
-    float[] Curve /* 12 floats: P0..P3, each X,Y,Z */, int[] LaneIds /* catalog order */);
+    float[] Curve /* 12 floats: P0..P3, each X,Y,Z */, int[] LaneIds /* catalog order */,
+    bool Covered = false);                                          // v3 (M8.5)
 ```
 
 What's stored is exactly what cannot be recomputed from anything else: node id and
@@ -96,12 +98,13 @@ each edge's lane ids in the catalog's own enumeration order
 that matters to the rest of the system stays put.
 
 **Version guard.** `SaveGame.FormatVersion` is compared against `SaveLoad.FormatVersion`
-(currently `1`, `SaveLoad.cs:13`) before anything else happens: a save with a *higher*
+(currently `3`, `SaveLoad.cs:13`) before anything else happens: a save with a *higher*
 version throws `SaveFormatException` immediately (`SaveLoad.cs:45-47`) — this build is
 older than the file and cannot know what fields it's missing. A save with an *equal or
-lower* version is accepted; there is no migration path yet (see Known limits), so in
-practice "lower" is currently a no-op since `1` is the only version that has ever
-existed.
+lower* version is accepted; migration is additive-with-defaults rather than scripted:
+v2 (M7.5) appended `Roundabouts`/`NextRoundabout` to `SaveGame`, v3 (M8.5) appended
+`Covered` to `EdgeDto` — in both cases an absent property deserializes to its default
+(`null` → empty registry, `false` → uncovered), so v1/v2 files load unchanged.
 
 **Byte-stable ordering.** `Save` is deterministic by construction, not by luck:
 `ToSaveGame` sorts nodes and edges by id (`SaveLoad.cs:54-61`,

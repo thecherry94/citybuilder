@@ -144,3 +144,16 @@ Hard-won. Read the relevant section before touching that area.
   from deck to ground, signals standing under the bridge). Pattern: `pos.Y += offset`
   against the geometry's own Y, or pass the node's `Position.Y` as the base; grep for
   `\.Y = ` in `src/Game` when adding node-attached visuals.
+- **Everything below the ground plane is invisible — the plane has no holes.** The
+  first trench gallery pass rendered a −4 m cut as a hairline seam: walls, coping, and
+  the sunken road were all under the opaque `Ground` plane. Two consequences, both
+  deliberate (M8.5): open cuts emit a translucent dark "cut-opening" strip 2 cm above
+  ground (`Materials.CutOpening`) as a fake hole, and the x-ray view exists because
+  no normal-view angle can show a tunnel. If terrain ever lands, delete the strip
+  (it's an isolated surface in `StructureView.BuildStructures`) and cut real holes.
+- **Tool picking must be plan-view (XZ), not 3D distance.** The cursor lives on the
+  Y=0 plane, so `FindClosestEdge` (3D) put a ±10 m deck 10 m away before any lateral
+  error — upgrade/bulldoze/inspect silently couldn't hover bridges from M8 on, and
+  the covered-toggle UITEST was what finally caught it. Use `FindClosestEdgeXZ` /
+  `FindNodeNearXZ` for anything cursor-driven; they tie-break stacked decks toward
+  the ground (`XZPickingTests`).

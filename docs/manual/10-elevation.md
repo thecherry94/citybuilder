@@ -11,8 +11,8 @@ it just never varied.
 The standing assumption: **the world is flat — ground is the Y=0 plane.** Every rule in
 this chapter is phrased against "ground" so a future terrain milestone can substitute
 `terrain(x, z)` without re-litigating the semantics. Negative elevation (trenches,
-tunnels) is M8.5: the domain is signed already; only the editor clamp and the missing
-underground rendering hold it back.
+tunnels) landed in M8.5 exactly as anticipated — the domain was signed already, so it
+cost one flag, an editor unlock, and rendering; see [chapter 11](11-trenches-tunnels.md).
 
 ## At a glance
 

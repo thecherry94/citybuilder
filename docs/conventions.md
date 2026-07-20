@@ -20,8 +20,14 @@
   4.7 m → grade-separated (no junction); between → illegal (`VerticalClash`). Per-type
   `MaxGradient`: 20% Street/OneWay, 15% TwoLane/Asymmetric, 12% FourLane/Avenue
   (CS2-style game-feel caps, retuned post-M8 from realistic 10/8/6%). Editor
-  steps ±5 m (Ctrl ±1 m), clamped [0, 50 m] until M8.5 unlocks negative. One classifier
+  steps ±5 m (Ctrl ±1 m), clamped [−50, +50 m] (M8.5 unlocked negative). One classifier
   (`VerticalRules`) feeds every crossing decision — never re-derive the thresholds.
+- **Trenches & tunnels (M8.5):** `RoadEdge.Covered` is the player's explicit open-cut
+  vs tunnel choice (save v3; split children inherit, heal keeps it iff both agree,
+  retype/flip preserve). A covered span renders as tunnel only below `PortalDepth`
+  3 m — portals sit where the deck crosses that depth, never at curve ends. Tool
+  picking is plan-view (`FindClosestEdgeXZ`) so ±Y decks stay hoverable; `U` toggles
+  x-ray, drafting below ground auto-engages it. See manual ch. 11.
 
 ## Key constants
 | What | Value |

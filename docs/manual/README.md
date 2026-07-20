@@ -40,6 +40,7 @@ conventions, and the full known-issues list. Then read the chapter matching your
 | 08 | [Persistence](08-persistence.md) | Versioned JSON save/load with a byte-stable round-trip contract. |
 | 09 | [Roundabouts](09-roundabouts.md) | The live entity layered on the road graph: the pure geometry planner, the convert/re-arc registry, and why yield-on-entry is derived, not stored. |
 | 10 | [Elevation & structures](10-elevation.md) | Signed Y with meaning: the three-band crossing rule (junction / clash / grade-separated), gradient floors at four altitudes, and bridges derived — not stored — from height above ground. |
+| 11 | [Trenches & tunnels](11-trenches-tunnels.md) | The negative half (M8.5): the one-bit `Covered` flag and its propagation invariants, portal placement at depth crossings, the cut-opening rendering trick, x-ray, XZ picking, pillar awareness. |
 | — | [Glossary](glossary.md) | 60 cross-cutting terms, each linked to the chapter section that explains it best. |
 
 ## How the manual stays current
