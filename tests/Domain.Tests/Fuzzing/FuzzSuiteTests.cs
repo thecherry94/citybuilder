@@ -25,8 +25,10 @@ public class FuzzSuiteTests
     {
         int actions = int.TryParse(Environment.GetEnvironmentVariable("CITYBUILDER_FUZZ_ACTIONS"), out var a) ? a : 300;
         var result = GestureFuzzer.Run(new FuzzOptions(seed, actions));
+        var artifacts = result.Ok ? "" :
+            FuzzArtifacts.DumpOnFailure(GestureFuzzer.LastNetwork, $"seed{seed}_action{result.FailedAtAction}");
         Assert.True(result.Ok,
             $"seed {seed} failed at action {result.FailedAtAction}: {result.Failure}\n" +
-            string.Join("\n", result.ActionTail));
+            string.Join("\n", result.ActionTail) + artifacts);
     }
 }
