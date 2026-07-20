@@ -427,6 +427,22 @@ public static class KpiScenarios
         sw.Stop();
         float validateMs = (float)sw.Elapsed.TotalMilliseconds;
 
+        // M8.5: the same long diagonal, but well above every grid road (a bridge, or a
+        // tunnel deck under nothing) — every crossing is grade-separated. The M8.5
+        // Validate Y-band prefilter should skip the entire grid's expensive
+        // intersection scans here, so this must be far cheaper than the coplanar case
+        // above. Guards against a regression that drops the prefilter and makes
+        // building a bridge over a dense city cost a full-grid re-intersection.
+        var graded = new PlacementProposal(
+            new[] { new ProposedCurve(
+                Bezier3.Line(new Vector3(-50, 20, -50), new Vector3(1550, 20, 1550)),
+                EndpointBinding.None, EndpointBinding.None) },
+            RoadCatalog.TwoLane.Id);
+        var swG = System.Diagnostics.Stopwatch.StartNew();
+        n.Validate(graded);
+        swG.Stop();
+        float validateGradedMs = (float)swG.Elapsed.TotalMilliseconds;
+
         var sim = new TrafficSim(n, seed: 71);
         var rng = new Random(71);
         var edges = n.Edges.Keys.ToArray();
@@ -455,6 +471,7 @@ public static class KpiScenarios
         return new Dictionary<string, float>
         {
             ["perf.validate500_ms"] = validateMs,
+            ["perf.validate500_graded_ms"] = validateGradedMs,
             ["perf.tick300_ms"] = tickMs,
         };
     }

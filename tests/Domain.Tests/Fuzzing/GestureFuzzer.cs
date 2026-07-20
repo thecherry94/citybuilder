@@ -88,8 +88,9 @@ public static class GestureFuzzer
                 else if (pick < 82) { undo.Checkpoint(); ConvertRoundabout(network, rng, Log); }
                 else if (pick < 85) { undo.Checkpoint(); AdjustRoundaboutRadius(network, rng, Log); }
                 else if (pick < 87) { undo.Checkpoint(); RemoveRoundaboutAction(network, rng, Log); }
-                else if (pick < 93) UndoRedo(undo, session, rng, Log);
-                else if (pick < 97) ToggleSnap(session, rng, Log);
+                else if (pick < 90) { undo.Checkpoint(); ToggleCovered(network, rng, Log); }
+                else if (pick < 95) UndoRedo(undo, session, rng, Log);
+                else if (pick < 98) ToggleSnap(session, rng, Log);
                 else StepBackCancel(session, network, rng, Log);
             }
             catch (Exception ex)
@@ -193,7 +194,12 @@ public static class GestureFuzzer
         session.RoadType = type.Id;
         // elevation (M8): mostly ground (70%), else a step multiple in [5, 50] — grade
         // separation, clash refusals, and steep-ramp refusals all get organic coverage
-        session.CurrentElevation = rng.Next(100) < 70 ? 0f : 5f * rng.Next(1, 11);
+        // signed since M8.5: 70% ground, 15% elevated, 15% dug (±5..50 m). The
+        // off-ground FREQUENCY matches the pre-M8.5 alphabet (which was 30% elevated)
+        // so certification wall-clock stays tractable — only the sign is newly split,
+        // which is what exercises trenches/tunnels without doubling the elevation load.
+        session.CurrentElevation = rng.Next(100) < 70 ? 0f
+            : (rng.Next(2) == 0 ? 5f : -5f) * rng.Next(1, 11);
 
         var points = new List<Vector3>();
         int clicks = rng.Next(2, 5); // 2..4 inclusive
@@ -240,6 +246,15 @@ public static class GestureFuzzer
         var type = AllTypes[rng.Next(AllTypes.Length)];
         var err = network.RetypeEdge(id, type);
         log($"retype edge={id.Value} type={type.Value} result={(err is null ? "ok" : err.ToString())}");
+    }
+
+    private static void ToggleCovered(RoadNetwork network, Random rng, Action<string> log)
+    {
+        if (network.Edges.Count == 0)
+            return;
+        var edge = network.Edges.Values.ElementAt(rng.Next(network.Edges.Count));
+        bool ok = network.SetCovered(edge.Id, !edge.Covered);
+        log($"cover edge={edge.Id.Value} now={!edge.Covered} ok={ok}");
     }
 
     private static void Flip(RoadNetwork network, Random rng, Action<string> log)

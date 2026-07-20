@@ -46,6 +46,27 @@ public sealed class RoadEdge
     /// retype/flip/leg-regeneration preserve it.</summary>
     public bool Covered { get; internal set; }
 
+    private float _maxGradient = float.NaN;
+
+    /// <summary>Max |dY/ds| along the curve, computed once and cached (M8.5 fuzz perf
+    /// pass). The curve is immutable after construction — every edit that changes
+    /// geometry builds a fresh RoadEdge instance — so this is safe to memoize, and the
+    /// per-edge gradient invariant is checked on every fuzz action against edges that
+    /// almost never changed since the last check.</summary>
+    public float MaxGradient => float.IsNaN(_maxGradient)
+        ? _maxGradient = VerticalRules.MaxGradient(Curve, ArcLength.TotalLength)
+        : _maxGradient;
+
+    private float _minRadius = float.NaN;
+
+    /// <summary>Min turning radius along the curve, computed once and cached — same
+    /// immutable-curve reasoning as <see cref="MaxGradient"/> (M8.5 fuzz perf pass).
+    /// <see cref="Geometry.BezierOps.MinRadius"/> is adaptive sampling; the per-edge
+    /// geometry invariant asked for it fresh on every fuzz action pre-M8.5.</summary>
+    public float MinRadius => float.IsNaN(_minRadius)
+        ? _minRadius = BezierOps.MinRadius(Curve)
+        : _minRadius;
+
     internal RoadEdge(EdgeId id, NodeId start, NodeId end, in Bezier3 curve, RoadTypeId type)
     {
         Id = id;

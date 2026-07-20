@@ -216,17 +216,19 @@ public static class NetworkInvariants
     /// curvature radius (with the same 0.1 m slack <see cref="RoadNetwork.Validate"/> allows).</summary>
     public static void CheckEdgeGeometry(RoadEdge e, RoadType type, List<string> outViolations)
     {
-        float len = e.Curve.Length();
+        // all three sampled quantities are cached on the immutable edge (M8.5 perf):
+        // TotalLength precomputed at construction, MinRadius/MaxGradient memoized
+        float len = e.ArcLength.TotalLength;
         float minLen = type.MinSegmentLength - 0.1f;
         if (len < minLen)
             outViolations.Add($"edge {e.Id.Value}: length {len:F1} < min {minLen:F1}");
 
-        float radius = BezierOps.MinRadius(e.Curve);
+        float radius = e.MinRadius;
         float minRadius = type.MinRadius - 0.1f;
         if (radius < minRadius)
             outViolations.Add($"edge {e.Id.Value}: radius {radius:F1} < min {minRadius:F1}");
 
-        float grad = VerticalRules.MaxGradient(e.Curve, e.ArcLength.TotalLength);
+        float grad = e.MaxGradient;
         if (grad > type.MaxGradient + 0.005f)
             outViolations.Add($"edge {e.Id.Value}: gradient {grad:P1} > max {type.MaxGradient:P0}");
     }

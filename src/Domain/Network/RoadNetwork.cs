@@ -149,9 +149,30 @@ public sealed partial class RoadNetwork
             Vector3 a = pc.Curve.Point(0), b = pc.Curve.Point(1);
             bool shallow = false, sliver = false, touchesOwned = false, clash = false;
             var crossParams = new List<float>();
+            // AABB + Y-band prefilter (M8.5 perf): the crossing scan is the draw-time
+            // hot path — O(edges) adaptive-subdivision intersections per proposal. A
+            // proposal curve can only cross an edge whose XZ bounds overlap its own
+            // (Bézier convex-hull property), and if their Y-ranges are separated by
+            // MinClearance every crossing is grade-separated (a no-op below). Both are
+            // the same prefilters NetworkInvariants.CheckEdgeCrossings already uses;
+            // skipping a provably-non-crossing or provably-cleared edge is exactly the
+            // work the loop body would discard anyway, so behaviour is unchanged.
+            var pcBoxMin = Vector3.Min(Vector3.Min(pc.Curve.P0, pc.Curve.P1), Vector3.Min(pc.Curve.P2, pc.Curve.P3));
+            var pcBoxMax = Vector3.Max(Vector3.Max(pc.Curve.P0, pc.Curve.P1), Vector3.Max(pc.Curve.P2, pc.Curve.P3));
             foreach (var e in _edges.Values)
-            foreach (var (t1, t2) in BezierOps.Intersections(pc.Curve, e.Curve))
             {
+                var ec = e.Curve;
+                var eBoxMin = Vector3.Min(Vector3.Min(ec.P0, ec.P1), Vector3.Min(ec.P2, ec.P3));
+                var eBoxMax = Vector3.Max(Vector3.Max(ec.P0, ec.P1), Vector3.Max(ec.P2, ec.P3));
+                if (eBoxMin.X > pcBoxMax.X || pcBoxMin.X > eBoxMax.X
+                    || eBoxMin.Z > pcBoxMax.Z || pcBoxMin.Z > eBoxMax.Z)
+                    continue; // XZ-disjoint: no intersection possible
+                if (pcBoxMin.Y - eBoxMax.Y >= GeoConstants.MinClearance
+                    || eBoxMin.Y - pcBoxMax.Y >= GeoConstants.MinClearance)
+                    continue; // vertically cleared: every crossing would be grade-separated
+
+                foreach (var (t1, t2) in BezierOps.Intersections(pc.Curve, e.Curve))
+                {
                 var p = pc.Curve.Point(t1);
                 if (Vector3.Distance(p, a) <= NodeReuseRadius || Vector3.Distance(p, b) <= NodeReuseRadius)
                     continue; // connection at an endpoint, not a crossing
@@ -196,6 +217,7 @@ public sealed partial class RoadNetwork
                     if (!hitsPerExistingEdge.TryGetValue(e.Id, out var along))
                         hitsPerExistingEdge[e.Id] = along = new List<float>();
                     along.Add(dAlong);
+                }
                 }
             }
             if (shallow)
@@ -427,6 +449,25 @@ public sealed partial class RoadNetwork
     {
         const int samples = 32;
         float halfNew = RoadCatalog.Get(type).Width / 2;
+
+        // precompute each edge's control-net AABB, half-width and overlap threshold once
+        // (M8.5 perf): overlap requires 3D dist(sample, edge) < thr; the curve lies
+        // inside its AABB, so any sample farther than thr from the AABB in ANY axis is
+        // farther than thr from the curve and cannot flag — a cheap reject that skips
+        // the ClosestPoint call for the whole grade-separated grid a bridge/tunnel
+        // passes over. Same convex-hull reasoning as the crossing-scan prefilter above.
+        var edges = _edges.Values.ToArray();
+        var eMin = new Vector3[edges.Length];
+        var eMax = new Vector3[edges.Length];
+        var eThr = new float[edges.Length];
+        for (int k = 0; k < edges.Length; k++)
+        {
+            var c = edges[k].Curve;
+            eMin[k] = Vector3.Min(Vector3.Min(c.P0, c.P1), Vector3.Min(c.P2, c.P3));
+            eMax[k] = Vector3.Max(Vector3.Max(c.P0, c.P1), Vector3.Max(c.P2, c.P3));
+            eThr[k] = (halfNew + RoadCatalog.Get(edges[k].Type).Width / 2) * 0.8f;
+        }
+
         int flagged = 0, counted = 0;
         for (int i = 0; i <= samples; i++)
         {
@@ -434,13 +475,18 @@ public sealed partial class RoadNetwork
             var p = pc.Curve.Point(t);
             var tangent = pc.Curve.Tangent(t);
             counted++;
-            foreach (var e in _edges.Values)
+            for (int k = 0; k < edges.Length; k++)
             {
+                float thr = eThr[k];
+                if (p.X < eMin[k].X - thr || p.X > eMax[k].X + thr
+                    || p.Y < eMin[k].Y - thr || p.Y > eMax[k].Y + thr
+                    || p.Z < eMin[k].Z - thr || p.Z > eMax[k].Z + thr)
+                    continue; // provably farther than thr from this edge: cannot overlap
+                var e = edges[k];
                 var (et, dist) = BezierOps.ClosestPoint(e.Curve, p);
                 if (et < 0.02f || et > 0.98f)
                     continue; // clamped at an endpoint: lateral proximity to a node, not overlap
-                float halfOld = RoadCatalog.Get(e.Type).Width / 2;
-                if (dist < (halfNew + halfOld) * 0.8f
+                if (dist < thr
                     && MathF.Abs(Vector3.Dot(tangent, e.Curve.Tangent(et))) > 0.95f)
                 {
                     flagged++;

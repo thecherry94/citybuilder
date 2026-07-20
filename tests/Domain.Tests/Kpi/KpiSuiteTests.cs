@@ -18,13 +18,18 @@ public class KpiSuiteTests
     /// <summary>Controls the report filename: docs/health/{Milestone}.md. Bump this
     /// when a milestone's KPI pass starts; earlier milestone reports stay in git
     /// history under their own filename (never deleted).</summary>
-    private const string Milestone = "M8";
+    private const string Milestone = "M8.5";
 
     private const float BandPct = 0.25f;
     private const float ValidateCeilingMs = 150f;
+    // grade-separated draw over the whole grid: the M8.5 Y-band prefilters skip every
+    // vertically-cleared edge, so this must stay far under the coplanar ceiling — a
+    // regression that drops a prefilter makes building over a dense city O(edges) again
+    private const float ValidateGradedCeilingMs = 30f;
     private const float TickCeilingMs = 8f;
 
-    private static readonly string[] PerfKeys = { "perf.validate500_ms", "perf.tick300_ms" };
+    private static readonly string[] PerfKeys =
+        { "perf.validate500_ms", "perf.validate500_graded_ms", "perf.tick300_ms" };
 
     /// <summary>Prefix for diagnostic-only metrics: recorded in kpi-latest.json and the
     /// markdown report for visibility, but never banded against the baseline and never
@@ -40,7 +45,7 @@ public class KpiSuiteTests
         "roundabout.delay_index", "roundabout.stops_per_trip", "roundabout.completed",
         "gradesep.at_grade_delay_s", "gradesep.bridged_delay_s",
         "gradesep.at_grade_completed", "gradesep.bridged_completed",
-        "perf.validate500_ms", "perf.tick300_ms",
+        "perf.validate500_ms", "perf.validate500_graded_ms", "perf.tick300_ms",
     };
 
     [Fact]
@@ -86,7 +91,12 @@ public class KpiSuiteTests
         var ceilingFailures = new List<string>();
         foreach (var key in PerfKeys)
         {
-            float ceiling = key == "perf.validate500_ms" ? ValidateCeilingMs : TickCeilingMs;
+            float ceiling = key switch
+            {
+                "perf.validate500_ms" => ValidateCeilingMs,
+                "perf.validate500_graded_ms" => ValidateGradedCeilingMs,
+                _ => TickCeilingMs,
+            };
             if (metrics[key] >= ceiling)
                 ceilingFailures.Add($"{key} = {metrics[key]:F3} ms >= absolute ceiling {ceiling} ms");
         }
