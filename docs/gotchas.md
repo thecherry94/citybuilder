@@ -19,6 +19,20 @@ Hard-won. Read the relevant section before touching that area.
   dump quads.
 - Materials are embedded per surface (`SurfaceTool.SetMaterial`); per-node junction
   meshes combine asphalt + paint + props as surfaces of one ArrayMesh.
+- **Never build paint as a flat plate in a local frame** — drape it. A turn arrow
+  authored as `origin + forward·y + right·x` at one Y buried itself under any ramped
+  approach (only a corner of the glyph poked through the slope); every vertex must
+  re-sample the curve at its own arc distance/lateral offset, axes flipped with the
+  edge's arc direction (`AddTurnArrow`/`AddCrosswalk`, 2026-07-20). Same class as the
+  M8 "markings overwrote curve-derived Y" find — grep for local-frame paint when
+  adding glyphs.
+- **Thin paint quads shred into floating white streaks at grazing view angles**: a
+  distant deck seen near-edge-on foreshortens the asphalt below a pixel while the
+  paint 1 cm above it still rasterizes — MSAA turns that into smears hovering past
+  the silhouette. Mitigations that matter: small hover (`MarkingY − SurfaceY` =
+  1 cm) and the `Materials.Marking` shader's grazing-angle alpha-scissor cut
+  (~4°). Camera `Near` is NOT the lever — Godot 4.3+ reversed-Z already gives
+  millimetre depth precision at range.
 
 ## Godot process / harness
 - **`OS.GetCmdlineArgs()` strips engine-recognized flags** (`--headless`,

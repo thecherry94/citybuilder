@@ -13,11 +13,26 @@ public static class Materials
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 
-    public static readonly StandardMaterial3D Marking = new()
+    /// <summary>Road paint. A shader rather than a StandardMaterial3D: at grazing
+    /// view angles the thin paint quads foreshorten below a pixel and MSAA shreds
+    /// them into floating white streaks over distant decks. The shader cuts the
+    /// paint (alpha scissor — stays in the opaque pass, no sorting) once the view
+    /// ray is within ~3° of the surface, where paint is illegible anyway.</summary>
+    public static readonly ShaderMaterial Marking = new()
     {
-        AlbedoColor = new Color(0.92f, 0.92f, 0.88f),
-        Roughness = 0.7f,
-        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        Shader = new Shader
+        {
+            Code = """
+                shader_type spatial;
+                render_mode cull_disabled;
+                void fragment() {
+                    ALBEDO = vec3(0.92, 0.92, 0.88);
+                    ROUGHNESS = 0.7;
+                    ALPHA = abs(dot(normalize(NORMAL), normalize(VIEW))) < 0.075 ? 0.0 : 1.0;
+                    ALPHA_SCISSOR_THRESHOLD = 0.5;
+                }
+                """,
+        },
     };
 
     /// <summary>Embankment fill under low elevated roads (M8 structures).</summary>

@@ -48,7 +48,7 @@
 | Undo (M7, `UndoStack`) | snapshot-based on SaveLoad; capacity 50; `Checkpoint()` BEFORE mutations, deduped by `RoadNetwork.Version`; restore reruns the quickload resync; perf-guarded < 100 ms at 480 edges |
 | Retype/flip (M7, `RetypeEdge`/`FlipEdge`) | same-`EdgeId` replacement (junction configs survive, `LaneId`s regenerate); retype errors `UnknownEdge/SameType/TooShort/TooTight` validated against the existing curve; delta carries `EdgesChanged` |
 | Heal continuity (M7, `TryHealNode`) | pair ordered by `EdgeId`; direction-asymmetric types heal only continuous flow (one in, one out), merged upstream-first; opposing flows keep the node |
-| SurfaceY / MarkingY / SidewalkRise | 0.07 / 0.10 / 0.13 |
+| SurfaceY / MarkingY / SidewalkRise | 0.07 / 0.08 / 0.13 (paint hovers only 1 cm — 3 cm read as detached streaks past a distant deck's silhouette) |
 | Marking dash on/off, line width | 3 m / 3 m, 0.15 m |
 | JunctionBuilder CornerMargin / MaxCutFraction / MaxExtra | 0.5 m / 30 % / 12 m |
 | Snap radius | camDist × 0.02, clamped [1, 20] |

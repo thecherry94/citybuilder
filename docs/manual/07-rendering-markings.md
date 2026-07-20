@@ -130,12 +130,20 @@ back to a centroid fan only if triangulation itself fails on a degenerate outlin
 (`MeshBuilders.cs:353-362`). `JunctionMarkings.Build` (`JunctionMarkings.cs:34-118`)
 paints on top of that mesh per-approach: a stop line, yield "shark teeth," or nothing
 depending on `JunctionControl.Resolve`'s role for that leg (ch. 03); a turn arrow per
-incoming lane built from `ArrowGlyph`, authored in a local frame (+Y toward the
+incoming lane built from `ArrowGlyph`, authored in a driver frame (+Y toward the
 junction, +X to the driver's right) and direction-aware because `moves` comes straight
 from that lane's actual `Connector.Turn` set — a lane restricted to right-only by
 `ConnectorBuilder`'s turn-lane assignment (ch. 04's central bug fix) never gets a
 straight arrow, and repaints automatically the next time the node is dirtied since
 markings are rebuilt from the same node-rebuild path, never cached separately.
+**Arrows and crosswalks drape**: every glyph/bar vertex re-samples the edge curve at
+its own arc distance and lateral offset (both axes flip with the edge's arc
+direction), because a flat plate at the base point's Y buried most of the glyph
+under a ramped approach — the elevated-junction user find of 2026-07-20; stop
+lines/teeth were always thin enough to stay per-vertex-sampled. Elevated junction
+slabs and dead-end caps additionally carry a 1.2 m concrete **fascia band** along
+their rim (`AddFasciaQuad`, matching `StructureView.FasciaDepth`) so the polygon's
+corner bulges — which per-edge fascia can't cover — don't read paper-thin.
 Left-turn guidance dashes run along the connector curve's left edge, one per
 approach→exit pair (the tightest connector of the group) rather than one per lane
 pair, to avoid a "starburst" of overlapping dashes at multi-lane junctions.
@@ -286,9 +294,15 @@ it.
 
 ## Tuning constants
 
-- `MeshBuilders.SurfaceY = 0.07f` / `MarkingY = 0.10f` — vertical layering so asphalt,
-  markings, and sidewalks/props never z-fight (markings 3 cm above asphalt, sidewalks
-  another ~6 cm above via `SidewalkRise = 0.13f`; `BikeTintY = SurfaceY + 0.004f`).
+- `MeshBuilders.SurfaceY = 0.07f` / `MarkingY = 0.08f` — vertical layering so asphalt,
+  markings, and sidewalks/props never z-fight (markings 1 cm above asphalt — 3 cm
+  visibly hovered past a distant deck's silhouette as detached streaks; sidewalks
+  above via `SidewalkRise = 0.13f`; `BikeTintY = SurfaceY + 0.004f`; guidance dashes
+  at `MarkingY − 0.005`, between asphalt and the other paint).
+- `Materials.Marking` is a ShaderMaterial: paint alpha-scissors itself away when the
+  view ray is within ~4° of the surface (`dot(NORMAL, VIEW) < 0.075`) — at grazing
+  angles the 0.15 m quads foreshorten below a pixel and MSAA shreds them into
+  floating white streaks over distant decks (2026-07-20). Opaque pass, no sorting.
 - `MarkingWidth = 0.15f` — real-world lane-paint width; the exact figure the MSAA
   gotcha above is about.
 - `ChordTolerance = 0.15f` — tessellation error bound for `BezierOps.Tessellate`; every

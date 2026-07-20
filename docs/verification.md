@@ -14,8 +14,13 @@ claims, always.
 | UI test | `CITYBUILDER_UITEST=<out.png> godot .` → `UITEST OK …` | scripted UI flow + full-UI screenshot |
 
 Screenshot harness extras:
+- **Angle policy** (2026-07-20, elevated-junction find): high oblique/top shots hide
+  whole defect classes — buried paint, paper-thin slabs, grazing-angle shredding all
+  read fine from 35°+ overhead. A scene involving elevation or junctions should also
+  shoot **driver height** (pitch ≈ −10°), a **close corner**, and **from below** the
+  deck (positive pitch) — see the `elevated_tee_ramps` scenario for the pattern.
 - `CITYBUILDER_SHOTS_TINT=1` — tint junction meshes to attribute overlapping surfaces.
-- `CITYBUILDER_SHOTS_DUMP=<scenario>` — print flat quads at marking height (Y≈0.10):
+- `CITYBUILDER_SHOTS_DUMP=<scenario>` — print flat quads at marking height (`MeshBuilders.MarkingY`):
   **ground truth for where paint actually is** — far more reliable than pixel-guessing.
 - Traffic scenarios also emit `*_motion0..7.png` filmstrips (0.33 s apart).
 

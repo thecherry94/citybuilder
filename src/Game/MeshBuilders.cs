@@ -20,9 +20,16 @@ namespace CityBuilder.Game;
 public static class MeshBuilders
 {
     public const float SurfaceY = 0.07f;
-    public const float MarkingY = 0.10f;
+    // 1 cm above the asphalt: enough separation for reversed-Z depth at any game
+    // range, small enough that paint can't visibly hover past the deck silhouette —
+    // the old 3 cm read as detached white streaks when a distant deck was viewed
+    // near-edge-on and its sub-pixel asphalt vanished under the paint (2026-07-20)
+    public const float MarkingY = 0.08f;
     public const float SidewalkRise = 0.13f;
     private const float SkirtWidth = 0.3f;
+    // girder side-skirt below an elevated junction slab / cap rim — matches
+    // StructureView.FasciaDepth so the band lines up with the legs' edge fascia
+    private const float JunctionFasciaDepth = 1.2f;
     private const float ChordTolerance = 0.15f;
     private const float MarkingWidth = 0.15f;
     private const float DashOn = 3f, DashOff = 3f;
@@ -375,7 +382,36 @@ public static class MeshBuilders
 
         if (node.Junction.Corners.Count > 0)
             BuildCornerZones(node.Junction.Corners, node.Position.Y).Commit(mesh);
+
+        // bridge-high slab: the per-edge fascia (StructureView) stops covering the
+        // rim where the polygon bulges past the legs, so an elevated junction read
+        // paper-thin at its corners (user find, 2026-07-20) — the slab perimeter
+        // carries its own fascia band, following the rim's per-vertex Y
+        if (node.Position.Y > GeoConstants.EmbankmentMax)
+        {
+            var fascia = new SurfaceTool();
+            fascia.Begin(Mesh.PrimitiveType.Triangles);
+            fascia.SetMaterial(Materials.Concrete);
+            for (int i = 0; i < poly.Count; i++)
+                AddFasciaQuad(fascia,
+                    poly[i].ToGodot() + Vector3.Up * SurfaceY,
+                    poly[(i + 1) % poly.Count].ToGodot() + Vector3.Up * SurfaceY);
+            fascia.Commit(mesh);
+        }
         return mesh;
+    }
+
+    /// <summary>Vertical band from the rim edge down <see cref="JunctionFasciaDepth"/>.
+    /// Double-sided (seen from outside and from under the deck), like the
+    /// StructureView fascia it continues.</summary>
+    private static void AddFasciaQuad(SurfaceTool st, Vector3 a, Vector3 b)
+    {
+        var a2 = a with { Y = a.Y - JunctionFasciaDepth };
+        var b2 = b with { Y = b.Y - JunctionFasciaDepth };
+        st.AddVertex(a); st.AddVertex(b); st.AddVertex(b2);
+        st.AddVertex(a); st.AddVertex(b2); st.AddVertex(a2);
+        st.AddVertex(a); st.AddVertex(b2); st.AddVertex(b);
+        st.AddVertex(a); st.AddVertex(a2); st.AddVertex(b2);
     }
 
     /// <summary>Raised concrete corner sidewalks: flat top, curb faces along the
@@ -530,6 +566,16 @@ public static class MeshBuilders
         st.SetMaterial(Materials.Asphalt);
         var centerXZ = node.Position.ToGodot();
         var center = centerXZ + Vector3.Up * SurfaceY;
+        bool elevated = node.Position.Y > GeoConstants.EmbankmentMax;
+        SurfaceTool? fascia = null;
+        if (elevated)
+        {
+            // the cap arc extends past the edge's own fascia — band it like the
+            // junction slab so elevated dead ends don't read paper-thin
+            fascia = new SurfaceTool();
+            fascia.Begin(Mesh.PrimitiveType.Triangles);
+            fascia.SetMaterial(Materials.Concrete);
+        }
         const int segments = 12;
         for (int i = 0; i < segments; i++)
         {
@@ -539,8 +585,12 @@ public static class MeshBuilders
             var p1 = center + (right * Mathf.Cos(a1) - leaving * Mathf.Sin(a1)) * half;
             AddTriangleUp(st, center, p0, p1);
             AddBoundarySkirt(st, centerXZ, p0, p1);
+            if (fascia is not null)
+                AddFasciaQuad(fascia, p0, p1);
         }
-        return st.Commit();
+        var mesh = st.Commit();
+        fascia?.Commit(mesh);
+        return mesh;
     }
 
     // ------------------------------------------------------------------ ghosts

@@ -235,6 +235,8 @@ public partial class VisualShots : Node3D
         {
             Oblique(new(0, 10, 0), 60),
             new Shot("low", new(20, 8, 8), 45, -8f, 40f),
+            new Shot("corner", new(8, 10, 8), 40, -18f, 140f), // close corner: slab edge + props
+            new Shot("under", new(5, 6, 3), 35, 10f, 50f),     // soffit + skirt from below
         },
         Extra: n =>
         {
@@ -713,6 +715,39 @@ public partial class VisualShots : Node3D
             Oblique(new(0, -4, 0), 90),
             Top(new(0, 0, 0), 110),
         }, Extra: StructuresFor, XRay: true);
+
+        // ---- elevated junction close-ups (user report 2026-07-20): junctions with
+        // ramped legs, seen from driver height, corner, and below — the angles the
+        // high oblique/top shots never covered ----
+
+        yield return new Scenario("elevated_tee_ramps", n =>
+        {
+            // T-junction ON the deck, west leg climbing past it, south leg ramping
+            // to ground: paint must drape the slopes, the slab must not read
+            // paper-thin at the corner bulges, props must stand on the deck
+            Commit(n, Straight(new(-120, 12, 0), new(0, 8, 0), RoadCatalog.FourLane.Id));
+            Commit(n, Straight(new(0, 8, 0), new(120, 8, 0), RoadCatalog.FourLane.Id));
+            Commit(n, Straight(new(0, 8, 0), new(0, 0, 130), RoadCatalog.FourLane.Id));
+        }, new[]
+        {
+            new Shot("corner", new(6, 8, 6), 45, -20f, 145f),   // the report's angle
+            new Shot("approach", new(0, 8, 4), 40, -10f, 5f),   // driver coming up the ramp
+            new Shot("under", new(4, 5, 2), 35, 8f, 60f),       // from below the slab
+            Oblique(new(0, 8, 0), 60),
+            Top(new(0, 8, 0), 80),
+        }, Extra: StructuresFor);
+
+        yield return new Scenario("ramp_into_tee", n =>
+        {
+            // ground junction with one leg climbing away — the mirror case: sloped
+            // approach paint at a ground node
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0), RoadCatalog.FourLane.Id));
+            Commit(n, Straight(new(0, 0, 0), new(0, 8, -110), RoadCatalog.FourLane.Id));
+        }, new[]
+        {
+            new Shot("approach", new(0, 1, -16), 40, -9f, 185f), // looking down the ramp at the node
+            Oblique(new(0, 0, 0), 55),
+        }, Extra: StructuresFor);
 
         yield return new Scenario("underpass_pillars", n =>
         {

@@ -191,23 +191,25 @@ public static class JunctionMarkings
         if (dBase < 1f || dBase > edge.ArcLength.TotalLength - 1f)
             return;
 
-        // local frame at the arrow position: forward = travel direction
-        float tMid = edge.ArcLength.TAtDistance((dTip + dBase) / 2);
-        var tangent = edge.Curve.Tangent(tMid).ToGodot();
-        var forward = startsHere ? -tangent : tangent; // travel toward the node
-        forward.Y = 0;
-        if (forward.LengthSquared() < 1e-8f)
-            return;
-        forward = forward.Normalized();
-        var right = forward.Cross(Vector3.Up); // driver's right (heading +X → +Z)
-        var origin = edge.Curve.OffsetPoint(edge.ArcLength.TAtDistance(dBase), lane.Offset).ToGodot();
-        origin.Y += MeshBuilders.MarkingY; // relative: the deck carries the node's Y (M8)
+        // drape the glyph on the lane surface: every vertex samples the curve at its
+        // own arc distance and lateral offset. A flat plate at the base point's Y
+        // buried most of the arrow under a ramped approach — only a fragment of the
+        // glyph poked through the sloping asphalt (user find, 2026-07-20). Glyph
+        // coordinates are in the driver frame: Y along travel (toward the node),
+        // X to the driver's right; travel toward the node runs against the edge's
+        // arc direction when the edge STARTS here, so both axes flip with s.
+        float s = startsHere ? -1f : 1f;
+        float total = edge.ArcLength.TotalLength;
+        Vector3 P(Vector2 g)
+        {
+            float d = Math.Clamp(dBase + s * g.Y, 0f, total);
+            var p = edge.Curve.OffsetPoint(edge.ArcLength.TAtDistance(d), lane.Offset + s * g.X).ToGodot();
+            p.Y += MeshBuilders.MarkingY; // relative: the deck carries the node's Y (M8)
+            return p;
+        }
 
         foreach (var tri in ArrowGlyph.Triangles(moves))
-            AddTriangle(st,
-                origin + forward * tri.a.Y + right * tri.a.X,
-                origin + forward * tri.b.Y + right * tri.b.X,
-                origin + forward * tri.c.Y + right * tri.c.X);
+            AddTriangle(st, P(tri.a), P(tri.b), P(tri.c));
     }
 
     // ------------------------------------------------------ corner continuation
@@ -348,27 +350,28 @@ public static class JunctionMarkings
     private static void AddCrosswalk(SurfaceTool st, RoadEdge edge, RoadType type, float tCut, bool startsHere)
     {
         float cwHalf = type.CarriagewayHalf;
-        var basePt = edge.Curve.Point(tCut).ToGodot();
-        var tangent = edge.Curve.Tangent(tCut).ToGodot();
-        var toNode = startsHere ? -tangent : tangent; // from the cut into the junction
-        toNode.Y = 0;
-        if (toNode.LengthSquared() < 1e-8f)
-            return;
-        toNode = toNode.Normalized();
-        var right = toNode.Cross(Vector3.Up);
-        basePt.Y += MeshBuilders.MarkingY; // relative: the deck carries the node's Y (M8)
+        float dCut = edge.ArcLength.DistanceAtT(tCut);
+        float total = edge.ArcLength.TotalLength;
+        // draped like the turn arrows: the zebra sits just past the cut, where the
+        // slab still follows the leg's grade — a flat plate at the cut's Y buried
+        // the bars' far ends on ramped approaches (user find, 2026-07-20). Toward
+        // the node runs against the edge's arc direction when the edge starts here.
+        float s = startsHere ? -1f : 1f;
+        Vector3 P(float dIn, float lateral)
+        {
+            float d = Math.Clamp(dCut + s * dIn, 0f, total);
+            var p = edge.Curve.OffsetPoint(edge.ArcLength.TAtDistance(d), s * lateral).ToGodot();
+            p.Y += MeshBuilders.MarkingY; // relative: the deck carries the node's Y (M8)
+            return p;
+        }
 
         float x = -cwHalf + CrosswalkMargin + CrosswalkBar / 2;
         for (; x + CrosswalkBar / 2 <= cwHalf - CrosswalkMargin; x += CrosswalkBar + CrosswalkGap)
-        {
-            var near = basePt + toNode * CrosswalkInset;
-            var far = basePt + toNode * (CrosswalkInset + CrosswalkLength);
             AddQuadUp(st,
-                near + right * (x - CrosswalkBar / 2),
-                near + right * (x + CrosswalkBar / 2),
-                far + right * (x + CrosswalkBar / 2),
-                far + right * (x - CrosswalkBar / 2));
-        }
+                P(CrosswalkInset, x - CrosswalkBar / 2),
+                P(CrosswalkInset, x + CrosswalkBar / 2),
+                P(CrosswalkInset + CrosswalkLength, x + CrosswalkBar / 2),
+                P(CrosswalkInset + CrosswalkLength, x - CrosswalkBar / 2));
     }
 
     // --------------------------------------------------------- guidance dashes
