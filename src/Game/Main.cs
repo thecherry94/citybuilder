@@ -57,9 +57,15 @@ public partial class Main : Node3D
 
         AddChild(BuildLighting());
         AddChild(BuildGround());
+        // the ViewportTexture resolves only once the viewport is in the tree
+        var maskTex = _maskViewport.GetTexture();
+        _groundOpaque.SetShaderParameter("cut_mask", maskTex);
+        _groundXray.SetShaderParameter("cut_mask", maskTex);
 
         var camera = new CameraRig { Name = "CameraRig" };
         AddChild(camera);
+        // the mask strips are input to the ground shader, never scenery
+        camera.Camera.CullMask &= ~StructureView.CutMaskLayer;
 
         // Harness env vars can leak into an editor launched from a dev shell; ignore
         // them when this instance was started by the play button so the game plays
@@ -279,12 +285,19 @@ public partial class Main : Node3D
     private Node BuildGround()
     {
         // two variants of the same grid shader: opaque, and the x-ray ground that
-        // lets below-ground carriageways read through (M8.5)
+        // lets below-ground carriageways read through (M8.5). Both discard where the
+        // cut mask is set — open cuts are real holes in the plane, so the retaining
+        // walls and the sunken carriageway below actually render (a translucent strip
+        // alone can never reveal them: the opaque plane wins the depth test first).
         const string groundShader = """
             shader_type spatial;
             {0}varying vec3 world_pos;
+            uniform sampler2D cut_mask : filter_linear, hint_default_black;
             void vertex() {{ world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }}
             void fragment() {{
+                if (texture(cut_mask, world_pos.xz / 2048.0 + 0.5).r > 0.5) {{
+                    discard;
+                }}
                 vec2 g = abs(fract(world_pos.xz / 8.0 - 0.5) - 0.5) * 8.0 / fwidth(world_pos.xz);
                 float line = 1.0 - min(min(g.x, g.y), 1.0);
                 vec3 base = vec3(0.30, 0.36, 0.27);
@@ -305,16 +318,49 @@ public partial class Main : Node3D
         };
         _ground = new MeshInstance3D
         {
-            Name = "Ground",
+            Name = "GroundPlane",
             Mesh = new PlaneMesh { Size = new Vector2(2048, 2048) },
             MaterialOverride = _groundOpaque,
         };
-        return _ground;
+
+        // the mask: a top-down ortho camera over the whole plane that sees ONLY the
+        // white cut-strip meshes (StructureView.CutMaskLayer), black background —
+        // 1 texel per metre, shared world, refreshed every frame
+        _maskViewport = new SubViewport
+        {
+            Name = "CutMaskViewport",
+            Size = new Vector2I(2048, 2048),
+            RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
+        };
+        var maskCam = new Camera3D
+        {
+            Projection = Camera3D.ProjectionType.Orthogonal,
+            Size = 2048,
+            Near = 1f,
+            Far = 300f,
+            Position = new Vector3(0, 150, 0),
+            Rotation = new Vector3(Mathf.DegToRad(-90), 0, 0),
+            CullMask = StructureView.CutMaskLayer,
+            Current = true,
+            Environment = new Godot.Environment
+            {
+                BackgroundMode = Godot.Environment.BGMode.Color,
+                BackgroundColor = Colors.Black,
+                AmbientLightSource = Godot.Environment.AmbientSource.Disabled,
+            },
+        };
+        _maskViewport.AddChild(maskCam);
+
+        var root = new Node3D { Name = "Ground" };
+        root.AddChild(_ground);
+        root.AddChild(_maskViewport);
+        return root;
     }
 
     // ---------------------------------------------------------------- x-ray (M8.5)
 
     private MeshInstance3D _ground = null!;
+    private SubViewport _maskViewport = null!;
     private ShaderMaterial _groundOpaque = null!, _groundXray = null!;
     private bool _xrayManual, _xrayActive;
 

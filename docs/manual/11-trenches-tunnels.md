@@ -34,13 +34,20 @@ sprout portal faces at the new node — the portal lives where the deck passes �
 which is on the ramp, not at the seam. The corollary: a covered deep edge that simply
 *ends* (dead end below ground) shows no portal; that is accepted, not accidental.
 
-**The cut-opening strip is a rendering trick, not geometry.** The world's ground is a
-single flat plane with no holes, so everything below it is invisible — the first
-gallery pass showed trenches as hairline seams. An open-cut span therefore emits a
-dark translucent quad strip 2 cm *above* ground (`Materials.CutOpening`, α ≈ 0.62)
-spanning carriageway + coping. From above it reads as the pit opening; the sunken
-road is faintly visible through it. A terrain system with real holes replaces this
-wholesale — it is deliberately isolated as the `cut` surface in `BuildStructures`.
+**Open cuts punch real holes in the ground via a mask.** The world's ground is a
+single flat plane, and a translucent strip above it can never reveal what the depth
+test already discarded below — the first strip-only pass rendered trenches as flat
+featureless decals with the sunken road invisible. The working mechanism: every
+open-cut span emits its opening strip (carriageway + coping footprint) twice —
+once translucent in the visual mesh (`Materials.CutOpening`, α ≈ 0.30, now just a
+depth-shade hint), and once white on `StructureView.CutMaskLayer` (layer 11), which
+only a top-down orthographic camera in `Main.BuildGround`'s `CutMaskViewport`
+(2048², 1 texel/m, shared world, black background) renders. Both ground shader
+variants sample that mask by world XZ and `discard` where it is set, so the hole is
+real: retaining walls, coping, and the sunken carriageway genuinely render. The main
+camera excludes the mask layer. Covered spans deeper than `PortalDepth` emit no cut
+strip, so tunnel surfaces stay intact. A terrain system with real holes replaces
+this wholesale — it stays isolated as the `cut` surface in `BuildStructures`.
 
 ## Covered-flag semantics and propagation
 

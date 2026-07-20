@@ -36,14 +36,23 @@ public static class Materials
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 
-    /// <summary>The flat ground plane can't have real holes, so an open cut renders a
-    /// dark translucent strip at ground level — reads as the pit opening from above,
-    /// with the sunken road faintly visible through it (M8.5).</summary>
+    /// <summary>Light shade over an open cut's mouth. The real hole in the ground is
+    /// punched by the cut-mask discard (see Main.BuildGround); this strip only adds a
+    /// hint of depth-shadow so the pit doesn't read as brightly lit as the surface.</summary>
     public static readonly StandardMaterial3D CutOpening = new()
     {
-        AlbedoColor = new Color(0.06f, 0.07f, 0.08f, 0.62f),
+        AlbedoColor = new Color(0.06f, 0.07f, 0.08f, 0.30f),
         Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
         Roughness = 1f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
+    /// <summary>Cut-opening strips re-rendered white into the top-down mask viewport;
+    /// the ground shader discards where the mask is set, making the hole real.</summary>
+    public static readonly StandardMaterial3D CutMask = new()
+    {
+        AlbedoColor = new Color(1f, 1f, 1f),
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 

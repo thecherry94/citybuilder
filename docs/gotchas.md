@@ -144,13 +144,15 @@ Hard-won. Read the relevant section before touching that area.
   from deck to ground, signals standing under the bridge). Pattern: `pos.Y += offset`
   against the geometry's own Y, or pass the node's `Position.Y` as the base; grep for
   `\.Y = ` in `src/Game` when adding node-attached visuals.
-- **Everything below the ground plane is invisible — the plane has no holes.** The
-  first trench gallery pass rendered a −4 m cut as a hairline seam: walls, coping, and
-  the sunken road were all under the opaque `Ground` plane. Two consequences, both
-  deliberate (M8.5): open cuts emit a translucent dark "cut-opening" strip 2 cm above
-  ground (`Materials.CutOpening`) as a fake hole, and the x-ray view exists because
-  no normal-view angle can show a tunnel. If terrain ever lands, delete the strip
-  (it's an isolated surface in `StructureView.BuildStructures`) and cut real holes.
+- **Everything below the ground plane is invisible unless the ground yields there.**
+  The first trench gallery pass rendered a −4 m cut as a hairline seam: walls, coping,
+  and the sunken road were all under the opaque `Ground` plane. The follow-up
+  translucent "fake hole" strip was equally blind — it tinted the grass, but the depth
+  test had already discarded the road behind the plane. Open cuts therefore punch real
+  holes: the strips render white into `Main.BuildGround`'s top-down mask viewport and
+  both ground shaders `discard` where the mask is set. X-ray still exists because a
+  *covered* tunnel has no opening at all. If terrain ever lands, delete the strip/mask
+  (isolated as the `cut` surface in `StructureView.BuildStructures`) and cut real holes.
 - **Tool picking must be plan-view (XZ), not 3D distance.** The cursor lives on the
   Y=0 plane, so `FindClosestEdge` (3D) put a ±10 m deck 10 m away before any lateral
   error — upgrade/bulldoze/inspect silently couldn't hover bridges from M8 on, and

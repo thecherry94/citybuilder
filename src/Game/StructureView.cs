@@ -18,8 +18,13 @@ public partial class StructureView : Node3D
     private const float PillarMinClear = 2f; // no pillars under near-ground ramps
     private const float PillarHalf = 0.8f;   // pillar half-width (square section)
 
+    /// <summary>Render layer carrying the white cut-mask strips: seen only by the
+    /// ground-hole mask camera (Main.BuildGround), excluded from the main camera.</summary>
+    public const uint CutMaskLayer = 1u << 10;
+
     private RoadNetwork _network = null!;
     private readonly Dictionary<EdgeId, MeshInstance3D> _instances = new();
+    private readonly Dictionary<EdgeId, MeshInstance3D> _maskInstances = new();
     private readonly HashSet<EdgeId> _dirty = new();
 
     public void Bind(RoadNetwork network)
@@ -35,6 +40,8 @@ public partial class StructureView : Node3D
             _dirty.Remove(e);
             if (_instances.Remove(e, out var inst))
                 inst.QueueFree();
+            if (_maskInstances.Remove(e, out var mask))
+                mask.QueueFree();
         }
         foreach (var e in delta.EdgesAdded)
             _dirty.Add(e);
@@ -65,13 +72,27 @@ public partial class StructureView : Node3D
     {
         if (_instances.Remove(edge.Id, out var old))
             old.QueueFree();
+        if (_maskInstances.Remove(edge.Id, out var oldMask))
+            oldMask.QueueFree();
 
-        var mesh = BuildStructures(edge);
-        if (mesh is null)
-            return;
-        var inst = new MeshInstance3D { Mesh = mesh, Transparency = Dim(edge) };
-        AddChild(inst);
-        _instances[edge.Id] = inst;
+        var mesh = BuildStructures(edge, out var cutMask);
+        if (mesh is not null)
+        {
+            var inst = new MeshInstance3D { Mesh = mesh, Transparency = Dim(edge) };
+            AddChild(inst);
+            _instances[edge.Id] = inst;
+        }
+        if (cutMask is not null)
+        {
+            var mask = new MeshInstance3D
+            {
+                Mesh = cutMask,
+                Layers = CutMaskLayer,
+                MaterialOverride = Materials.CutMask,
+            };
+            AddChild(mask);
+            _maskInstances[edge.Id] = mask;
+        }
     }
 
     // ---------------------------------------------------------------- x-ray (M8.5)
@@ -91,9 +112,9 @@ public partial class StructureView : Node3D
     private float Dim(RoadEdge e)
         => _xray && (e.Curve.P0.Y > -0.05f || e.Curve.P3.Y > -0.05f) ? 0.55f : 0f;
 
-    private ArrayMesh? BuildStructures(RoadEdge edge)
+    private ArrayMesh? BuildStructures(RoadEdge edge, out ArrayMesh? cutMask)
         => BuildStructures(edge.Curve, edge.ArcLength, RoadCatalog.Get(edge.Type).Width,
-            edge.Covered, p => CarriagewayObstructed(_network, edge.Id, p));
+            out cutMask, edge.Covered, p => CarriagewayObstructed(_network, edge.Id, p));
 
     /// <summary>True when a pillar carrying a deck at pillarTop would stand inside
     /// another edge's carriageway — the M8 "pillar in the underpass" known limit.
@@ -129,7 +150,15 @@ public partial class StructureView : Node3D
     /// so chains of covered edges (splits) don't sprout portals mid-tunnel.</summary>
     public static ArrayMesh? BuildStructures(in Bezier3 curve, ArcLengthTable arc, float width,
         bool covered = false, Func<Vector3, bool>? pillarObstructed = null)
+        => BuildStructures(curve, arc, width, out _, covered, pillarObstructed);
+
+    /// <summary>As above, and additionally returns the cut-opening strips as their own
+    /// mesh (null when the edge has no open cut) — rendered white on
+    /// <see cref="CutMaskLayer"/> into the ground-hole mask viewport.</summary>
+    public static ArrayMesh? BuildStructures(in Bezier3 curve, ArcLengthTable arc, float width,
+        out ArrayMesh? cutMask, bool covered = false, Func<Vector3, bool>? pillarObstructed = null)
     {
+        cutMask = null;
         float len = arc.TotalLength;
         int n = Mathf.Max(2, (int)(len / SampleStep));
         var pts = new Vector3[n + 1];
@@ -276,6 +305,8 @@ public partial class StructureView : Node3D
         {
             cut.SetMaterial(Materials.CutOpening);
             cut.Commit(mesh);
+            cutMask = new ArrayMesh();
+            cut.Commit(cutMask);
         }
         return mesh;
     }
