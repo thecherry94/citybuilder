@@ -33,6 +33,7 @@ public partial class Main : Node3D
 
     public override void _Process(double delta)
     {
+        PollXRay();
         if (!TrafficEnabled)
             return;
         _trafficAccum = Math.Min(_trafficAccum + delta, 4.0 / 60);
@@ -161,6 +162,9 @@ public partial class Main : Node3D
             case InputEventKey { Keycode: Key.Pagedown, Pressed: true } pgDn:
                 _controller.StepElevation(pgDn.CtrlPressed ? -1f : -5f);
                 break;
+            case InputEventKey { Keycode: Key.U, Pressed: true, CtrlPressed: false }:
+                _xrayManual = !_xrayManual;
+                break;
             case InputEventKey { Keycode: Key.Z, Pressed: true, CtrlPressed: true }:
                 TryUndo();
                 break;
@@ -271,29 +275,66 @@ public partial class Main : Node3D
         return root;
     }
 
-    private static Node BuildGround()
+    private Node BuildGround()
     {
-        var shader = new Shader
+        // two variants of the same grid shader: opaque, and the x-ray ground that
+        // lets below-ground carriageways read through (M8.5)
+        const string groundShader = """
+            shader_type spatial;
+            {0}varying vec3 world_pos;
+            void vertex() {{ world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }}
+            void fragment() {{
+                vec2 g = abs(fract(world_pos.xz / 8.0 - 0.5) - 0.5) * 8.0 / fwidth(world_pos.xz);
+                float line = 1.0 - min(min(g.x, g.y), 1.0);
+                vec3 base = vec3(0.30, 0.36, 0.27);
+                ALBEDO = mix(base, base * 1.10, line * 0.5);
+                ROUGHNESS = 1.0;{1}
+            }}
+            """;
+        _groundOpaque = new ShaderMaterial
         {
-            Code = """
-                shader_type spatial;
-                varying vec3 world_pos;
-                void vertex() { world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
-                void fragment() {
-                    vec2 g = abs(fract(world_pos.xz / 8.0 - 0.5) - 0.5) * 8.0 / fwidth(world_pos.xz);
-                    float line = 1.0 - min(min(g.x, g.y), 1.0);
-                    vec3 base = vec3(0.30, 0.36, 0.27);
-                    ALBEDO = mix(base, base * 1.10, line * 0.5);
-                    ROUGHNESS = 1.0;
-                }
-                """,
+            Shader = new Shader { Code = string.Format(groundShader, "", "") },
         };
-        return new MeshInstance3D
+        _groundXray = new ShaderMaterial
+        {
+            Shader = new Shader
+            {
+                Code = string.Format(groundShader, "render_mode cull_disabled;\n", "\n                ALPHA = 0.22;"),
+            },
+        };
+        _ground = new MeshInstance3D
         {
             Name = "Ground",
             Mesh = new PlaneMesh { Size = new Vector2(2048, 2048) },
-            MaterialOverride = new ShaderMaterial { Shader = shader },
+            MaterialOverride = _groundOpaque,
         };
+        return _ground;
+    }
+
+    // ---------------------------------------------------------------- x-ray (M8.5)
+
+    private MeshInstance3D _ground = null!;
+    private ShaderMaterial _groundOpaque = null!, _groundXray = null!;
+    private bool _xrayManual, _xrayActive;
+
+    /// <summary>The U key holds the manual toggle; drafting below ground engages
+    /// x-ray automatically for the draft's duration and restores the manual state
+    /// after (spec: auto never fights the toggle).</summary>
+    private void PollXRay()
+    {
+        if (_controller is null)
+            return;
+        bool want = _xrayManual || _controller.DraftBelowGround;
+        if (want != _xrayActive)
+            ApplyXRay(want);
+    }
+
+    private void ApplyXRay(bool on)
+    {
+        _xrayActive = on;
+        _ground.MaterialOverride = on ? _groundXray : _groundOpaque;
+        _view?.SetXRay(on);
+        _structures?.SetXRay(on);
     }
 
     // ----------------------------------------------------------------- ui test

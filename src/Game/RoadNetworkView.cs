@@ -88,6 +88,7 @@ public partial class RoadNetworkView : Node3D
         var mesh = MeshBuilders.BuildEdgeMesh(edge, RoadCatalog.Get(edge.Type), tStart, tEnd, rampStart, rampEnd);
         var inst = GetOrCreate(_edgeInstances, edge.Id, $"edge_{edge.Id.Value}");
         inst.Mesh = mesh; // materials are embedded per surface
+        inst.Transparency = EdgeDim(edge.Id); // keep x-ray dimming across rebuilds
     }
 
     private void RebuildNode(RoadNode node)
@@ -102,7 +103,32 @@ public partial class RoadNetworkView : Node3D
         }
         inst.Mesh = mesh; // materials are embedded per surface
         inst.MaterialOverride = DebugTint ? Materials.SnapIndicator : null;
+        inst.Transparency = NodeDim(node.Id); // keep x-ray dimming across rebuilds
     }
+
+    // ---------------------------------------------------------------- x-ray (M8.5)
+
+    private bool _xray;
+
+    /// <summary>X-ray view: dim surface/elevated geometry so below-ground
+    /// carriageways read through the translucent ground. Below-ground meshes stay
+    /// fully opaque — they're the subject of the view.</summary>
+    public void SetXRay(bool on)
+    {
+        _xray = on;
+        foreach (var (id, inst) in _edgeInstances)
+            inst.Transparency = EdgeDim(id);
+        foreach (var (id, inst) in _nodeInstances)
+            inst.Transparency = NodeDim(id);
+    }
+
+    private float EdgeDim(EdgeId id)
+        => _xray && _network.Edges.TryGetValue(id, out var e)
+           && (e.Curve.P0.Y > -0.05f || e.Curve.P3.Y > -0.05f) ? 0.55f : 0f;
+
+    private float NodeDim(NodeId id)
+        => _xray && _network.Nodes.TryGetValue(id, out var n)
+           && n.Position.Y > -0.05f ? 0.55f : 0f;
 
     private MeshInstance3D GetOrCreate<TKey>(Dictionary<TKey, MeshInstance3D> map, TKey key, string name)
         where TKey : notnull

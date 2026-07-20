@@ -69,10 +69,27 @@ public partial class StructureView : Node3D
         var mesh = BuildStructures(edge);
         if (mesh is null)
             return;
-        var inst = new MeshInstance3D { Mesh = mesh };
+        var inst = new MeshInstance3D { Mesh = mesh, Transparency = Dim(edge) };
         AddChild(inst);
         _instances[edge.Id] = inst;
     }
+
+    // ---------------------------------------------------------------- x-ray (M8.5)
+
+    private bool _xray;
+
+    /// <summary>X-ray view: dim above-ground structures (bridges, embankments) so
+    /// cuts, portals, and tunnels below stay the visual subject.</summary>
+    public void SetXRay(bool on)
+    {
+        _xray = on;
+        foreach (var (id, inst) in _instances)
+            if (_network.Edges.TryGetValue(id, out var edge))
+                inst.Transparency = Dim(edge);
+    }
+
+    private float Dim(RoadEdge e)
+        => _xray && (e.Curve.P0.Y > -0.05f || e.Curve.P3.Y > -0.05f) ? 0.55f : 0f;
 
     private ArrayMesh? BuildStructures(RoadEdge edge)
         => BuildStructures(edge.Curve, edge.ArcLength, RoadCatalog.Get(edge.Type).Width,

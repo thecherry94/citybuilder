@@ -380,6 +380,10 @@ public partial class ToolController : Node
         _ => "",
     };
 
+    /// <summary>True while a road tool is active with a below-ground elevation —
+    /// Main auto-engages x-ray so the player can see what they're digging (M8.5).</summary>
+    public bool DraftBelowGround => IsRoadMode && _session.CurrentElevation < -0.01f;
+
     /// <summary>PgUp/PgDn elevation stepping (M8; signed since M8.5). The domain
     /// clamps to [−MaxDepth, MaxElevation].</summary>
     public void StepElevation(float delta)
