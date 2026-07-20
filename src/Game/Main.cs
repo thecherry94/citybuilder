@@ -681,6 +681,36 @@ public partial class Main : Node3D
             _structures.FlushDirty(); // bridge fascia/pillars must build without throwing
             Expect(_structures.GetChildCount() > 0, "no structure mesh built for the deck");
 
+            // M8.5: dig a tunnel under the SAME deck's ground road — a −8 m road,
+            // grade-separated from everything, then cover it and round-trip the flag.
+            int edgesBeforeTunnel = _network.Edges.Count;
+            _controller.SetMode(ToolMode.Straight);
+            _controller.StepElevation(-5f);
+            _controller.StepElevation(-3f); // −8 m ≥ MinClearance below ground roads
+            _controller.HandleClickAt(V(1100, -160));
+            _controller.HandleClickAt(V(1100, 160));
+            var dug = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), new System.Numerics.Vector3(1100, -8, 0)) < 6f);
+            Expect(MathF.Abs(dug.Curve.P0.Y + 8f) < 0.5f, $"dug road at Y={dug.Curve.P0.Y:F1}, wanted -8");
+            _controller.StepElevation(+8f);
+            // a ground road crossing above the −8 m road must NOT split it (grade-separated)
+            _controller.HandleClickAt(V(1020, 0));
+            _controller.HandleClickAt(V(1180, 0));
+            Expect(_network.Edges.Count == edgesBeforeTunnel + 2,
+                $"tunnel crossing split something: {_network.Edges.Count} vs {edgesBeforeTunnel}+2");
+            // cover it (tunnel) via the network API, save/load, assert the flag survives v3
+            _undo.Checkpoint();
+            Expect(_network.SetCovered(dug.Id, true), "SetCovered failed on the dug road");
+            _structures.FlushDirty(); // portal/tube meshes build without throwing
+            QuickSave();
+            _controller.SetMode(ToolMode.Straight);
+            _controller.HandleClickAt(V(1300, -160));    // stray edit, then reload discards it
+            QuickLoad();
+            var reDug = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), new System.Numerics.Vector3(1100, -8, 0)) < 6f);
+            Expect(reDug.Covered, "covered flag did not survive the v3 save/load round-trip");
+            _structures.FlushDirty();
+
             GD.Print("SMOKE OK");
             GetTree().Quit(0);
         }
