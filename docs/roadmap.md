@@ -249,32 +249,68 @@ verified build.
   with the same vertical classifier as the ring arcs (deterministic pin:
   `ConversionRefusesWhenAReprofiledLegWouldClashWithABystander`).
 
+- **M8.5 — Trenches & tunnels** (2026-07-20): the negative half of the vertical axis M8
+  opened. No vertical rule changed — the three-band classifier, gradient caps, and
+  heal/retype guards were signed since M8 — so the feature cost **one bit of stored
+  state** and rendering. **`RoadEdge.Covered`** (explicit player choice of open cut vs
+  tunnel, rejected depth-derivation during design): save **format v3** (v1/v2 load
+  uncovered), propagation invariants (split children inherit, heal keeps it iff both
+  agree, retype/flip/roundabout-retrim preserve — `CoveredFlagTests`). **Editor unlock**
+  to `[−50, +50]` m with signed `⬇` readout + ghost badges. **Derived below-ground
+  structures** (`StructureView`): retaining-wall open cuts, tunnel spans, **portal faces
+  where the covered deck crosses `PortalDepth` (3 m)** — never at curve ends, so split
+  tunnels don't sprout mid-portals — and a translucent **cut-opening strip** (the flat
+  ground plane has no holes). **X-ray view** (`U` toggle + auto while digging;
+  translucent ground + dimmed surface). **Pillar placement awareness** (the M8
+  underpass known-limit fix: pillars defer/skip out of carriageways). **XZ plan-view
+  picking** (`FindClosestEdgeXZ`/`FindNodeNearXZ`) — the covered-toggle UITEST exposed
+  that all tool picking measured 3D distance from the ground cursor, so *bridges had
+  been unhoverable since M8*; now plan-view with a ground-nearest tie-break. Upgrade-tool
+  "Covered (tunnel)" toggle + UITEST. **Zero traffic-sim changes** (fourth milestone
+  running).
+  **The queued profiling pass delivered a net speedup** despite adding negative
+  elevation: Validate's two per-edge scans (crossing intersection + `OverlapsExisting`'s
+  33×E `ClosestPoint`) had no spatial prefilter — adding the M8-invariant's convex-hull
+  AABB + Y-band reject cut **`validate500_ms` 60→12 ms (5×)**, made grade-separated
+  draws over a dense grid nearly free (new `perf.validate500_graded_ms` KPI, < 30 ms
+  guard), and — with a sign-split alphabet that matches the pre-M8.5 off-ground
+  frequency — brought **fuzz 1500×3 from 5m24s to 1m25s** (faster than pre-M8.5).
+  Leak-free cached `RoadEdge.MinRadius`/`MaxGradient` (1.8× isolated invariant sweep);
+  a crossing-memo explored during profiling was dropped (it pinned dead edges and
+  regressed the dynamic loop). Certified: **3×10k fuzz** (signed elevation +
+  `ToggleCovered` in the alphabet), full suite, KPI baseline + `docs/health/M8.5.md`,
+  smoke tunnel+cover+v3-roundtrip, UITEST covered toggle, gallery
+  `trench_*`/`tunnel_*`/`tunnel_xray_*`/`underpass_pillars_*`, manual
+  [ch. 11](manual/11-trenches-tunnels.md).
+  Known limits (deferred): a surface road crossing an **uncovered** deep trench visually
+  spans the pit (no synthesized bridge deck — cover it, or wait for terrain); portal
+  faces are evidence-grade flat quads; a covered edge dead-ending below ground shows no
+  portal; the fuzz Commit/snap path (not the invariant or Validate) remains the loop's
+  wall-clock floor — a deeper editor-commit optimization is the next perf lever if one
+  is ever needed.
+
 ## Next up (roughly in order — each is one milestone)
 
-1. **M8.5 — Trenches & tunnels.** The negative half of the vertical axis the M8 domain
-   already accepts: unlock the editor clamp, retaining-wall meshes for open cuts,
-   covered tunnels with portals, an underground/x-ray view mode, and pillar placement
-   awareness (avoid standing in carriageways). The classification rules need no change.
-2. **Zoning & buildings.** Zone strips along edges (the offset machinery generalizes),
+1. **Zoning & buildings.** Zone strips along edges (the offset machinery generalizes),
    demand-free procedural growth first: lots, simple building shells, despawn on
    bulldoze. Purely visual city-ness; no economy yet.
-3. **Citizens & destinations.** Trips get meaning: buildings spawn/attract vehicle
+2. **Citizens & destinations.** Trips get meaning: buildings spawn/attract vehicle
    trips (home→work), pedestrians walk the sidewalk graph (it's already a lane kind!),
    crosswalk usage ties into signals. This is where the sim starts feeling like CS.
-4. **Public transport (first line).** Bus stops on sidewalk lanes, a line editor,
+3. **Public transport (first line).** Bus stops on sidewalk lanes, a line editor,
    buses as vehicles with stop dwell — exercises everything above.
-5. **Economy & services (long game).** Demand model driving zoning growth, service
+4. **Economy & services (long game).** Demand model driving zoning growth, service
    buildings with coverage (fire/police/garbage as vehicle trips), districts/policies.
-   Only start when 1–5 feel solid.
+   Only start when 1–4 feel solid.
 
 ## Standing constraints
 
 - Hundreds of vehicles today, **thousands someday**: keep the sim allocation-free and
   data-oriented; batching/jobs are an optimization later, not a rewrite.
 - Save/load shipped in M6 (`SaveLoad`, versioned JSON, byte-stable round-trip, F5/F9
-  in-game), now at **format v2** (M7.5 added roundabouts; v1 saves still load) — extend
-  `SaveGame` with a version bump whenever new persistent state appears (vehicles/trips are
-  not yet saved; ambient traffic respawns after load).
+  in-game), now at **format v3** (M7.5 added roundabouts, M8.5 added `Covered`; v1/v2
+  saves still load) — extend `SaveGame` with a version bump whenever new persistent state
+  appears (vehicles/trips are not yet saved; ambient traffic respawns after load).
 - Protected left-turn phases, junction merging, and lane-connector/signal-timing editing
   UI are deferred, not forgotten (movement-level priorities landed in M5).
 - **Quality-stack definition-of-done, standing from M6 on**: every milestone from M6
