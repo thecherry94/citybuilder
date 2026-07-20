@@ -252,6 +252,16 @@ public partial class VisualShots : Node3D
             Commit(n, Straight(new(0, 0, -90), new(0, 0, 90), RoadCatalog.FourLane.Id));
         }, Standard(new(0, 0, 0), 75));
 
+        yield return new Scenario("roundabout", n =>
+        {
+            Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0)));
+            Commit(n, Straight(new(0, 0, -80), new(0, 0, 80)));
+            var center = n.Nodes.Values.Single(nd => nd.Position.Length() < 1f);
+            var res = n.ConvertToRoundabout(center.Id, 16f);
+            if (!res.Success)
+                throw new InvalidOperationException($"roundabout convert failed: {res.Error}");
+        }, Standard(new(0, 0, 0), 80));
+
         yield return new Scenario("tee", n =>
         {
             Commit(n, Straight(new(-80, 0, 0), new(80, 0, 0)));
