@@ -36,6 +36,14 @@ public static class Materials
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 
+    public static readonly StandardMaterial3D RetainingWall = new()
+    {
+        // colder and darker than sidewalk concrete so cuts read as engineered walls
+        AlbedoColor = new Color(0.48f, 0.47f, 0.45f),
+        Roughness = 0.9f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
     public static readonly StandardMaterial3D BikeLane = new()
     {
         AlbedoColor = new Color(0.45f, 0.16f, 0.13f),

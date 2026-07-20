@@ -74,20 +74,27 @@ public partial class StructureView : Node3D
         _instances[edge.Id] = inst;
     }
 
-    private static ArrayMesh? BuildStructures(RoadEdge edge)
-        => BuildStructures(edge.Curve, edge.ArcLength, RoadCatalog.Get(edge.Type).Width);
+    private ArrayMesh? BuildStructures(RoadEdge edge)
+        => BuildStructures(edge.Curve, edge.ArcLength, RoadCatalog.Get(edge.Type).Width,
+            edge.Covered);
 
     /// <summary>One ArrayMesh: surface 0 = earth embankment skirts, surface 1 =
-    /// concrete fascia + pillars. Null when the curve never leaves the ground.
+    /// concrete fascia + pillars, surface 2 = retaining walls / portals (M8.5).
+    /// Null when the curve never leaves the ground plane.
     /// Public and curve-based so GhostView previews the exact structures a commit
-    /// would produce (same thresholds, same code).</summary>
-    public static ArrayMesh? BuildStructures(in Bezier3 curve, ArcLengthTable arc, float width)
+    /// would produce (same thresholds, same code). Below ground, an uncovered edge is
+    /// an open cut (walls + coping); a covered edge deeper than PortalDepth is a
+    /// tunnel — nothing rendered but the portal faces where the deck crosses that
+    /// depth. Portals appear ONLY at internal depth crossings, never at curve ends,
+    /// so chains of covered edges (splits) don't sprout portals mid-tunnel.</summary>
+    public static ArrayMesh? BuildStructures(in Bezier3 curve, ArcLengthTable arc, float width,
+        bool covered = false)
     {
         float len = arc.TotalLength;
         int n = Mathf.Max(2, (int)(len / SampleStep));
         var pts = new Vector3[n + 1];
         var side = new Vector3[n + 1];
-        bool anyElevated = false;
+        bool anyStructure = false;
         for (int i = 0; i <= n; i++)
         {
             float t = arc.TAtDistance(len * i / n);
@@ -96,52 +103,96 @@ public partial class StructureView : Node3D
             pts[i] = p.ToGodot();
             var s = new Vector3(tan.Z, 0, -tan.X);
             side[i] = s.LengthSquared() > 1e-9f ? s.Normalized() : Vector3.Right;
-            if (p.Y > 0.05f)
-                anyElevated = true;
+            if (Mathf.Abs(p.Y) > 0.05f)
+                anyStructure = true;
         }
-        if (!anyElevated)
+        if (!anyStructure)
             return null;
+
+        var mid = new float[n];
+        for (int i = 0; i < n; i++)
+            mid[i] = (pts[i].Y + pts[i + 1].Y) / 2f;
 
         float half = width / 2f;
         var earth = new SurfaceTool();
         earth.Begin(Mesh.PrimitiveType.Triangles);
         var concrete = new SurfaceTool();
         concrete.Begin(Mesh.PrimitiveType.Triangles);
-        bool anyEarth = false, anyConcrete = false;
+        var wall = new SurfaceTool();
+        wall.Begin(Mesh.PrimitiveType.Triangles);
+        bool anyEarth = false, anyConcrete = false, anyWall = false;
 
         float sincePillar = PillarEvery; // first eligible spot gets one
         for (int i = 0; i < n; i++)
         {
-            float midY = (pts[i].Y + pts[i + 1].Y) / 2f;
-            if (midY <= 0.05f)
+            float midY = mid[i];
+            if (Mathf.Abs(midY) <= 0.05f)
             {
                 sincePillar = PillarEvery;
                 continue;
             }
-            bool bridge = midY > GeoConstants.EmbankmentMax;
-            foreach (float dir in stackalloc float[] { -1f, 1f })
-            {
-                var a = pts[i] + side[i] * (half * dir);
-                var b = pts[i + 1] + side[i + 1] * (half * dir);
-                // skirt bottom: ground for embankments, fixed fascia depth for bridges
-                var a2 = bridge ? a with { Y = a.Y - FasciaDepth } : a with { Y = 0 };
-                var b2 = bridge ? b with { Y = b.Y - FasciaDepth } : b with { Y = 0 };
-                var st = bridge ? concrete : earth;
-                AddQuad(st, a, b, b2, a2);
-                if (bridge) anyConcrete = true; else anyEarth = true;
-            }
 
-            sincePillar += len / n;
-            if (bridge && midY >= PillarMinClear && sincePillar >= PillarEvery)
+            if (midY > 0.05f)
             {
-                sincePillar = 0;
-                var top = (pts[i] + pts[i + 1]) / 2f;
-                AddPillar(concrete, top with { Y = top.Y - FasciaDepth / 2f }, side[i]);
-                anyConcrete = true;
+                bool bridge = midY > GeoConstants.EmbankmentMax;
+                foreach (float dir in stackalloc float[] { -1f, 1f })
+                {
+                    var a = pts[i] + side[i] * (half * dir);
+                    var b = pts[i + 1] + side[i + 1] * (half * dir);
+                    // skirt bottom: ground for embankments, fixed fascia depth for bridges
+                    var a2 = bridge ? a with { Y = a.Y - FasciaDepth } : a with { Y = 0 };
+                    var b2 = bridge ? b with { Y = b.Y - FasciaDepth } : b with { Y = 0 };
+                    var st = bridge ? concrete : earth;
+                    AddQuad(st, a, b, b2, a2);
+                    if (bridge) anyConcrete = true; else anyEarth = true;
+                }
+
+                sincePillar += len / n;
+                if (bridge && midY >= PillarMinClear && sincePillar >= PillarEvery)
+                {
+                    sincePillar = 0;
+                    var top = (pts[i] + pts[i + 1]) / 2f;
+                    AddPillar(concrete, top with { Y = top.Y - FasciaDepth / 2f }, side[i]);
+                    anyConcrete = true;
+                }
+            }
+            else
+            {
+                bool tunnel = covered && midY <= -GeoConstants.PortalDepth;
+                if (!tunnel)
+                {
+                    // open cut: retaining wall from the ground lip DOWN to the deck
+                    // edge, plus a narrow coping strip so the cut reads in top-down shots
+                    foreach (float dir in stackalloc float[] { -1f, 1f })
+                    {
+                        var a = pts[i] + side[i] * (half * dir);
+                        var b = pts[i + 1] + side[i + 1] * (half * dir);
+                        AddQuad(wall, a with { Y = 0 }, b with { Y = 0 }, b, a);
+                        var ao = a + side[i] * (0.6f * dir);
+                        var bo = b + side[i + 1] * (0.6f * dir);
+                        AddQuad(wall, ao with { Y = 0 }, bo with { Y = 0 },
+                            b with { Y = 0 }, a with { Y = 0 });
+                    }
+                    anyWall = true;
+                }
+                else
+                {
+                    if (i > 0 && mid[i - 1] > -GeoConstants.PortalDepth)
+                    {
+                        AddPortal(wall, pts[i], side[i], half);       // entry portal
+                        anyWall = true;
+                    }
+                    if (i < n - 1 && mid[i + 1] > -GeoConstants.PortalDepth)
+                    {
+                        AddPortal(wall, pts[i + 1], side[i + 1], half); // exit portal
+                        anyWall = true;
+                    }
+                }
+                sincePillar = PillarEvery; // no pillars below ground
             }
         }
 
-        if (!anyEarth && !anyConcrete)
+        if (!anyEarth && !anyConcrete && !anyWall)
             return null;
         var mesh = new ArrayMesh();
         if (anyEarth)
@@ -154,7 +205,28 @@ public partial class StructureView : Node3D
             concrete.SetMaterial(Materials.Concrete);
             concrete.Commit(mesh);
         }
+        if (anyWall)
+        {
+            wall.SetMaterial(Materials.RetainingWall);
+            wall.Commit(mesh);
+        }
         return mesh;
+    }
+
+    /// <summary>Tunnel mouth where a covered deck crosses PortalDepth: a face above
+    /// the deck and two wing walls flaring to the ground lip.</summary>
+    private static void AddPortal(SurfaceTool st, Vector3 deck, Vector3 side, float half)
+    {
+        float h = GeoConstants.PortalDepth + 1.5f; // face reaches above the deck
+        foreach (float dir in stackalloc float[] { -1f, 1f })
+        {
+            var edge = deck + side * (half * dir);
+            var wing = deck + side * ((half + 2.5f) * dir);
+            AddQuad(st, edge with { Y = 0 }, wing with { Y = 0 }, wing, edge); // wing wall
+        }
+        var l = deck - side * half;
+        var r = deck + side * half;
+        AddQuad(st, l with { Y = l.Y + h }, r with { Y = r.Y + h }, r, l);     // face
     }
 
     private static void AddPillar(SurfaceTool st, Vector3 top, Vector3 side)
