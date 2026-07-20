@@ -17,6 +17,17 @@ public partial class VisualShots : Node3D
     private CameraRig _camera = null!;
     private string _dir = "shots";
 
+    // Golden set: static, deterministic scenarios only (no Traffic — sim timing
+    // varies run to run). Covers flat paint, junction control, road types with bike
+    // lanes, elevation, tunnels + x-ray, and roundabouts.
+    private static readonly string[] GoldenScenarios =
+    {
+        "cross_2lane", "lights_cross", "avenue_mix", "m5_new_types", "bridge",
+        "elevated_tee_ramps", "tunnel", "tunnel_xray", "roundabout",
+    };
+    private const int GoldenChannelTolerance = 8;          // per-channel, 0..255
+    private const float GoldenMaxChangedFraction = 0.005f; // 0.5 % of pixels
+
     public void Bind(CameraRig camera, string dir)
     {
         _camera = camera;
@@ -32,6 +43,7 @@ public partial class VisualShots : Node3D
             DisplayServer.WindowSetSize(new Vector2I(1280, 720));
             System.IO.Directory.CreateDirectory(_dir);
             int count = 0;
+            var goldenShots = new List<string>();
 
             foreach (var scenario in Scenarios())
             {
@@ -96,6 +108,8 @@ public partial class VisualShots : Node3D
                     _camera.Frame(shot.Target.ToGodot(), shot.Distance, shot.PitchDeg, shot.YawDeg);
                     await CaptureAsync($"{_dir}/{scenario.Name}_{shot.Suffix}.png");
                     count++;
+                    if (System.Array.IndexOf(GoldenScenarios, scenario.Name) >= 0)
+                        goldenShots.Add($"{scenario.Name}_{shot.Suffix}.png");
                 }
 
                 if (scenario.XRay)
@@ -124,6 +138,64 @@ public partial class VisualShots : Node3D
                 lampView?.QueueFree();
                 extra?.QueueFree();
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+
+            // M8.75 golden-image diffing: `update` snapshots the curated shots as
+            // committed baselines; `check` fails the run when a shot drifts past
+            // tolerance — the silent-render-regression tripwire.
+            var goldenMode = OS.GetEnvironment("CITYBUILDER_SHOTS_GOLDEN");
+            if (goldenMode is "update" or "check")
+            {
+                var goldenDir = ProjectSettings.GlobalizePath("res://tests/visual/golden");
+                if (goldenMode == "update")
+                {
+                    System.IO.Directory.CreateDirectory(goldenDir);
+                    foreach (var name in goldenShots)
+                        System.IO.File.Copy($"{_dir}/{name}", System.IO.Path.Combine(goldenDir, name), overwrite: true);
+                    GD.Print($"GOLDEN UPDATED {goldenShots.Count}");
+                }
+                else
+                {
+                    var failures = new List<string>();
+                    foreach (var name in goldenShots)
+                    {
+                        var goldenPath = System.IO.Path.Combine(goldenDir, name);
+                        if (!System.IO.File.Exists(goldenPath))
+                        {
+                            failures.Add($"{name}: no golden baseline");
+                            continue;
+                        }
+                        var fresh = Image.LoadFromFile($"{_dir}/{name}");
+                        var golden = Image.LoadFromFile(goldenPath);
+                        if (fresh.GetSize() != golden.GetSize())
+                        {
+                            failures.Add($"{name}: size {fresh.GetSize()} vs golden {golden.GetSize()}");
+                            continue;
+                        }
+                        fresh.Convert(Image.Format.Rgb8);
+                        golden.Convert(Image.Format.Rgb8);
+                        var da = fresh.GetData();
+                        var db = golden.GetData();
+                        int changed = 0;
+                        for (int i = 0; i < da.Length; i += 3)
+                        {
+                            if (Math.Abs(da[i] - db[i]) > GoldenChannelTolerance ||
+                                Math.Abs(da[i + 1] - db[i + 1]) > GoldenChannelTolerance ||
+                                Math.Abs(da[i + 2] - db[i + 2]) > GoldenChannelTolerance)
+                                changed++;
+                        }
+                        float frac = changed / (float)(da.Length / 3);
+                        if (frac > GoldenMaxChangedFraction)
+                            failures.Add($"{name}: {changed} px over tolerance ({frac.ToString("P2", System.Globalization.CultureInfo.InvariantCulture)})");
+                    }
+                    if (failures.Count > 0)
+                    {
+                        GD.PrintErr("GOLDEN FAIL\n" + string.Join("\n", failures));
+                        GetTree().Quit(1);
+                        return;
+                    }
+                    GD.Print($"GOLDEN OK {goldenShots.Count}");
+                }
             }
 
             GD.Print($"SHOTS OK {count}");
