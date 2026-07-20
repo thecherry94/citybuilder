@@ -368,11 +368,11 @@ public partial class GhostView : Node3D
         }
     }
 
-    /// <summary>"⬆ N m" badge over an elevated ghost endpoint. Dedupes shared joints
-    /// of chained curves by proximity (1 m).</summary>
+    /// <summary>"⬆/⬇ N m" badge over an elevated or dug ghost endpoint. Dedupes shared
+    /// joints of chained curves by proximity (1 m).</summary>
     private void AddElevationLabel(System.Numerics.Vector3 p, List<Vector3> labelled, ref int used)
     {
-        if (p.Y <= 0.5f)
+        if (MathF.Abs(p.Y) <= 0.5f)
             return;
         var pos = p.ToGodot();
         foreach (var seen in labelled)
@@ -380,8 +380,9 @@ public partial class GhostView : Node3D
                 return;
         labelled.Add(pos);
         var l = PooledLabel(ref used);
-        l.Position = pos + Vector3.Up * 4f;
-        l.Text = $"⬆ {p.Y:0} m";
+        // below-ground badges float just above the ground plane, not the deck
+        l.Position = (p.Y > 0 ? pos : pos with { Y = 0 }) + Vector3.Up * (p.Y > 0 ? 4f : 1.5f);
+        l.Text = p.Y > 0 ? $"⬆ {p.Y:0} m" : $"⬇ {-p.Y:0} m";
     }
 
     private void ShowSnapDot(Vector3 pos)

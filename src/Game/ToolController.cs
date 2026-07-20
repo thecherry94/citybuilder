@@ -359,9 +359,9 @@ public partial class ToolController : Node
                 ? $"{r.LengthM:0.#} m   {NormalizeDeg(r.AngleDeg):0.#}°   R {rad:0} m"
                 : $"{r.LengthM:0.#} m   {NormalizeDeg(r.AngleDeg):0.#}°"
             : "";
-        if (_session.CurrentElevation > 0.01f)
+        if (ElevationLabel() is { Length: > 0 } el)
         {
-            s = s.Length > 0 ? $"{s}   ⬆ {_session.CurrentElevation:0} m" : $"⬆ {_session.CurrentElevation:0} m";
+            s = s.Length > 0 ? $"{s}   {el}" : el;
             // live gradient of the active ghost's first curve (ramps read as e.g. 6.7%)
             if (_session.Ghost?.Proposal.Curves is { Count: > 0 } curves)
             {
@@ -373,13 +373,20 @@ public partial class ToolController : Node
         return s;
     }
 
-    /// <summary>PgUp/PgDn elevation stepping (M8). The domain clamps to [0, MaxElevation].</summary>
+    private string ElevationLabel() => _session.CurrentElevation switch
+    {
+        > 0.01f => $"⬆ {_session.CurrentElevation:0} m",
+        < -0.01f => $"⬇ {-_session.CurrentElevation:0} m",
+        _ => "",
+    };
+
+    /// <summary>PgUp/PgDn elevation stepping (M8; signed since M8.5). The domain
+    /// clamps to [−MaxDepth, MaxElevation].</summary>
     public void StepElevation(float delta)
     {
         _session.CurrentElevation += delta;
-        ReadoutChanged?.Invoke(BuildReadout().Length > 0
-            ? BuildReadout()
-            : _session.CurrentElevation > 0.01f ? $"⬆ {_session.CurrentElevation:0} m" : "elevation: ground");
+        ReadoutChanged?.Invoke(BuildReadout() is { Length: > 0 } r ? r
+            : ElevationLabel() is { Length: > 0 } el ? el : "elevation: ground");
     }
 
     /// <summary>Two-click vehicle spawn: origin road (travel direction from the

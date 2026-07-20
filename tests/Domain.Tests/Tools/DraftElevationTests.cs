@@ -73,7 +73,22 @@ public class DraftElevationTests
         var (_, s) = NewSession();
         s.CurrentElevation = 999f;
         Assert.Equal(GeoConstants.MaxElevation, s.CurrentElevation);
-        s.CurrentElevation = -5f;
-        Assert.Equal(0f, s.CurrentElevation);
+        s.CurrentElevation = -999f;
+        Assert.Equal(-GeoConstants.MaxDepth, s.CurrentElevation); // M8.5: signed range
+        s.CurrentElevation = -12f;
+        Assert.Equal(-12f, s.CurrentElevation);
+    }
+
+    [Fact]
+    public void BelowGroundDraftCommitsANegativeDeck()
+    {
+        // the M8.5 unlock end-to-end: a −8 m draft must land a −8 m edge
+        var (n, s) = NewSession();
+        s.CurrentElevation = -8f;
+        s.Click(new Vector3(0, 0, 0), 6f);
+        s.Click(new Vector3(120, 0, 0), 6f);
+        var e = Assert.Single(n.Edges.Values);
+        Assert.Equal(-8f, e.Curve.P0.Y, 1);
+        Assert.Equal(-8f, e.Curve.P3.Y, 1);
     }
 }

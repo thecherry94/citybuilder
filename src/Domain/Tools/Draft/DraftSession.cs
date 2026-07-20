@@ -32,12 +32,12 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
 
     /// <summary>Elevation applied to FREE draft endpoints (M8); snapped endpoints adopt
     /// their target's Y instead. Persists across gestures until changed (CS2 behavior).
-    /// Clamped to the editor range [0, MaxElevation] — the domain itself is signed, the
+    /// Clamped to the editor range [−MaxDepth, MaxElevation] — the domain itself is unclamped, the
     /// negative half unlocks with M8.5 trenches.</summary>
     public float CurrentElevation
     {
         get => _currentElevation;
-        set { _currentElevation = Math.Clamp(value, 0f, GeoConstants.MaxElevation); Revalidate(); }
+        set { _currentElevation = Math.Clamp(value, -GeoConstants.MaxDepth, GeoConstants.MaxElevation); Revalidate(); }
     }
     private float _currentElevation;
 
