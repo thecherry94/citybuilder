@@ -33,14 +33,17 @@ public sealed record GridConfig(float CellSize)
     public static readonly GridConfig Default = new(8f);
 }
 
-/// <summary>Drawing context that influences snapping: the previous click (anchor) and the
-/// direction angle snap measures from (e.g. the tangent of the road being extended).</summary>
+/// <summary>Drawing context that influences snapping: the previous click (anchor), the
+/// direction angle snap measures from (e.g. the tangent of the road being extended),
+/// and the draft's working elevation (<see cref="PreferredY"/>) — snapping is
+/// plan-view (XZ), and PreferredY breaks ties between vertically stacked targets.</summary>
 public sealed record SnapContext(
     Vector3? Anchor,
     Vector3? ReferenceTangent,
     GridConfig? Grid = null,
     RoadTypeId? DrawingType = null,
-    NodeId? HeldNode = null)
+    NodeId? HeldNode = null,
+    float PreferredY = 0f)
 {
     public static readonly SnapContext Empty = new(null, null);
 }

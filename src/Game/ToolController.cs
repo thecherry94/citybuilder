@@ -120,11 +120,11 @@ public partial class ToolController : Node
         switch (e)
         {
             case InputEventMouseMotion:
-                if (_camera.MouseGroundPoint() is { } hover)
+                if (CursorWorldPoint() is { } hover)
                     HandleHoverAt(hover.ToNumerics());
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true }:
-                if (_camera.MouseGroundPoint() is { } down)
+                if (CursorWorldPoint() is { } down)
                     HandleMouseDownAt(down.ToNumerics());
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false }:
@@ -148,6 +148,15 @@ public partial class ToolController : Node
                 break;
         }
     }
+
+    /// <summary>Cursor world point on the drafting plane: road tools cast the mouse
+    /// ray against the CURRENT elevation (parallax-free elevated/dug drafting; the
+    /// XZ-planar snap engine handles targets at other heights), every other tool
+    /// keeps the ground plane its XZ picking expects.</summary>
+    private Vector3? CursorWorldPoint()
+        => IsRoadMode && Mathf.Abs(_session.CurrentElevation) > 0.01f
+            ? _camera.MousePointAtY(_session.CurrentElevation)
+            : _camera.MouseGroundPoint();
 
     // ---------------------------------------------------- world-space handlers
 

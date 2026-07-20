@@ -75,17 +75,24 @@ four altitudes, mirroring the length/radius floor discipline of ch. 02:
 
 ## Authoring
 
-`DraftSession.CurrentElevation` (clamped [0, `MaxElevation`] = 50 m) applies to **free**
-draft endpoints; endpoints snapped `AtNode`/`OnEdge` **adopt the target's Y** — so
-drawing away from a ground road at elevation 8 produces a ramp from 0 to 8
-automatically. The lift happens in exactly one place (`ApplyElevation`, called on every
+`DraftSession.CurrentElevation` (clamped [−`MaxDepth`, `MaxElevation`] = ±50 m since
+M8.5) applies to **free** draft endpoints; endpoints snapped `AtNode`/`OnEdge`
+**adopt the target's Y** — so drawing away from a ground road at elevation 8 produces
+a ramp from 0 to 8 automatically, and clicking the XZ of a +8 deck end (or a −8
+tunnel mouth) continues that road from its real height regardless of the current
+dial (plan-view snapping, M8.5 continuation fix —
+`DraftElevationTests.ContinuesFromAnElevatedEndNode`). The lift happens in exactly one place (`ApplyElevation`, called on every
 proposal the session validates or commits): endpoint Ys resolved, control-point Y
 linearly interpolated (P1 at 1/3, P2 at 2/3), so the gradient is uniform along the
 curve and ghost validation always sees the same lifted geometry the commit will.
 
 Game-side: PgUp/PgDn steps ±5 m, Ctrl+PgUp/PgDn ±1 m (`ToolController.StepElevation`);
 the readout shows `⬆ Nm` and the live ghost gradient as a percentage. Elevation
-persists across gestures until changed (CS2 behavior). The elevated ghost shows its
+persists across gestures until changed (CS2 behavior). While a road tool is at a
+non-zero elevation, the mouse ray is cast against the **current-elevation plane**,
+not Y=0 (`CameraRig.MousePointAtY` via `ToolController.CursorWorldPoint`) — the
+ghost tracks the cursor at deck height instead of landing metres behind it
+(parallax), and below ground the same plane matches what x-ray shows. The elevated ghost shows its
 height, not just its validity (post-M8 feedback pass, `GhostView`): the **exact
 structures a commit would produce** — pillars, girder fascia, embankment skirts, via
 the same `StructureView.BuildStructures` mesher, tinted ghost-blue/red — plus a dark
@@ -99,7 +106,11 @@ never trip it.
 
 **Stacked nodes are normal.** `FindNodeNear`/`FindClosestEdge` measure 3D distance, so
 an endpoint 8 m above a ground node creates a *separate* node at the same XZ — that is
-precisely what a grade-separated crossing looks like in the graph.
+precisely what a grade-separated crossing looks like in the graph. This 3D binding
+resolution at commit deliberately coexists with the XZ-planar *snap* (ch. 06): the
+snap decides which target the cursor means and pins it as an explicit `AtNode`/`OnEdge`
+binding, while free endpoints resolve in 3D so genuinely stacked geometry stays
+separate.
 
 ## Roundabouts at elevation
 

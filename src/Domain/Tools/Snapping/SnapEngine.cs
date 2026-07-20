@@ -82,7 +82,7 @@ public sealed class SnapEngine(RoadNetwork network)
             AddNodeCandidates(raw, radius, candidates);
         }
         if ((enabled & SnapTypes.Edges) != 0)
-            AddEdgeCandidates(raw, radius, candidates);
+            AddEdgeCandidates(raw, radius, ctx.PreferredY, candidates);
         if ((enabled & SnapTypes.Guidelines) != 0)
             AddGuidelineCandidates(guidelines, raw, radius, candidates);
         if ((enabled & SnapTypes.Perpendicular) != 0 && ctx.Anchor is { } anchor)
@@ -92,14 +92,18 @@ public sealed class SnapEngine(RoadNetwork network)
         if ((enabled & SnapTypes.CellLength) != 0 && ctx.Anchor is { } cellAnchor)
             AddCellLengthCandidates(raw, radius, cellAnchor, candidates);
 
+        // scoring is plan-view: the cursor lives on a horizontal plane, so 3D distance
+        // would put every off-plane target |ΔY| metres away before any lateral error —
+        // elevated and dug roads were unsnappable (the XZ-picking lesson, M8.5). The
+        // tiny ΔY term only orders vertically stacked candidates, never excludes.
         SnapCandidate? best = null;
         float bestScore = float.MaxValue;
         foreach (var c in candidates)
         {
-            float d = Vector3.Distance(c.Position, raw);
+            float d = DistXZ(c.Position, raw);
             if (d > radius)
                 continue;
-            float score = d / c.Weight;
+            float score = (d + 0.01f * MathF.Abs(c.Position.Y - ctx.PreferredY)) / c.Weight;
             if (score < bestScore)
             {
                 bestScore = score;
@@ -125,19 +129,25 @@ public sealed class SnapEngine(RoadNetwork network)
 
     // ------------------------------------------------------------- producers
 
-    /// <summary>Nearest node inside the hard-capture ring, or null. Hysteresis (M6.75
-    /// spec §1) extends this via <see cref="SnapContext.HeldNode"/>.</summary>
+    /// <summary>Nearest node inside the hard-capture ring, or null. Plan-view (XZ)
+    /// distance, so off-plane nodes (deck ends, tunnel mouths) are capturable from
+    /// the ground-plane cursor; XZ ties between vertically stacked nodes resolve
+    /// toward <see cref="SnapContext.PreferredY"/>. Hysteresis (M6.75 spec §1)
+    /// extends this via <see cref="SnapContext.HeldNode"/>.</summary>
     private (NodeId Id, Vector3 Position)? HardNodeCapture(Vector3 raw, float radius, SnapContext ctx)
     {
         float captureR = MathF.Max(NodeCaptureFraction * radius, NodeCaptureFloor);
         (NodeId Id, Vector3 Position)? best = null;
         float bestDist = float.MaxValue;
+        float bestDy = float.MaxValue;
         foreach (var n in network.Nodes.Values)
         {
-            float d = Vector3.Distance(n.Position, raw);
-            if (d <= captureR && d < bestDist)
+            float d = DistXZ(n.Position, raw);
+            float dy = MathF.Abs(n.Position.Y - ctx.PreferredY);
+            if (d <= captureR && (d < bestDist - 0.01f || (d <= bestDist + 0.01f && dy < bestDy)))
             {
                 bestDist = d;
+                bestDy = dy;
                 best = (n.Id, n.Position);
             }
         }
@@ -145,7 +155,7 @@ public sealed class SnapEngine(RoadNetwork network)
         // node captured strictly closer transfers the hold
         if (ctx.HeldNode is { } heldId && network.Nodes.TryGetValue(heldId, out var held))
         {
-            float dHeld = Vector3.Distance(held.Position, raw);
+            float dHeld = DistXZ(held.Position, raw);
             if (dHeld <= ReleaseFactor * captureR && dHeld <= bestDist)
                 best = (heldId, held.Position);
         }
@@ -155,13 +165,14 @@ public sealed class SnapEngine(RoadNetwork network)
     private void AddNodeCandidates(Vector3 raw, float radius, List<SnapCandidate> outList)
     {
         foreach (var n in network.Nodes.Values)
-            if (Vector3.Distance(n.Position, raw) <= radius)
+            if (DistXZ(n.Position, raw) <= radius)
                 outList.Add(new SnapCandidate(n.Position, SnapKind.Node, WeightNode, Node: n.Id));
     }
 
-    private void AddEdgeCandidates(Vector3 raw, float radius, List<SnapCandidate> outList)
+    private void AddEdgeCandidates(Vector3 raw, float radius, float preferredY,
+        List<SnapCandidate> outList)
     {
-        if (network.FindClosestEdge(raw, radius) is { } hit)
+        if (network.FindClosestEdgeXZ(raw, radius, preferredY) is { } hit)
         {
             var pos = network.Edges[hit.id].Curve.Point(hit.t);
             outList.Add(new SnapCandidate(pos, SnapKind.Edge, WeightEdge, Edge: (hit.id, hit.t)));
@@ -185,7 +196,7 @@ public sealed class SnapEngine(RoadNetwork network)
                     out float u, out _))
                 continue;
             var p = a.PointAt(u * a.Length);
-            if (Vector3.Distance(p, raw) <= radius)
+            if (DistXZ(p, raw) <= radius)
                 outList.Add(new SnapCandidate(p, SnapKind.GuidelineIntersection, WeightGuideIntersection,
                     Guide: a, Guide2: b));
         }
@@ -226,7 +237,7 @@ public sealed class SnapEngine(RoadNetwork network)
                     var foot = e.Curve.Point(tm);
                     var dir = foot - anchor;
                     dir.Y = 0;
-                    if (Vector3.Distance(foot, raw) <= radius && dir.LengthSquared() > 1e-6f)
+                    if (DistXZ(foot, raw) <= radius && dir.LengthSquared() > 1e-6f)
                         outList.Add(new SnapCandidate(foot, SnapKind.Perpendicular, WeightPerpendicular,
                             Edge: (e.Id, tm), Direction: Vector3.Normalize(dir)));
                 }
@@ -238,7 +249,7 @@ public sealed class SnapEngine(RoadNetwork network)
     private static void AddCellLengthCandidates(Vector3 raw, float radius, Vector3 anchor,
         List<SnapCandidate> outList)
     {
-        if (QuantizeToCell(raw, anchor) is { } pos && Vector3.Distance(pos, raw) <= radius)
+        if (QuantizeToCell(raw, anchor) is { } pos && DistXZ(pos, raw) <= radius)
             outList.Add(new SnapCandidate(pos, SnapKind.CellLength, WeightCellLength));
     }
 
@@ -283,7 +294,7 @@ public sealed class SnapEngine(RoadNetwork network)
         var guides = new List<Guideline>();
         foreach (var node in network.Nodes.Values)
         {
-            if (Vector3.Distance(node.Position, near) > GuidelineSearch)
+            if (DistXZ(node.Position, near) > GuidelineSearch)
                 continue;
             foreach (var edgeId in node.Edges)
             {
@@ -318,7 +329,10 @@ public sealed class SnapEngine(RoadNetwork network)
     }
 
     private static IReadOnlyList<Guideline> NearbyGuides(List<Guideline> guides, Vector3 pos, float radius)
-        => guides.Where(g => ProjectOntoGuide(g, pos) is { } p && Vector3.Distance(p, pos) <= radius).ToArray();
+        => guides.Where(g => ProjectOntoGuide(g, pos) is { } p && DistXZ(p, pos) <= radius).ToArray();
+
+    private static float DistXZ(Vector3 a, Vector3 b)
+        => new Vector2(a.X - b.X, a.Z - b.Z).Length();
 
     private void AddParallelGuides(Vector3 near, RoadTypeId drawType, List<Guideline> guides)
     {

@@ -757,6 +757,26 @@ public partial class Main : Node3D
             Expect(reDug.Covered, "covered flag did not survive the v3 save/load round-trip");
             _structures.FlushDirty();
 
+            // M8.5 fix: elevated/dug end nodes are snappable from the ground-plane
+            // cursor (plan-view snapping) — continuing a bridge or tunnel welds to
+            // the end node instead of committing a disconnected duplicate
+            int edgesBeforeContinue = _network.Edges.Count;
+            _controller.SetMode(ToolMode.Straight); // elevation is back at ground
+            _controller.HandleClickAt(V(900, 160));   // XZ of the +5 deck end node
+            _controller.HandleClickAt(V(900, 300));   // ramp back down to ground
+            _controller.HandleClickAt(V(1100, 160));  // XZ of the −8 tunnel end node
+            _controller.HandleClickAt(V(1100, 300));
+            Expect(_network.Edges.Count == edgesBeforeContinue + 2,
+                $"continuations did not commit cleanly: {_network.Edges.Count} vs {edgesBeforeContinue}+2");
+            var deckEnd = _network.Nodes.Values.First(nd =>
+                System.Numerics.Vector3.Distance(nd.Position, new System.Numerics.Vector3(900, 5, 160)) < 1f);
+            Expect(deckEnd.Edges.Count == 2, "bridge continuation did not weld to the deck end node");
+            var dugEnd = _network.Nodes.Values.First(nd =>
+                System.Numerics.Vector3.Distance(nd.Position, new System.Numerics.Vector3(1100, -8, 160)) < 1f);
+            Expect(dugEnd.Edges.Count == 2, "tunnel continuation did not weld to the dug end node");
+            _view.FlushDirty();
+            _structures.FlushDirty();
+
             GD.Print("SMOKE OK");
             GetTree().Quit(0);
         }

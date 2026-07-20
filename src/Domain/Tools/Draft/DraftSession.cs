@@ -216,7 +216,10 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         float bestD = pickRadius;
         for (int i = 0; i < d.Handles.Count; i++)
         {
-            float dist = Vector3.Distance(d.Handles[i].Position, raw);
+            // plan-view: a handle snapped to a deck/tunnel node sits at that Y while
+            // the cursor stays on its drafting plane
+            var h = d.Handles[i].Position;
+            float dist = new Vector2(h.X - raw.X, h.Z - raw.Z).Length();
             if (dist <= bestD)
             {
                 bestD = dist;
@@ -350,7 +353,8 @@ public sealed class DraftSession(RoadNetwork network, SnapEngine snap)
         }
         var ctx = new SnapContext(anchor, reference,
             (EnabledSnaps & SnapTypes.Grid) != 0 ? Grid : null, RoadType,
-            HeldNode: LastSnap.Kind == SnapKind.Node ? LastSnap.Node : null);
+            HeldNode: LastSnap.Kind == SnapKind.Node ? LastSnap.Node : null,
+            PreferredY: CurrentElevation);
         return snap.Resolve(raw, radius, EnabledSnaps, ctx);
     }
 

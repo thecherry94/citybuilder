@@ -69,26 +69,28 @@ public sealed partial class RoadNetwork
     /// <summary>Plan-view pick (M8.5): distance measured on the XZ projection so
     /// elevated and dug roads are selectable from the ground-plane cursor — the 3D
     /// pick above puts a ±Y deck |Y| metres away before any lateral error. Stacked
-    /// decks within ~1 cm of each other laterally resolve to the one nearest the
-    /// ground (a deliberate bias: the deck you can't reach this way is reachable
-    /// where the stack diverges).</summary>
-    public (EdgeId id, float t, float dist)? FindClosestEdgeXZ(Vector3 p, float maxDist)
+    /// decks within ~1 cm of each other laterally resolve to the one nearest
+    /// <paramref name="preferredY"/> (default 0 = nearest the ground, the tool-picking
+    /// bias; the snap engine passes the draft's working elevation so digging connects
+    /// to the tunnel, not the surface road above it).</summary>
+    public (EdgeId id, float t, float dist)? FindClosestEdgeXZ(Vector3 p, float maxDist,
+        float preferredY = 0f)
     {
         var probe = p with { Y = 0 };
         (EdgeId, float, float)? best = null;
         float bestD = maxDist;
-        float bestAbsY = float.MaxValue;
+        float bestDy = float.MaxValue;
         foreach (var e in _edges.Values)
         {
             var c = e.Curve;
             var flat = new Bezier3(c.P0 with { Y = 0 }, c.P1 with { Y = 0 },
                 c.P2 with { Y = 0 }, c.P3 with { Y = 0 });
             var (t, d) = BezierOps.ClosestPoint(flat, probe);
-            float absY = MathF.Abs(c.Point(t).Y);
-            if (d < bestD - 0.01f || (d <= bestD + 0.01f && absY < bestAbsY))
+            float dy = MathF.Abs(c.Point(t).Y - preferredY);
+            if (d < bestD - 0.01f || (d <= bestD + 0.01f && dy < bestDy))
             {
                 bestD = d;
-                bestAbsY = absY;
+                bestDy = dy;
                 best = (e.Id, t, d);
             }
         }

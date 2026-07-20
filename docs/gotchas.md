@@ -153,9 +153,12 @@ Hard-won. Read the relevant section before touching that area.
   both ground shaders `discard` where the mask is set. X-ray still exists because a
   *covered* tunnel has no opening at all. If terrain ever lands, delete the strip/mask
   (isolated as the `cut` surface in `StructureView.BuildStructures`) and cut real holes.
-- **Tool picking must be plan-view (XZ), not 3D distance.** The cursor lives on the
-  Y=0 plane, so `FindClosestEdge` (3D) put a ±10 m deck 10 m away before any lateral
-  error — upgrade/bulldoze/inspect silently couldn't hover bridges from M8 on, and
-  the covered-toggle UITEST was what finally caught it. Use `FindClosestEdgeXZ` /
-  `FindNodeNearXZ` for anything cursor-driven; they tie-break stacked decks toward
-  the ground (`XZPickingTests`).
+- **Anything cursor-driven must be plan-view (XZ), not 3D distance.** The cursor
+  lives on a horizontal plane, so `FindClosestEdge` (3D) put a ±10 m deck 10 m away
+  before any lateral error — upgrade/bulldoze/inspect silently couldn't hover bridges
+  from M8 on (covered-toggle UITEST caught it), and the SNAP ENGINE had the same bug
+  for another milestone: elevated/tunnel end nodes were uncapturable, so those roads
+  could never be continued (user find, 2026-07-20). Use `FindClosestEdgeXZ` /
+  `FindNodeNearXZ`, and in `SnapEngine` XZ distances everywhere; stacked targets
+  tie-break toward `preferredY` (ground for tools, the draft elevation for snapping —
+  `XZPickingTests`, `SnapEngineTests.StackedNodesResolveTowardPreferredElevation`).

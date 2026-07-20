@@ -182,6 +182,63 @@ public class SnapEngineTests
     }
 
     [Fact]
+    public void ElevatedNodeCapturesFromGroundPlaneCursor()
+    {
+        // user find (2026-07-20): node capture measured 3D distance from the Y=0
+        // cursor, so a +8 deck end was ≥8 m away before any lateral error — elevated
+        // roads could never be continued. Snapping is plan-view, like all tool
+        // picking since the XZ picking fix (XZPickingTests).
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 8, 0))); // ramp up to +8
+        var snap = new SnapEngine(n);
+        var result = snap.Resolve(new Vector3(99f, 0, 0.5f), 6f, SnapTypes.All, SnapContext.Empty);
+        Assert.Equal(SnapKind.Node, result.Kind);
+        Assert.Equal(new Vector3(100, 8, 0), result.Position); // position adopts the node's Y
+    }
+
+    [Fact]
+    public void TunnelNodeCapturesFromGroundPlaneCursor()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, -8, 0))); // dig down to −8
+        var snap = new SnapEngine(n);
+        var result = snap.Resolve(new Vector3(99f, 0, 0.5f), 6f, SnapTypes.All, SnapContext.Empty);
+        Assert.Equal(SnapKind.Node, result.Kind);
+        Assert.Equal(new Vector3(100, -8, 0), result.Position);
+    }
+
+    [Fact]
+    public void ElevatedEdgeSnapsFromGroundPlaneCursor()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(0, 8, -50), new(0, 8, 50))); // deck at +8
+        var snap = new SnapEngine(n);
+        var result = snap.Resolve(new Vector3(1.0f, 0, 10f), 6f, SnapTypes.All, SnapContext.Empty);
+        Assert.Equal(SnapKind.Edge, result.Kind);
+        Assert.Equal(8f, result.Position.Y, 1); // snapped onto the deck, not under it
+    }
+
+    [Fact]
+    public void StackedNodesResolveTowardPreferredElevation()
+    {
+        // a ground node and a deck node at the same XZ: the draft's working elevation
+        // (SnapContext.PreferredY) picks which one the cursor means
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(0, 0, 0), new(100, 0, 0)));
+        Net.Commit(n, Net.Straight(new(0, 8, 0), new(100, 8, 0))); // stacked deck, ΔY 8 ≥ MinClearance
+        var snap = new SnapEngine(n);
+
+        var ground = snap.Resolve(new Vector3(99f, 0, 0.5f), 6f, SnapTypes.All, SnapContext.Empty);
+        Assert.Equal(SnapKind.Node, ground.Kind);
+        Assert.Equal(new Vector3(100, 0, 0), ground.Position);
+
+        var deck = snap.Resolve(new Vector3(99f, 0, 0.5f), 6f, SnapTypes.All,
+            SnapContext.Empty with { PreferredY = 8f });
+        Assert.Equal(SnapKind.Node, deck.Kind);
+        Assert.Equal(new Vector3(100, 8, 0), deck.Position);
+    }
+
+    [Fact]
     public void FreeWhenNothingInRange()
     {
         var (_, snap) = Setup();

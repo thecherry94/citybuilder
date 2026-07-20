@@ -42,11 +42,15 @@ explained.
   (`Bezier3.FromQuadratic`, `BezierOps.ArcFromTangent`) and `MinRadius` for the live
   readout; `RoadCatalog`/`RoadType` (ch. 02) for per-type floors and `OuterHalf`
   (parallel-guide offset).
-- **Last verified against commit:** M8, 2026-07-19.
-- **Elevation (M8):** `DraftSession.CurrentElevation` lifts every proposal in one
-  place (`ApplyElevation`): snapped endpoints adopt the target's Y, free endpoints
-  take the current elevation, control points interpolate. Snapping itself stays
-  XZ-planar. See [ch. 10](10-elevation.md).
+- **Last verified against commit:** M8.5 head, 2026-07-20.
+- **Elevation (M8, hardened M8.5):** `DraftSession.CurrentElevation` lifts every
+  proposal in one place (`ApplyElevation`): snapped endpoints adopt the target's Y,
+  free endpoints take the current elevation, control points interpolate. Snapping is
+  genuinely plan-view since the M8.5 continuation fix — every candidate distance in
+  `SnapEngine` is XZ (until then they were 3D, so a ±8 m deck/tunnel end was ≥8 m
+  from any cursor point and could never be continued). Vertically stacked targets
+  resolve toward `SnapContext.PreferredY` (the session passes `CurrentElevation`).
+  See [ch. 10](10-elevation.md).
 
 ## The session state machine
 
@@ -203,10 +207,11 @@ Below the capture tier, `SnapEngine.Resolve` (`SnapEngine.cs`) is a candidate-sc
 resolver, not a priority cascade: every enabled snap kind contributes zero or more
 `SnapCandidate`s (position + `Kind` + `Weight`, plus kind-specific payload — a
 `NodeId`, an `(EdgeId, T)`, a direction, or the guideline(s) involved), and the
-lowest-**score** candidate wins, where `score = distance / weight`
-(`SnapEngine.cs:64`). Weight therefore isn't a tie-breaker bolted on after distance —
-it rescales distance directly, so a *dead-on* weak-kind candidate can still beat a
-*barely-in-range* strong-kind one
+lowest-**score** candidate wins, where `score = distance / weight` with distance
+measured in **XZ** plus a tiny `0.01 × |Y − PreferredY|` term that only orders
+vertically stacked candidates (M8.5 continuation fix). Weight therefore isn't a
+tie-breaker bolted on after distance — it rescales distance directly, so a *dead-on*
+weak-kind candidate can still beat a *barely-in-range* strong-kind one
 (`SnapEngineTests.DeadOnWeakSnapBeatsBarelyInRangeStrongSnap`: a guideline hit at
 0.01 m beats a node 4.6 m away even though nodes carry more than double the
 guideline's weight). If nothing scores within `radius`, `Resolve` falls back to angle

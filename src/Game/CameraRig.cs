@@ -81,7 +81,13 @@ public partial class CameraRig : Node3D
     }
 
     /// <summary>Where the mouse ray hits the Y=0 plane, if it does.</summary>
-    public Vector3? MouseGroundPoint()
+    public Vector3? MouseGroundPoint() => MousePointAtY(0f);
+
+    /// <summary>Where the mouse ray hits the horizontal plane at <paramref name="y"/> —
+    /// the drafting plane. Casting against the CURRENT elevation kills the parallax
+    /// between the cursor and an elevated/dug ghost (the ground-plane hit lands metres
+    /// away from where the mouse visually points at deck height).</summary>
+    public Vector3? MousePointAtY(float y)
     {
         var vp = GetViewport();
         var mp = vp.GetMousePosition();
@@ -89,7 +95,7 @@ public partial class CameraRig : Node3D
         var dir = _camera.ProjectRayNormal(mp);
         if (Mathf.Abs(dir.Y) < 1e-6f)
             return null;
-        float t = -origin.Y / dir.Y;
+        float t = (y - origin.Y) / dir.Y;
         return t < 0 ? null : origin + dir * t;
     }
 

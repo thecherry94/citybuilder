@@ -68,6 +68,39 @@ public class DraftElevationTests
     }
 
     [Fact]
+    public void ContinuesFromAnElevatedEndNode()
+    {
+        // user find (2026-07-20), end-to-end: click the XZ of a +8 deck end from the
+        // ground-plane cursor and draw on — the start must weld to the deck node and
+        // adopt its elevation, not commit a disconnected duplicate
+        var (n, s) = NewSession();
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, 0), new Vector3(100, 8, 0)));
+        s.CurrentElevation = 0f;
+        s.Click(new Vector3(100, 0, 0), 6f);   // ground-plane click on the +8 node
+        s.Click(new Vector3(220, 0, 0), 6f);   // free end back at ground (6.7%)
+        Assert.Equal(2, n.Edges.Count);
+        var deckNode = n.Nodes.Values.Single(
+            x => Vector3.Distance(x.Position, new Vector3(100, 8, 0)) < 0.5f);
+        Assert.Equal(2, deckNode.Edges.Count); // both edges share the deck node
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
+    public void ContinuesFromATunnelEndNode()
+    {
+        var (n, s) = NewSession();
+        Net.Commit(n, Net.Straight(new Vector3(0, 0, 0), new Vector3(100, -8, 0)));
+        s.CurrentElevation = 0f;
+        s.Click(new Vector3(100, 0, 0), 6f);
+        s.Click(new Vector3(220, 0, 0), 6f);
+        Assert.Equal(2, n.Edges.Count);
+        var dugNode = n.Nodes.Values.Single(
+            x => Vector3.Distance(x.Position, new Vector3(100, -8, 0)) < 0.5f);
+        Assert.Equal(2, dugNode.Edges.Count);
+        Assert.Empty(NetworkInvariants.Check(n));
+    }
+
+    [Fact]
     public void ElevationSetterClampsToEditorRange()
     {
         var (_, s) = NewSession();
