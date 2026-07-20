@@ -160,7 +160,9 @@ public partial class StructureView : Node3D
         concrete.Begin(Mesh.PrimitiveType.Triangles);
         var wall = new SurfaceTool();
         wall.Begin(Mesh.PrimitiveType.Triangles);
-        bool anyEarth = false, anyConcrete = false, anyWall = false;
+        var cut = new SurfaceTool(); // ground-level opening strips (the "hole" the flat plane can't have)
+        cut.Begin(Mesh.PrimitiveType.Triangles);
+        bool anyEarth = false, anyConcrete = false, anyWall = false, anyCut = false;
 
         float sincePillar = PillarEvery; // first eligible spot gets one
         for (int i = 0; i < n; i++)
@@ -224,6 +226,16 @@ public partial class StructureView : Node3D
                             b with { Y = 0 }, a with { Y = 0 });
                     }
                     anyWall = true;
+
+                    // the opening itself: the flat ground plane has no hole, so a dark
+                    // translucent strip just above it is what makes the pit readable
+                    // (and the sunken road faintly visible through it)
+                    var aL = (pts[i] - side[i] * (half + 0.6f)) with { Y = 0.02f };
+                    var aR = (pts[i] + side[i] * (half + 0.6f)) with { Y = 0.02f };
+                    var bL = (pts[i + 1] - side[i + 1] * (half + 0.6f)) with { Y = 0.02f };
+                    var bR = (pts[i + 1] + side[i + 1] * (half + 0.6f)) with { Y = 0.02f };
+                    AddQuad(cut, aL, aR, bR, bL);
+                    anyCut = true;
                 }
                 else
                 {
@@ -242,7 +254,7 @@ public partial class StructureView : Node3D
             }
         }
 
-        if (!anyEarth && !anyConcrete && !anyWall)
+        if (!anyEarth && !anyConcrete && !anyWall && !anyCut)
             return null;
         var mesh = new ArrayMesh();
         if (anyEarth)
@@ -259,6 +271,11 @@ public partial class StructureView : Node3D
         {
             wall.SetMaterial(Materials.RetainingWall);
             wall.Commit(mesh);
+        }
+        if (anyCut)
+        {
+            cut.SetMaterial(Materials.CutOpening);
+            cut.Commit(mesh);
         }
         return mesh;
     }

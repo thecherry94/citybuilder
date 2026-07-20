@@ -85,12 +85,21 @@ public partial class VisualShots : Node3D
                     overlay.SetShown(true);
                 }
 
+                if (scenario.XRay)
+                {
+                    (GetParentOrNull<Main>())?.ApplyXRay(true);
+                    view.SetXRay(true);
+                }
+
                 foreach (var shot in scenario.Shots)
                 {
                     _camera.Frame(shot.Target.ToGodot(), shot.Distance, shot.PitchDeg, shot.YawDeg);
                     await CaptureAsync($"{_dir}/{scenario.Name}_{shot.Suffix}.png");
                     count++;
                 }
+
+                if (scenario.XRay)
+                    (GetParentOrNull<Main>())?.ApplyXRay(false);
 
                 // motion filmstrip: frames ~0.33 s apart while the sim runs, from the
                 // first camera. Composite with `magick *_motion*.png -compose lighten
@@ -175,7 +184,10 @@ public partial class VisualShots : Node3D
         Action<RoadNetwork, CityBuilder.Domain.Traffic.TrafficSim?, RoadNetworkView>? PostBuild = null,
         // Extra scene content (e.g. GhostViews showing live snap states) added after
         // Build and freed with the scenario.
-        Func<RoadNetwork, Node>? Extra = null);
+        Func<RoadNetwork, Node>? Extra = null,
+        // M8.5: shoot this scenario in x-ray (translucent ground + dimmed surface
+        // roads) via the owning Main — the tunnel gallery evidence.
+        bool XRay = false);
 
     private static Shot Top(NVec target, float dist) => new("top", target, dist, -89f, 0f);
     private static Shot Oblique(NVec target, float dist) => new("oblique", target, dist, -35f, 30f);
@@ -650,6 +662,82 @@ public partial class VisualShots : Node3D
 
         yield return SnapGallery();
         yield return ElevatedGhostGallery();
+
+        // ---- M8.5: trenches, tunnels, x-ray, pillar awareness ----
+
+        yield return new Scenario("trench", n =>
+        {
+            // ramp down – open cut at −4 – ramp up: retaining walls to the ground
+            // lip both sides, coping strip readable from above, ⬇ structure only
+            Commit(n, Straight(new(0, 0, -140), new(0, -4, -50)));
+            Commit(n, Straight(new(0, -4, -50), new(0, -4, 50)));
+            Commit(n, Straight(new(0, -4, 50), new(0, 0, 140)));
+        }, new[]
+        {
+            Top(new(0, 0, 0), 85),
+            Oblique(new(0, -2, 0), 70),
+            new Shot("low", new(0, -2, 12), 30, -12f, 55f), // wall + coping hero
+        }, Extra: StructuresFor);
+
+        yield return new Scenario("tunnel", n =>
+        {
+            // dig to −8 and cover: portals must appear exactly where the covered
+            // deck crosses PortalDepth (−3 m) on each ramp — nowhere else
+            var r1 = Commit(n, Straight(new(0, 0, -160), new(0, -8, -60)));
+            var r2 = Commit(n, Straight(new(0, -8, -60), new(0, -8, 60)));
+            var r3 = Commit(n, Straight(new(0, -8, 60), new(0, 0, 160)));
+            foreach (var r in new[] { r1, r2, r3 })
+                foreach (var e in r.CreatedEdges)
+                    n.SetCovered(e, true);
+        }, new[]
+        {
+            // the entry portal sits where the covered ramp crosses −3 m: z ≈ −122
+            Oblique(new(0, -1, -122), 45),                   // entry portal hero
+            new Shot("portal_low", new(0, -2, -124), 26, -6f, 185f),
+            Top(new(0, 0, 0), 100),                          // deep span: surface stays clean
+        }, Extra: StructuresFor);
+
+        yield return new Scenario("tunnel_xray", n =>
+        {
+            // same dig, plus a surface arterial grade-separated above the tube;
+            // x-ray: translucent ground, dimmed surface road, tunnel carriageway reads
+            var r1 = Commit(n, Straight(new(0, 0, -160), new(0, -8, -60)));
+            var r2 = Commit(n, Straight(new(0, -8, -60), new(0, -8, 60)));
+            var r3 = Commit(n, Straight(new(0, -8, 60), new(0, 0, 160)));
+            foreach (var r in new[] { r1, r2, r3 })
+                foreach (var e in r.CreatedEdges)
+                    n.SetCovered(e, true);
+            Commit(n, Straight(new(-90, 0, 0), new(90, 0, 0), RoadCatalog.FourLane.Id));
+        }, new[]
+        {
+            Oblique(new(0, -4, 0), 90),
+            Top(new(0, 0, 0), 110),
+        }, Extra: StructuresFor, XRay: true);
+
+        yield return new Scenario("underpass_pillars", n =>
+        {
+            // the M8 known-limit fix: a road crossing diagonally under the deck —
+            // pillars near the carriageway must shift along the span or skip, never
+            // stand in the road
+            Commit(n, Straight(new(0, 0, -140), new(0, 6, -50)));
+            Commit(n, Straight(new(0, 6, -50), new(0, 6, 50)));
+            Commit(n, Straight(new(0, 6, 50), new(0, 0, 140)));
+            Commit(n, Straight(new(-60, 0, -45), new(60, 0, 45)));
+        }, new[]
+        {
+            new Shot("low", new(0, 3, 0), 45, -10f, 55f),
+            Oblique(new(0, 2, 0), 70),
+            Top(new(0, 0, 0), 85),
+        }, Extra: StructuresFor);
+    }
+
+    /// <summary>Standard Extra: a StructureView over the pre-built network.</summary>
+    private static Node StructuresFor(RoadNetwork n)
+    {
+        var sv = new StructureView();
+        sv.Bind(n);
+        sv.RebuildAll();
+        return sv;
     }
 
     /// <summary>Two live elevated drafts: a legal 8% ramp bridging a ground road
@@ -779,7 +867,7 @@ public partial class VisualShots : Node3D
             new ProposedCurve(Bezier3.FromQuadratic(a, ctrl, b), EndpointBinding.None, EndpointBinding.None)
         }, type ?? RoadCatalog.TwoLane.Id);
 
-    private static void Commit(RoadNetwork n, PlacementProposal p)
+    private static CommitResult Commit(RoadNetwork n, PlacementProposal p)
     {
         var v = n.Validate(p);
         if (!v.IsValid)
@@ -787,5 +875,6 @@ public partial class VisualShots : Node3D
         var r = n.Commit(v);
         if (!r.Success)
             throw new InvalidOperationException("scenario commit failed: " + r.FailureReason);
+        return r;
     }
 }

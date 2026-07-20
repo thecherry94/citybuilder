@@ -36,6 +36,17 @@ public static class Materials
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
     };
 
+    /// <summary>The flat ground plane can't have real holes, so an open cut renders a
+    /// dark translucent strip at ground level — reads as the pit opening from above,
+    /// with the sunken road faintly visible through it (M8.5).</summary>
+    public static readonly StandardMaterial3D CutOpening = new()
+    {
+        AlbedoColor = new Color(0.06f, 0.07f, 0.08f, 0.62f),
+        Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+        Roughness = 1f,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+    };
+
     public static readonly StandardMaterial3D RetainingWall = new()
     {
         // colder and darker than sidewalk concrete so cuts read as engineered walls

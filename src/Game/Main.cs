@@ -330,7 +330,8 @@ public partial class Main : Node3D
             ApplyXRay(want);
     }
 
-    private void ApplyXRay(bool on)
+    /// <summary>Public for the shots harness (x-ray gallery scenes).</summary>
+    public void ApplyXRay(bool on)
     {
         _xrayActive = on;
         _ground.MaterialOverride = on ? _groundXray : _groundOpaque;
