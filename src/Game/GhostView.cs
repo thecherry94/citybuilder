@@ -27,6 +27,11 @@ public partial class GhostView : Node3D
     private Label3D _angleLabel = null!;
     private readonly List<MeshInstance3D> _crossDots = new();
     private ValidatedPlacement? _lastPlacement;
+    private CityBuilder.Domain.Network.RoadNetwork? _network;
+
+    /// <summary>Optional: with a bound network the structure preview gets the same
+    /// pillar-obstruction awareness the committed mesher uses (M8.5, WYSIWYG).</summary>
+    public void BindNetwork(CityBuilder.Domain.Network.RoadNetwork network) => _network = network;
 
     public override void _Ready()
     {
@@ -233,13 +238,17 @@ public partial class GhostView : Node3D
                     inst.Mesh = mesh;
                     inst.MaterialOverride = material;
 
-                    bool elevated = pc.Curve.P0.Y > 0.5f || pc.Curve.P1.Y > 0.5f
-                        || pc.Curve.P2.Y > 0.5f || pc.Curve.P3.Y > 0.5f;
-                    if (elevated)
+                    bool offGround = Mathf.Abs(pc.Curve.P0.Y) > 0.5f || Mathf.Abs(pc.Curve.P1.Y) > 0.5f
+                        || Mathf.Abs(pc.Curve.P2.Y) > 0.5f || Mathf.Abs(pc.Curve.P3.Y) > 0.5f;
+                    if (offGround)
                     {
-                        // the exact structures a commit would produce (same mesher)
+                        // the exact structures a commit would produce (same mesher);
+                        // drafts always commit uncovered, so covered:false IS WYSIWYG
                         var arc = new CityBuilder.Domain.Geometry.ArcLengthTable(pc.Curve);
-                        if (StructureView.BuildStructures(pc.Curve, arc, width) is { } structMesh)
+                        var net = _network;
+                        if (StructureView.BuildStructures(pc.Curve, arc, width, covered: false,
+                                net is null ? null : p => StructureView.CarriagewayObstructed(net, null, p))
+                            is { } structMesh)
                         {
                             var s = Pooled(_structures, ref usedStructures);
                             s.Mesh = structMesh;

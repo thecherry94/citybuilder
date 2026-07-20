@@ -93,7 +93,30 @@ public partial class StructureView : Node3D
 
     private ArrayMesh? BuildStructures(RoadEdge edge)
         => BuildStructures(edge.Curve, edge.ArcLength, RoadCatalog.Get(edge.Type).Width,
-            edge.Covered);
+            edge.Covered, p => CarriagewayObstructed(_network, edge.Id, p));
+
+    /// <summary>True when a pillar carrying a deck at pillarTop would stand inside
+    /// another edge's carriageway — the M8 "pillar in the underpass" known limit.
+    /// The column occupies XZ from the ground up to its deck, so any other edge whose
+    /// deck threads that vertical range within half-width (+ margin) is obstructed.
+    /// Trenches below ground are NOT obstructed: the pillar's base stops at Y=0.</summary>
+    public static bool CarriagewayObstructed(RoadNetwork network, EdgeId? self, Vector3 pillarTop)
+    {
+        var probe = new System.Numerics.Vector3(pillarTop.X, 0, pillarTop.Z);
+        foreach (var e in network.Edges.Values)
+        {
+            if (self is { } s && e.Id == s)
+                continue;
+            var (t, _) = BezierOps.ClosestPoint(e.Curve, probe);
+            var at = e.Curve.Point(t);
+            if (at.Y <= -0.5f || at.Y >= pillarTop.Y - 0.5f)
+                continue; // below the pillar's base, or at/above the deck it carries
+            float dxz = new Vector2(at.X - probe.X, at.Z - probe.Z).Length();
+            if (dxz <= RoadCatalog.Get(e.Type).Width / 2f + PillarHalf + 1f)
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>One ArrayMesh: surface 0 = earth embankment skirts, surface 1 =
     /// concrete fascia + pillars, surface 2 = retaining walls / portals (M8.5).
@@ -105,7 +128,7 @@ public partial class StructureView : Node3D
     /// depth. Portals appear ONLY at internal depth crossings, never at curve ends,
     /// so chains of covered edges (splits) don't sprout portals mid-tunnel.</summary>
     public static ArrayMesh? BuildStructures(in Bezier3 curve, ArcLengthTable arc, float width,
-        bool covered = false)
+        bool covered = false, Func<Vector3, bool>? pillarObstructed = null)
     {
         float len = arc.TotalLength;
         int n = Mathf.Max(2, (int)(len / SampleStep));
@@ -167,10 +190,20 @@ public partial class StructureView : Node3D
                 sincePillar += len / n;
                 if (bridge && midY >= PillarMinClear && sincePillar >= PillarEvery)
                 {
-                    sincePillar = 0;
                     var top = (pts[i] + pts[i + 1]) / 2f;
-                    AddPillar(concrete, top with { Y = top.Y - FasciaDepth / 2f }, side[i]);
-                    anyConcrete = true;
+                    if (pillarObstructed?.Invoke(top) == true)
+                    {
+                        // blocked spot: keep accumulating so the next clear span takes
+                        // the pillar (the "shift"); a long obstruction skips one outright
+                        if (sincePillar > 2f * PillarEvery)
+                            sincePillar = 0;
+                    }
+                    else
+                    {
+                        sincePillar = 0;
+                        AddPillar(concrete, top with { Y = top.Y - FasciaDepth / 2f }, side[i]);
+                        anyConcrete = true;
+                    }
                 }
             }
             else

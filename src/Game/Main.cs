@@ -85,6 +85,7 @@ public partial class Main : Node3D
         AddChild(_view);
 
         var ghost = new GhostView { Name = "GhostView" };
+        ghost.BindNetwork(_network);
         AddChild(ghost);
 
         _lanes = new LaneDebugOverlay { Name = "LaneDebugOverlay" };
