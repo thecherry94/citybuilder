@@ -59,6 +59,38 @@ public class SaveLoadTests
     }
 
     [Fact]
+    public void CoveredFlagRoundTripsAndStaysByteStable()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0)));
+        Net.Commit(n, Net.Straight(new(0, 0, -100), new(0, 0, 100)));
+        var covered = n.Edges.Keys.OrderBy(id => id.Value).First();
+        Assert.True(n.SetCovered(covered, true));
+
+        string json = SaveLoad.Save(n);
+        var loaded = SaveLoad.Load(json);
+        Assert.Equal(json, SaveLoad.Save(loaded)); // byte-stable at v3
+        Assert.True(loaded.Edges[covered].Covered);
+        Assert.All(loaded.Edges.Values.Where(e => e.Id != covered),
+            e => Assert.False(e.Covered));
+    }
+
+    [Fact]
+    public void V2SaveWithoutCoveredLoadsAsUncovered()
+    {
+        var n = Net.New();
+        Net.Commit(n, Net.Straight(new(-100, 0, 0), new(100, 0, 0)));
+        // regress a fresh v3 save to a v2 payload: strip the Covered property and
+        // rewrite the version — exactly what a real v2 file looks like
+        string v2 = SaveLoad.Save(n)
+            .Replace("\"FormatVersion\":3", "\"FormatVersion\":2")
+            .Replace(",\"Covered\":false", "");
+        Assert.DoesNotContain("Covered", v2);
+        var loaded = SaveLoad.Load(v2);
+        Assert.All(loaded.Edges.Values, e => Assert.False(e.Covered));
+    }
+
+    [Fact]
     public void FormatV1SaveWithoutRoundaboutsStillLoads()
     {
         const string v1 = "{\"FormatVersion\":1,\"Nodes\":[],\"Edges\":[],\"NextNode\":1,\"NextEdge\":1,\"NextLane\":1}";
@@ -150,7 +182,8 @@ public class SaveLoadTests
     public void NewerFormatVersionThrows()
     {
         var n = Net.New();
-        string json = SaveLoad.Save(n).Replace("\"FormatVersion\":2", "\"FormatVersion\":99");
+        string json = SaveLoad.Save(n)
+            .Replace($"\"FormatVersion\":{SaveLoad.FormatVersion}", "\"FormatVersion\":99");
         Assert.Throws<SaveFormatException>(() => SaveLoad.Load(json));
     }
 

@@ -10,7 +10,7 @@ namespace CityBuilder.Domain.Persistence;
 /// polygons, connectors) is never stored; it rebuilds from the restored graph.</summary>
 public static class SaveLoad
 {
-    public const int FormatVersion = 2;
+    public const int FormatVersion = 3;
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -107,6 +107,7 @@ public static class SaveLoad
                 c.P2.X, c.P2.Y, c.P2.Z,
                 c.P3.X, c.P3.Y, c.P3.Z,
             },
-            edge.Lanes.Select(l => l.Id.Value).ToArray());
+            edge.Lanes.Select(l => l.Id.Value).ToArray(),
+            edge.Covered);
     }
 }

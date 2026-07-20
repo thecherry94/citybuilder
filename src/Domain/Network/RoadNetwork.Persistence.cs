@@ -56,7 +56,8 @@ public sealed partial class RoadNetwork
         foreach (var ed in game.Edges)
         {
             var curve = ToCurve(ed.Curve);
-            var edge = new RoadEdge(new EdgeId(ed.Id), new NodeId(ed.Start), new NodeId(ed.End), curve, new RoadTypeId(ed.Type));
+            var edge = new RoadEdge(new EdgeId(ed.Id), new NodeId(ed.Start), new NodeId(ed.End), curve, new RoadTypeId(ed.Type))
+            { Covered = ed.Covered };
             var specs = RoadCatalog.Get(edge.Type).Lanes;
             var lanes = new Lane[specs.Count];
             for (int i = 0; i < specs.Count; i++)

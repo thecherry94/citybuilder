@@ -21,8 +21,10 @@ public sealed record RoleDto(int Edge, int Role);
 
 public sealed record LegOffsetDto(int Edge, float Offset);
 
+// v3 (M8.5) appends Covered; absent in v1/v2 payloads → default false.
 public sealed record EdgeDto(int Id, int Start, int End, int Type,
-    float[] Curve /* 12 floats: P0..P3, each X,Y,Z */, int[] LaneIds /* catalog order */);
+    float[] Curve /* 12 floats: P0..P3, each X,Y,Z */, int[] LaneIds /* catalog order */,
+    bool Covered = false);
 
 /// <summary>A roundabout: identity, geometry, ring membership (CCW), and each approach
 /// leg's full pre-conversion curve so radius edits re-trim losslessly after a reload.
