@@ -12,6 +12,7 @@ claims, always.
 | Smoke | `CITYBUILDER_SMOKE=1 godot --headless .` → `SMOKE OK` | end-to-end: tools → network → junction control → traffic arrivals |
 | Screenshots | `CITYBUILDER_SHOTS=tests/visual/shots godot .` → `SHOTS OK N` | rendering, paint, props (needs a real window) |
 | UI test | `CITYBUILDER_UITEST=<out.png> godot .` → `UITEST OK …` | scripted UI flow + full-UI screenshot |
+| Golden diff | `CITYBUILDER_SHOTS=… CITYBUILDER_SHOTS_GOLDEN=check godot .` → `GOLDEN OK N` | silent render regressions vs committed baselines in `tests/visual/golden/` |
 
 Screenshot harness extras:
 - **Angle policy** (2026-07-20, elevated-junction find): high oblique/top shots hide
@@ -23,6 +24,33 @@ Screenshot harness extras:
 - `CITYBUILDER_SHOTS_DUMP=<scenario>` — print flat quads at marking height (`MeshBuilders.MarkingY`):
   **ground truth for where paint actually is** — far more reliable than pixel-guessing.
 - Traffic scenarios also emit `*_motion0..7.png` filmstrips (0.33 s apart).
+- `CITYBUILDER_SHOTS_GOLDEN=check|update` (M8.75) — `check` compares the curated
+  static golden set (`VisualShots.GoldenScenarios`, no traffic scenarios) against
+  `tests/visual/golden/` in-harness (`Godot.Image` bytes, per-channel tolerance 8/255,
+  fail when > 0.5 % of pixels change; report on stderr, exit 1). `update` regenerates
+  the baselines — an intentional act, reviewed via the git diff of the PNGs.
+
+## Geometry dumps (M8.75) — read these before pixel-guessing
+
+`GeometryDump` (`src/Domain/Diagnostics/`) exports the **domain's** view of the network
+— complementing `CITYBUILDER_SHOTS_DUMP`, which dumps what the *renderer* emitted; a
+discrepancy between the two is itself diagnostic signal.
+
+- `GeometryDump.Svg(network)` / `.SvgToFile(...)` — layered plan-view SVG
+  (`edges`/`junctions`/`lanes`/`conflicts`/`labels` groups; svg x = world X, svg y =
+  world Z; elevation + `covered` in labels; lanes drawn in travel order with
+  arrowheads; conflict points as red dots). Read the coordinates as text instead of
+  squinting at PNGs.
+- `GeometryDump.Json(network)` / `.JsonToFile(...)` — the same data with exact
+  coordinates (nodes incl. junction polygons, edges incl. sampled polylines + lanes,
+  roundabout membership). Query it before writing a state-probe test.
+- **Fuzz failures dump automatically**: a failing `FuzzSuiteTests` seed writes
+  `fuzz-artifacts/seed<N>_action<K>.svg|.json` next to the test binaries and appends
+  the paths to the failure message — the replayable action tail now ships with a picture.
+- **Smoke end state**: `CITYBUILDER_SMOKE_DUMP=<dir>` alongside `CITYBUILDER_SMOKE=1`
+  writes `smoke_network.svg|.json` and prints `SMOKE DUMP <path>`.
+- Any test can call it directly (one-liner) for throwaway debugging — write to the
+  scratchpad/temp dir and delete probes afterwards.
 
 ## Debug methodology (learned the hard way)
 

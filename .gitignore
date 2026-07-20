@@ -9,3 +9,4 @@ obj/
 tests/visual/shots/
 *.cs.uid
 *.csproj.old
+*.csproj.old.*

@@ -289,6 +289,29 @@ verified build.
   wall-clock floor — a deeper editor-commit optimization is the next perf lever if one
   is ever needed.
 
+- **M8.75 — Observability harness** (2026-07-20): a tooling mini-milestone before
+  zoning adds a new class of geometry — born from a web-research pass on LLM-agent
+  game-dev practice ("the decisive capability is verification, not generation").
+  **`GeometryDump`** (`src/Domain/Diagnostics/`): layered plan-view **SVG**
+  (edges/junctions/lanes/conflicts/labels; lanes in travel order with arrowheads,
+  conflict points as dots, elevation/covered/ids in labels; invariant-culture — the
+  de-DE dev machine would otherwise emit `3,5`) and **JSON** (exact coordinates,
+  junction polygons, roundabout membership) — wired into three call sites: any xUnit
+  test, **fuzz failures** (auto-dump `fuzz-artifacts/seed<N>_action<K>.svg|.json`
+  appended to the assert message), and **smoke** (`CITYBUILDER_SMOKE_DUMP=<dir>`).
+  **Golden-image diffing** (`CITYBUILDER_SHOTS_GOLDEN=check|update`): 25 committed
+  baselines over 9 static scenarios (incl. a new `roundabout` gallery scene — the
+  gallery had none), in-harness `Godot.Image` compare (channel tolerance 8/255,
+  0.5 % changed-pixel gate; ImageMagick dropped — not even installed here), failure
+  path proven by running `check` under `CITYBUILDER_SHOTS_TINT=1` (every
+  junction-bearing shot flagged, junction-free scenes stayed green, exit 1).
+  Verified: 397 quick tests + default fuzz sweep green, smoke incl. dump, gallery
+  137 shots + `GOLDEN OK 25`, UITEST. No KPI/manual-chapter changes (developer
+  tooling; verification.md is the manual for it).
+  Known limits: goldens are single-machine (GPU/driver change ⇒ intentional
+  `update` + git-diff review); golden set excludes traffic scenarios by design;
+  conflict-point SVG placement approximates t by arc-length ratio (debug-grade).
+
 ## Next up (roughly in order — each is one milestone)
 
 1. **Zoning & buildings.** Zone strips along edges (the offset machinery generalizes),

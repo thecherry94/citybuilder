@@ -53,8 +53,10 @@ connectivity), conflict points. Exact-coordinate queries without SVG parsing.
 2. **Fuzzer failure path** — when an invariant fails, alongside the existing replayable
    action tail, auto-dump SVG+JSON of the network at failure. A failing seed instantly
    ships with a picture.
-3. **Smoke harness** — `CITYBUILDER_SMOKE=1` dumps the final network state next to its
-   other outputs, giving every smoke run an inspectable artifact.
+3. **Smoke harness** — gated by `CITYBUILDER_SMOKE_DUMP=<dir>` (set alongside
+   `CITYBUILDER_SMOKE=1`): writes `smoke_network.svg|.json` of the end state and prints
+   `SMOKE DUMP <path>`. Env-gated rather than always-on so the default smoke run stays
+   file-free.
 
 No in-game hotkey, no UI (YAGNI; triggers are test/harness-side only).
 
@@ -69,11 +71,15 @@ per-tick dumps this milestone (deferred; motion trails + invariants still cover 
 - A curated subset of **stable** screenshot scenarios (~10–15 shots covering flat paint,
   junction control, bridges, tunnels/x-ray, roundabouts, elevated junctions) gets
   committed baselines under `tests/visual/golden/`.
-- New harness mode: after producing shots, compare each against its golden with
-  ImageMagick `compare -metric AE -fuzz <N>%`; fail (nonzero exit + report listing
-  offending shots and changed-pixel counts) when the changed-pixel count exceeds a
-  per-shot threshold. Tolerance absorbs AA/driver jitter; thresholds start uniform and
-  get tuned per shot only if flaky.
+- New harness mode: after producing shots, compare each against its golden **in-harness
+  via `Godot.Image` byte comparison** (per-channel tolerance + changed-pixel-count
+  threshold — the same semantics as ImageMagick's AE-with-fuzz, which the design
+  originally named; implementation switched because the Godot process shouldn't depend
+  on an external tool being on PATH, and ImageMagick turned out not to be installed on
+  the dev machine at all). Fail (nonzero exit + report listing offending shots and
+  changed-pixel counts) when the changed fraction exceeds the threshold. Tolerance
+  absorbs AA/driver jitter; thresholds start uniform and get tuned per shot only if
+  flaky.
 - `CITYBUILDER_SHOTS_GOLDEN=check` runs the comparison;
   `CITYBUILDER_SHOTS_GOLDEN=update` regenerates baselines (an intentional act, reviewed
   via git diff of the PNGs).
