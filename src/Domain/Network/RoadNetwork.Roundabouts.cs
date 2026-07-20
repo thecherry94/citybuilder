@@ -538,7 +538,7 @@ public sealed partial class RoadNetwork
         _nodes[old.StartNode].EdgeSet.Remove(old.Id);
         _nodes[old.EndNode].EdgeSet.Remove(old.Id);
 
-        var replacement = new RoadEdge(old.Id, start, end, trimmed, old.Type);
+        var replacement = new RoadEdge(old.Id, start, end, trimmed, old.Type) { Covered = old.Covered };
         replacement.Lanes = RoadCatalog.Get(old.Type).Lanes
             .Select(spec => new Lane(new LaneId(_nextLane++), replacement.Id, spec.Offset, spec.Direction, spec.Width, spec.Kind))
             .ToArray();

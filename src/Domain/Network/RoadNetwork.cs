@@ -714,8 +714,8 @@ public sealed partial class RoadNetwork
         createdNodes?.Add(mid.Id);
 
         RemoveEdgeInternal(edge);
-        var ea = AddEdgeInternal(edge.StartNode, mid.Id, a, edge.Type);
-        var eb = AddEdgeInternal(mid.Id, edge.EndNode, b, edge.Type);
+        var ea = AddEdgeInternal(edge.StartNode, mid.Id, a, edge.Type, edge.Covered);
+        var eb = AddEdgeInternal(mid.Id, edge.EndNode, b, edge.Type, edge.Covered);
         // splitting a tracked roundabout approach re-keys its captured full curve onto
         // the child still attached to the ring, so regeneration stays lossless
         if (_roundabouts.Count > 0)
@@ -822,11 +822,14 @@ public sealed partial class RoadNetwork
                     // must not be recreated with a new EdgeId; keep the node
 
         var type = edges[0].Type;
+        // covered heals covered only when both halves agree — a mixed merge comes out
+        // uncovered (conservative and visible, never a surprise tunnel)
+        bool covered = edges[0].Covered && edges[1].Covered;
         RemoveEdgeInternal(edges[0]);
         RemoveEdgeInternal(edges[1]);
         _nodes.Remove(node.Id);
         _batch!.NodesRemoved.Add(node.Id);
-        AddEdgeInternal(farA, farB, merged, type);
+        AddEdgeInternal(farA, farB, merged, type, covered);
     }
 
     // ------------------------------------------------------- low-level mutate
@@ -839,9 +842,10 @@ public sealed partial class RoadNetwork
         return node;
     }
 
-    private RoadEdge AddEdgeInternal(NodeId start, NodeId end, in Bezier3 curve, RoadTypeId type)
+    private RoadEdge AddEdgeInternal(NodeId start, NodeId end, in Bezier3 curve, RoadTypeId type,
+        bool covered = false)
     {
-        var edge = new RoadEdge(new EdgeId(_nextEdge++), start, end, curve, type);
+        var edge = new RoadEdge(new EdgeId(_nextEdge++), start, end, curve, type) { Covered = covered };
         edge.Lanes = RoadCatalog.Get(type).Lanes
             .Select(spec => new Lane(new LaneId(_nextLane++), edge.Id, spec.Offset, spec.Direction, spec.Width, spec.Kind))
             .ToArray();
@@ -966,12 +970,35 @@ public sealed partial class RoadNetwork
         return true;
     }
 
+    /// <summary>Toggle a road's tunnel cover in place (M8.5 upgrade tool). No
+    /// validation surface: covering is always legal and inert above ground. Same-id,
+    /// geometry/lanes untouched — only the renderer cares, via EdgesChanged.
+    /// False on unknown edge, roundabout ring edge (ring regeneration owns those),
+    /// or a no-op toggle.</summary>
+    public bool SetCovered(EdgeId id, bool covered)
+    {
+        if (!_edges.TryGetValue(id, out var edge))
+            return false;
+        if (IsRingEdge(id))
+            return false;
+        if (edge.Covered == covered)
+            return false;
+        edge.Covered = covered;
+        Version++;
+        Changed?.Invoke(new NetworkDelta(
+            new HashSet<EdgeId>(), new HashSet<EdgeId>(),
+            new HashSet<NodeId>(), new HashSet<NodeId>(),
+            new HashSet<NodeId>())
+        { EdgesChanged = new HashSet<EdgeId> { id } });
+        return true;
+    }
+
     /// <summary>Swap a same-id RoadEdge into the network (retype/flip), regenerate
     /// its lanes, rebuild both end nodes, and raise an EdgesChanged delta.</summary>
     private void ReplaceEdgeInPlace(RoadEdge old, NodeId start, NodeId end,
         in Bezier3 curve, RoadTypeId type)
     {
-        var replacement = new RoadEdge(old.Id, start, end, curve, type);
+        var replacement = new RoadEdge(old.Id, start, end, curve, type) { Covered = old.Covered };
         replacement.Lanes = RoadCatalog.Get(type).Lanes
             .Select(spec => new Lane(new LaneId(_nextLane++), replacement.Id,
                 spec.Offset, spec.Direction, spec.Width, spec.Kind))

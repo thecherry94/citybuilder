@@ -40,6 +40,12 @@ public sealed class RoadEdge
     public IReadOnlyList<Lane> Lanes { get; internal set; } = Array.Empty<Lane>();
     public ArcLengthTable ArcLength { get; }
 
+    /// <summary>M8.5: player-chosen tunnel cover. Explicit state, not depth-derived;
+    /// only below-ground spans render differently — the flag is inert above ground.
+    /// Propagation: split children inherit, heal keeps it iff both edges agree,
+    /// retype/flip/leg-regeneration preserve it.</summary>
+    public bool Covered { get; internal set; }
+
     internal RoadEdge(EdgeId id, NodeId start, NodeId end, in Bezier3 curve, RoadTypeId type)
     {
         Id = id;
