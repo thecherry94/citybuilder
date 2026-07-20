@@ -198,7 +198,7 @@ public partial class ToolController : Node
 
         if (_mode == ToolMode.SpawnVehicle)
         {
-            var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
+            var hit = _network.FindClosestEdgeXZ(world, MathF.Max(6f, _camera.SnapRadius()));
             _view.HighlightEdge(hit?.id);
             ReadoutChanged?.Invoke(hit is null ? ""
                 : _spawnOrigin is null ? "click origin road" : "click destination road");
@@ -207,18 +207,20 @@ public partial class ToolController : Node
 
         if (_mode == ToolMode.Upgrade)
         {
-            var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
+            var hit = _network.FindClosestEdgeXZ(world, MathF.Max(6f, _camera.SnapRadius()));
             _upgradeTarget = hit?.id;
             _view.HighlightEdge(_upgradeTarget);
             _ghost.Clear();
             ReadoutChanged?.Invoke(_upgradeTarget is null ? ""
-                : "click: change type · right-click: flip direction");
+                : CoveredToggleActive
+                    ? "click: toggle covered · right-click: flip direction"
+                    : "click: change type · right-click: flip direction");
             return;
         }
 
         if (_mode == ToolMode.Bulldoze)
         {
-            var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
+            var hit = _network.FindClosestEdgeXZ(world, MathF.Max(6f, _camera.SnapRadius()));
             _bulldozeTarget = hit?.id;
             _view.HighlightEdge(_bulldozeTarget);
             _ghost.Clear();
@@ -240,6 +242,22 @@ public partial class ToolController : Node
             HandleHoverAt(world); // refresh target under the cursor
             if (_upgradeTarget is { } upTarget)
             {
+                if (CoveredToggleActive)
+                {
+                    _undoStack?.Checkpoint();
+                    bool now = !_network.Edges[upTarget].Covered;
+                    if (_network.SetCovered(upTarget, now))
+                    {
+                        _audio?.Play(Sfx.Commit);
+                        StatusFlashed?.Invoke(now ? "covered (tunnel)" : "open cut");
+                    }
+                    else
+                    {
+                        _audio?.Play(Sfx.Reject);
+                        StatusFlashed?.Invoke("cannot toggle cover here");
+                    }
+                    return;
+                }
                 _undoStack?.Checkpoint();
                 var err = _network.RetypeEdge(upTarget, _session.RoadType);
                 if (err is null)
@@ -380,6 +398,10 @@ public partial class ToolController : Node
         _ => "",
     };
 
+    /// <summary>Toolbar "Covered" toggle: while active, Upgrade-mode LMB toggles the
+    /// hovered edge's tunnel cover instead of retyping (M8.5).</summary>
+    public bool CoveredToggleActive { get; set; }
+
     /// <summary>True while a road tool is active with a below-ground elevation —
     /// Main auto-engages x-ray so the player can see what they're digging (M8.5).</summary>
     public bool DraftBelowGround => IsRoadMode && _session.CurrentElevation < -0.01f;
@@ -399,7 +421,7 @@ public partial class ToolController : Node
     {
         if (_traffic is null)
             return;
-        var hit = _network.FindClosestEdge(world, MathF.Max(6f, _camera.SnapRadius()));
+        var hit = _network.FindClosestEdgeXZ(world, MathF.Max(6f, _camera.SnapRadius()));
         if (hit is null)
             return;
 
@@ -426,9 +448,9 @@ public partial class ToolController : Node
     private NodeId? PickNode(System.Numerics.Vector3 world)
     {
         float radius = MathF.Max(8f, _camera.SnapRadius());
-        if (_network.FindNodeNear(world, radius) is { } direct)
+        if (_network.FindNodeNearXZ(world, radius) is { } direct)
             return direct;
-        if (_network.FindClosestEdge(world, radius) is { } hit)
+        if (_network.FindClosestEdgeXZ(world, radius) is { } hit)
         {
             var edge = _network.Edges[hit.id];
             var sn = _network.Nodes[edge.StartNode];

@@ -66,6 +66,55 @@ public sealed partial class RoadNetwork
         return best;
     }
 
+    /// <summary>Plan-view pick (M8.5): distance measured on the XZ projection so
+    /// elevated and dug roads are selectable from the ground-plane cursor — the 3D
+    /// pick above puts a ±Y deck |Y| metres away before any lateral error. Stacked
+    /// decks within ~1 cm of each other laterally resolve to the one nearest the
+    /// ground (a deliberate bias: the deck you can't reach this way is reachable
+    /// where the stack diverges).</summary>
+    public (EdgeId id, float t, float dist)? FindClosestEdgeXZ(Vector3 p, float maxDist)
+    {
+        var probe = p with { Y = 0 };
+        (EdgeId, float, float)? best = null;
+        float bestD = maxDist;
+        float bestAbsY = float.MaxValue;
+        foreach (var e in _edges.Values)
+        {
+            var c = e.Curve;
+            var flat = new Bezier3(c.P0 with { Y = 0 }, c.P1 with { Y = 0 },
+                c.P2 with { Y = 0 }, c.P3 with { Y = 0 });
+            var (t, d) = BezierOps.ClosestPoint(flat, probe);
+            float absY = MathF.Abs(c.Point(t).Y);
+            if (d < bestD - 0.01f || (d <= bestD + 0.01f && absY < bestAbsY))
+            {
+                bestD = d;
+                bestAbsY = absY;
+                best = (e.Id, t, d);
+            }
+        }
+        return best;
+    }
+
+    /// <summary>Plan-view node pick — see <see cref="FindClosestEdgeXZ"/>.</summary>
+    public NodeId? FindNodeNearXZ(Vector3 p, float radius)
+    {
+        NodeId? best = null;
+        float bestD = radius;
+        float bestAbsY = float.MaxValue;
+        foreach (var n in _nodes.Values)
+        {
+            float d = new Vector2(n.Position.X - p.X, n.Position.Z - p.Z).Length();
+            float absY = MathF.Abs(n.Position.Y);
+            if (d < bestD - 0.01f || (d <= bestD + 0.01f && absY < bestAbsY))
+            {
+                bestD = d;
+                bestAbsY = absY;
+                best = n.Id;
+            }
+        }
+        return best;
+    }
+
     // ------------------------------------------------------------- validation
 
     public ValidatedPlacement Validate(PlacementProposal proposal)

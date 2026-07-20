@@ -113,6 +113,10 @@ public partial class Toolbar : Control
 
         var adjust = new CheckBox { Text = "Adjust before commit" };
         adjust.Toggled += on => _controller.Session.AdjustMode = on;
+
+        var coveredToggle = new CheckBox { Text = "Covered (tunnel)" };
+        coveredToggle.Toggled += on => _controller.CoveredToggleActive = on;
+        box.AddChild(coveredToggle);
         box.AddChild(adjust);
 
         var lanesToggle = new CheckBox { Text = "Show lanes (debug)" };

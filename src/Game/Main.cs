@@ -447,6 +447,30 @@ public partial class Main : Node3D
             _controller.SetRoadType(RoadCatalog.TwoLane.Id);
             _controller.SetMode(ToolMode.Straight);
 
+            // M8.5: dig a −8 m road far from everything, cover it via the upgrade
+            // toggle, verify the flag + x-ray auto-engage, then restore state
+            _controller.SetMode(ToolMode.Straight);
+            _controller.StepElevation(-5f);
+            _controller.StepElevation(-3f);
+            Expect(_controller.DraftBelowGround, "below-ground elevation did not report DraftBelowGround");
+            _controller.HandleClickAt(V(-300, 300));
+            _controller.HandleClickAt(V(-180, 300));
+            var dug = _network.Edges.Values.First(e =>
+                System.Numerics.Vector3.Distance(e.Curve.Point(0.5f), new System.Numerics.Vector3(-240, -8, 300)) < 6f);
+            Expect(MathF.Abs(dug.Curve.P0.Y + 8f) < 0.5f,
+                $"below-ground draw committed at Y={dug.Curve.P0.Y:F1}, wanted ~-8");
+            _controller.SetMode(ToolMode.Upgrade);
+            _controller.CoveredToggleActive = true;
+            _controller.HandleHoverAt(V(-240, 300));
+            _controller.HandleClickAt(V(-240, 300));
+            Expect(_network.Edges[dug.Id].Covered, "covered toggle did not set the flag");
+            TryUndo();
+            Expect(!_network.Edges[dug.Id].Covered, "undo did not revert the covered toggle");
+            _controller.CoveredToggleActive = false;
+            _controller.SetMode(ToolMode.Straight);
+            _controller.StepElevation(+8f); // back to ground
+            GD.Print("UITEST covered OK");
+
             // park the cursor over open ground so the grid overlay lands deterministically
             Input.WarpMouse(GetViewport().GetVisibleRect().Size * new Vector2(0.72f, 0.55f));
             await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
