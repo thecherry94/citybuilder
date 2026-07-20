@@ -242,6 +242,12 @@ verified build.
   `Materials.GhostShadow`), and pooled `⬆ N m` badges at elevated endpoints — all on
   the existing placement-changed dirty flag. Gallery `elevated_ghost_{valid,steep}`
   shots as evidence. Spec/plan: `2026-07-20-elevated-ghost-feedback*`.
+  The retune immediately paid for the fuzz discipline: pin 202@8700 caught
+  `RingObstructed` skipping the re-profiled approach legs ("trimmed legs are
+  sub-curves" predated M8's Y rewrite) — a 15% leg's re-profile can drop a crossing
+  the original cleared by `MinClearance` into the clash band. Legs are now checked
+  with the same vertical classifier as the ring arcs (deterministic pin:
+  `ConversionRefusesWhenAReprofiledLegWouldClashWithABystander`).
 
 ## Next up (roughly in order — each is one milestone)
 

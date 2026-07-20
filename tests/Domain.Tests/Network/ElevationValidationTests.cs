@@ -29,7 +29,7 @@ public class ElevationValidationTests
     public void SteepRampIsTooSteep()
     {
         var n = Net.New();
-        var v = n.Validate(One(Ramp(new(0, 0, 0), new(100, 12, 0)))); // 12% > TwoLane 8%
+        var v = n.Validate(One(Ramp(new(0, 0, 0), new(100, 18, 0)))); // 18% > TwoLane 15%
         Assert.Contains(PlacementError.TooSteep, v.Errors);
     }
 
@@ -37,10 +37,10 @@ public class ElevationValidationTests
     public void GradientLimitIsPerType()
     {
         var n = Net.New();
-        // 9% is TooSteep for TwoLane (8%) but fine for Street (10%)
+        // 17% is TooSteep for TwoLane (15%) but fine for Street (20%)
         Assert.Contains(PlacementError.TooSteep,
-            n.Validate(One(Ramp(new(0, 0, 0), new(100, 9, 0)), RoadCatalog.TwoLane.Id)).Errors);
-        Assert.True(n.Validate(One(Ramp(new(0, 0, 0), new(100, 9, 0)), RoadCatalog.Street.Id)).IsValid);
+            n.Validate(One(Ramp(new(0, 0, 0), new(100, 17, 0)), RoadCatalog.TwoLane.Id)).Errors);
+        Assert.True(n.Validate(One(Ramp(new(0, 0, 0), new(100, 17, 0)), RoadCatalog.Street.Id)).IsValid);
     }
 
     [Fact]

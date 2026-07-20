@@ -138,19 +138,19 @@ public class RetypeTests
     [Fact]
     public void RetypeRefusesWhenTheExistingRampExceedsTheNewTypesGradient()
     {
-        // M8 fuzz find (303@3987): an 8% ramp legal on TwoLane must not retype onto a
-        // 6% type — gradient is the fourth member of the retype floor checks
+        // M8 fuzz find (303@3987): a 13% ramp legal on TwoLane must not retype onto a
+        // 12% type — gradient is the fourth member of the retype floor checks
         var n = Net.New();
         var ramp = CityBuilder.Domain.Geometry.Bezier3.Line(
-            new Vector3(0, 0, 0), new Vector3(100, 8, 0)); // 8%
+            new Vector3(0, 0, 0), new Vector3(100, 13, 0)); // 13%
         Net.Commit(n, new CityBuilder.Domain.Tools.PlacementProposal(
             new[] { new CityBuilder.Domain.Tools.ProposedCurve(ramp,
                 CityBuilder.Domain.Tools.EndpointBinding.None, CityBuilder.Domain.Tools.EndpointBinding.None) },
             RoadCatalog.TwoLane.Id));
         var e = n.Edges.Keys.Single();
         Assert.Equal(CityBuilder.Domain.Tools.RetypeError.TooSteep,
-            n.RetypeEdge(e, RoadCatalog.FourLane.Id)); // 6% max
-        Assert.Null(n.RetypeEdge(e, RoadCatalog.Street.Id)); // 10% max: fine
+            n.RetypeEdge(e, RoadCatalog.FourLane.Id)); // 12% max
+        Assert.Null(n.RetypeEdge(e, RoadCatalog.Street.Id)); // 20% max: fine
         Assert.Empty(NetworkInvariants.Check(n));
     }
 }

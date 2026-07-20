@@ -49,6 +49,31 @@ public class ElevationNetworkTests
     }
 
     [Fact]
+    public void ConversionRefusesWhenAReprofiledLegWouldClashWithABystander()
+    {
+        // Root cause (fuzz 202@8700, reached once the CS2-cap retune allowed 15% legs):
+        // RingObstructed assumed trimmed legs "are sub-curves of already-committed
+        // edges" and skipped them — but Reprofile REWRITES the leg's Y onto a linear
+        // descent, so a bystander the original leg cleared by ≥ MinClearance can end
+        // up in the clash band after conversion. Here: a 10% TwoLane ramp crosses a
+        // ground road with 5.0 m clearance at x=50; converting at r=35 re-profiles
+        // the trimmed leg to ~2.1 m over the bystander. Must refuse, never mutate.
+        var n = Net.New();
+        Net.Commit(n, One(Ramp(new(120, 12, 0), new(0, 0, 0))));       // the ramp leg
+        Net.Commit(n, One(Ramp(new(0, 0, 0), new(0, 0, 80))));         // ground leg
+        Net.Commit(n, One(Ramp(new(0, 0, 0), new(-80, 0, 0))));        // ground leg
+        Net.Commit(n, One(Ramp(new(50, 0, -60), new(50, 0, 60))));     // bystander under the ramp
+        var center = n.Nodes.Values.Single(x => Vector3.Distance(x.Position, Vector3.Zero) < 0.1f);
+        Assert.Empty(NetworkInvariants.Check(n)); // grade-separated: legal before
+
+        var res = n.ConvertToRoundabout(center.Id, 35f);
+        Assert.False(res.Success);
+        Assert.Equal(RoundaboutError.Obstructed, res.Error);
+        Assert.Empty(NetworkInvariants.Check(n)); // and nothing was mutated
+        Assert.True(n.Nodes.ContainsKey(center.Id));
+    }
+
+    [Fact]
     public void ConvertingAJunctionWithGentleRampLegsStaysWithinGradients()
     {
         // Street legs at 4%: the trimmed approaches must descend to the ring plane
@@ -66,12 +91,12 @@ public class ElevationNetworkTests
     [Fact]
     public void ConvertingAJunctionWithSteepRampLegsIsRefusedNotCorrupted()
     {
-        // TwoLane legs at their full 8%: descending from the cut height to the ring
-        // plane over the trimmed remainder needs >8% — refuse, never commit corrupt
+        // TwoLane legs at their full 15%: descending from the cut height to the ring
+        // plane over the trimmed remainder needs >15% — refuse, never commit corrupt
         var n = Net.New();
-        Net.Commit(n, One(Ramp(new(-60, 4.8f, 0), new(0, 0, 0))));
-        Net.Commit(n, One(Ramp(new(60, 4.8f, 0), new(0, 0, 0))));
-        Net.Commit(n, One(Ramp(new(0, 4.8f, -60), new(0, 0, 0))));
+        Net.Commit(n, One(Ramp(new(-60, 9f, 0), new(0, 0, 0))));
+        Net.Commit(n, One(Ramp(new(60, 9f, 0), new(0, 0, 0))));
+        Net.Commit(n, One(Ramp(new(0, 9f, -60), new(0, 0, 0))));
         var center = n.Nodes.Values.Single(x => Vector3.Distance(x.Position, Vector3.Zero) < 0.1f);
         var res = n.ConvertToRoundabout(center.Id, 20f);
         Assert.False(res.Success);

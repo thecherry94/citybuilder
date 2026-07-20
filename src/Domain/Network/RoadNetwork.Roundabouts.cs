@@ -102,36 +102,75 @@ public sealed partial class RoadNetwork
                 && Vector3.Distance(p, _nodes[e.EndNode].Position) <= NodeReuseRadius);
     }
 
-    /// <summary>True when any planned ring arc geometrically intersects a live edge that
-    /// the conversion will NOT consume (not a leg being trimmed, not an old ring edge
-    /// being replaced) — committing would stamp overlapping drivable geometry across an
-    /// unrelated road with no junction node (the M7.5 review's top find). Trimmed legs
-    /// need no check: they are sub-curves of already-committed edges, whose only contacts
-    /// with the rest of the network are at shared nodes. Bounding-box prefilter keeps the
-    /// scan cheap; conversion is a rare, user-initiated op.</summary>
-    private bool RingObstructed(RoundaboutPlan plan, HashSet<EdgeId> excluded)
+    /// <summary>True when any planned ring arc OR re-profiled leg geometrically
+    /// intersects a live edge that the conversion will NOT consume (not a leg being
+    /// trimmed, not an old ring edge being replaced) — committing would stamp
+    /// overlapping drivable geometry across an unrelated road with no junction node
+    /// (the M7.5 review's top find). Trimmed legs are sub-curves of committed edges in
+    /// XZ, but <see cref="RoundaboutPlanner"/> REWRITES their Y profile onto a linear
+    /// descent to the ring plane — a bystander the original leg cleared by
+    /// MinClearance can land in the clash band after re-profiling (fuzz 202@8700,
+    /// reachable once the CS2-cap retune allowed 15% legs), so legs are checked with
+    /// the same classifier. Endpoint contact at a leg's own outer node is a junction,
+    /// not an obstruction; sub-5° grazing between G1 pairs is not a transversal
+    /// crossing (both filters mirror <see cref="SegmentCrossesLiveEdgeOffNode"/>).
+    /// Bounding-box prefilters keep the scan cheap; conversion is a rare,
+    /// user-initiated op.</summary>
+    private bool RingObstructed(RoundaboutPlan plan, HashSet<EdgeId> excluded,
+        IReadOnlyDictionary<EdgeId, NodeId> outerNodes)
     {
         foreach (var e in _edges.Values)
         {
             if (excluded.Contains(e.Id))
                 continue;
-            // cheap reject: edge box vs ring circle box
             var c = e.Curve;
             var min = Vector3.Min(Vector3.Min(c.P0, c.P1), Vector3.Min(c.P2, c.P3));
             var max = Vector3.Max(Vector3.Max(c.P0, c.P1), Vector3.Max(c.P2, c.P3));
-            if (min.X > plan.Center.X + plan.Radius || max.X < plan.Center.X - plan.Radius
-                || min.Z > plan.Center.Z + plan.Radius || max.Z < plan.Center.Z - plan.Radius)
-                continue;
-            foreach (var chain in plan.RingArcs)
-            foreach (var arc in chain)
-            foreach (var (t1, t2) in BezierOps.Intersections(arc, c))
+
+            // ring arcs — cheap reject: edge box vs ring circle box
+            if (!(min.X > plan.Center.X + plan.Radius || max.X < plan.Center.X - plan.Radius
+                || min.Z > plan.Center.Z + plan.Radius || max.Z < plan.Center.Z - plan.Radius))
             {
-                // vertical classification (M8): a bystander passing over/under the
-                // ring with full clearance does not obstruct; coplanar or clash-band
-                // contact does
-                if (VerticalRules.ClassifyCrossing(arc.Point(t1).Y, c.Point(t2).Y)
-                    != CrossingKind.GradeSeparated)
+                foreach (var chain in plan.RingArcs)
+                foreach (var arc in chain)
+                foreach (var (t1, t2) in BezierOps.Intersections(arc, c))
+                {
+                    // vertical classification (M8): a bystander passing over/under the
+                    // ring with full clearance does not obstruct; coplanar or clash-band
+                    // contact does
+                    if (VerticalRules.ClassifyCrossing(arc.Point(t1).Y, c.Point(t2).Y)
+                        != CrossingKind.GradeSeparated)
+                        return true;
+                }
+            }
+
+            // re-profiled legs
+            foreach (var slot in plan.Slots)
+            {
+                var leg = slot.TrimmedLeg;
+                var lmin = Vector3.Min(Vector3.Min(leg.P0, leg.P1), Vector3.Min(leg.P2, leg.P3));
+                var lmax = Vector3.Max(Vector3.Max(leg.P0, leg.P1), Vector3.Max(leg.P2, leg.P3));
+                if (min.X > lmax.X || lmin.X > max.X || min.Z > lmax.Z || lmin.Z > max.Z)
+                    continue;
+                bool incidentOuter = outerNodes.TryGetValue(slot.Leg.Edge, out var outer)
+                    && (e.StartNode == outer || e.EndNode == outer);
+                foreach (var (t1, t2) in BezierOps.Intersections(leg, c))
+                {
+                    var p = leg.Point(t1);
+                    var q = c.Point(t2);
+                    if (new Vector2(p.X - q.X, p.Z - q.Z).Length() > 0.5f)
+                        continue; // spurious hit, curves not actually at the same XZ place
+                    if (VerticalRules.ClassifyCrossing(p.Y, q.Y) == CrossingKind.GradeSeparated)
+                        continue; // still a legal over/under pass after re-profiling
+                    if (incidentOuter && Vector3.Distance(p, _nodes[outer].Position) <= 1f)
+                        continue; // junction contact with an edge sharing the outer node
+                    var ta = leg.Tangent(t1);
+                    var tb = c.Tangent(t2);
+                    float cos = MathF.Abs(Vector3.Dot(Vector3.Normalize(ta), Vector3.Normalize(tb)));
+                    if (MathF.Acos(Math.Clamp(cos, 0f, 1f)) * 180f / MathF.PI < 5f)
+                        continue; // grazing/parallel contact, not a transversal crossing
                     return true;
+                }
             }
         }
         return false;
@@ -251,7 +290,8 @@ public sealed partial class RoadNetwork
         var plan = RoundaboutPlanner.Plan(centerNode.Position, radius, legs);
         if (plan.Error is { } err)
             return RoundaboutResult.Failed(err);
-        if (RingObstructed(plan, legs.Select(l => l.Edge).ToHashSet()))
+        var outerNodes = legs.ToDictionary(l => l.Edge, l => _edges[l.Edge].OtherNode(center));
+        if (RingObstructed(plan, legs.Select(l => l.Edge).ToHashSet(), outerNodes))
             return RoundaboutResult.Failed(RoundaboutError.Obstructed);
 
         var id = new RoundaboutId(_nextRoundabout);
@@ -312,7 +352,9 @@ public sealed partial class RoadNetwork
             return RoundaboutResult.Failed(err);
         var excluded = legs.Select(l => l.Edge).ToHashSet();
         excluded.UnionWith(rb.RingEdges); // the old ring is being replaced
-        if (RingObstructed(plan, excluded))
+        var outerNodes = legs.ToDictionary(l => l.Edge,
+            l => _edges[l.Edge].OtherNode(innerNodes[l.Edge]));
+        if (RingObstructed(plan, excluded, outerNodes))
             return RoundaboutResult.Failed(RoundaboutError.Obstructed);
 
         BeginBatch();

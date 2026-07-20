@@ -31,7 +31,7 @@ the foundation everything else grows on.
 ## Quick commands
 
 ```bash
-dotnet test                                   # 305 xUnit domain tests, headless
+dotnet test                                   # 390 xUnit domain tests, headless (~35 min: deep fuzz pins; quick gate: --filter "FullyQualifiedName!~Fuzz" ≈ 2 s)
 dotnet build citybuilder.sln                  # domain + game + tests
 CITYBUILDER_SMOKE=1 godot --headless .        # scripted end-to-end, prints SMOKE OK
 CITYBUILDER_SHOTS=tests/visual/shots godot .  # screenshot harness (needs a window)

@@ -104,13 +104,20 @@ precisely what a grade-separated crossing looks like in the graph.
 ## Roundabouts at elevation
 
 Conversion planes the ring at the center node's Y (approach legs are coplanar there by
-the junction rule). Two ramp-specific rules in `RoundaboutPlanner`, both fuzzer-taught:
-the trim circle is an **XZ** circle at the ring plane, and a ramping leg — which meets
-that circle *above or below* the plane — is **re-profiled** linearly from its outer end
-down onto the plane (pinning only the endpoint kinks the tail: 10.2% on an 8% type was
-committed before the fix). If even the uniform descent exceeds the leg's gradient, the
-conversion refuses with `RoundaboutError.LegTooSteep`. `RingObstructed` classifies
-crossings vertically, so a ring can legally pass over or under unrelated roads.
+the junction rule). Three ramp-specific rules, all fuzzer-taught: the trim circle is an
+**XZ** circle at the ring plane; a ramping leg — which meets that circle *above or
+below* the plane — is **re-profiled** linearly from its outer end down onto the plane
+(pinning only the endpoint kinks the tail: 10.2% on an 8% type was committed before the
+fix), refusing with `RoundaboutError.LegTooSteep` if even the uniform descent exceeds
+the leg's gradient; and `RingObstructed` checks the **re-profiled legs**, not just the
+ring arcs, against bystander edges. That last rule exists because re-profiling breaks
+the old "trimmed legs are sub-curves, no new contacts" assumption: the XZ path is
+unchanged, but the rewritten Y can drop a crossing the original leg cleared by
+`MinClearance` into the clash band (fuzz 202@8700, reachable once the CS2-cap retune
+allowed 15% legs — the deterministic pin is
+`ConversionRefusesWhenAReprofiledLegWouldClashWithABystander`). `RingObstructed`
+classifies all crossings vertically, so a ring can still legally pass over or under
+unrelated roads.
 
 ## Traffic
 
